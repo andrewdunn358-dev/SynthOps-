@@ -1151,13 +1151,16 @@ async def create_maintenance(maintenance_data: MaintenanceCreate, user: dict = D
     maint_list = await list_maintenance(user=user)
     return next(m for m in maint_list if m.id == maintenance["id"])
 
+class MaintenanceCompleteRequest(BaseModel):
+    notes: Optional[str] = None
+
 @api_router.put("/maintenance/{maintenance_id}/complete")
-async def complete_maintenance(maintenance_id: str, notes: Optional[str] = Body(None),
+async def complete_maintenance(maintenance_id: str, request: MaintenanceCompleteRequest = Body(default=MaintenanceCompleteRequest()),
                               user: dict = Depends(get_current_user)):
     update_data = {
         "status": "completed",
         "completed_date": datetime.now(timezone.utc).isoformat(),
-        "notes": encrypt_field(notes) if notes else None
+        "notes": encrypt_field(request.notes) if request.notes else None
     }
     result = await db.maintenance.update_one({"id": maintenance_id}, {"$set": update_data})
     if result.modified_count == 0:

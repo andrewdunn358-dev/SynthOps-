@@ -288,7 +288,7 @@ export default function Dashboard() {
                           <div className="flex items-center gap-2 mt-1">
                             {getStatusBadge(item.status, item.severity)}
                             <span className="text-xs text-muted-foreground">
-                              {new Date(item.timestamp).toLocaleString()}
+                              {item.timestamp ? new Date(item.timestamp).toLocaleString() : '-'}
                             </span>
                           </div>
                         </div>

@@ -10,6 +10,7 @@ import { Badge } from '../components/ui/badge';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -172,6 +173,9 @@ export default function Clients() {
             <DialogContent className="max-w-md">
               <DialogHeader>
                 <DialogTitle>{editingClient ? 'Edit Client' : 'Add New Client'}</DialogTitle>
+                <DialogDescription>
+                  {editingClient ? 'Update client information' : 'Enter client details to add a new client'}
+                </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
