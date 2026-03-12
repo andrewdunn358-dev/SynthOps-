@@ -12,6 +12,7 @@ Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - 
 ### Core Requirements
 - Multi-client management (Clients → Sites → Servers)
 - Tactical RMM integration for client/agent sync
+- Zammad integration for ticket management
 - Monthly health checks with best practices
 - Task/Kanban management with assignments
 - Project tracking with milestones
@@ -23,104 +24,88 @@ Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - 
 - Sophie AI assistant (Claude Sonnet 4.5)
 - JWT authentication with 2FA support
 - Dark/Light theme toggle
-- Up to 10 users with role-based access
+- NOC Display for TV screens
+- Microsoft Teams webhook notifications
+- MeshCentral remote access integration
+- Vaultwarden password manager integration
+- Docker deployment with Vaultwarden
 
 ---
 
 ## What's Been Implemented (March 12, 2026)
 
-### Recent Bug Fixes (Latest Session)
-- [x] **CRITICAL FIX**: Fixed "Objects are not valid as React child" crash on Clients page
-  - Created `getErrorMessage` utility to convert Pydantic validation errors to readable strings
-  - Applied fix across all pages with toast.error calls
-- [x] **CRITICAL FIX**: Fixed SelectItem empty value crash in Tasks, Projects, Incidents, TimeTracking pages
-  - Changed empty string values to 'none' and updated handlers to convert back to null
-- [x] Fixed `contract_hours_monthly` field to send null instead of empty string
-- [x] Added comprehensive backend API tests (22 tests passing)
-- [x] **FIXED TRMM Sync**: Sites now sync from embedded client data, agents sync correctly
-  - 42 clients, 52 sites, 527 agents synced successfully
-- [x] **Created User Manual**: Comprehensive documentation at `/app/docs/USER_MANUAL.md`
+### Latest Session - Iteration 4
+- [x] **NOC Display Dashboard** (`/display` route)
+  - Full-screen TV-optimized display
+  - Real-time server status grid (online/offline/maintenance)
+  - Open tickets counter, active incidents
+  - Auto-refresh every 30 seconds
+  - Dark theme optimized for displays
+- [x] **MeshCentral Remote Access Integration**
+  - Connect button on Server Detail page (cyan styled)
+  - Opens MeshCentral in new window
+  - `/api/config/meshcentral` endpoint
+  - `/api/servers/{id}/mesh-url` endpoint
+- [x] **Vaultwarden Integration**
+  - Password Vault button in sidebar (amber styled)
+  - `/api/config/vaultwarden` endpoint
+  - Included in Docker Compose
+- [x] **Microsoft Teams Webhook Notifications**
+  - `/api/notifications/config` endpoint
+  - `/api/notifications/teams/test` endpoint
+  - Auto-alerts when server goes offline during sync
+  - Settings page shows Teams configuration status
+- [x] **Security Hardening**
+  - Rate limiting middleware (120 requests/minute)
+  - Security headers middleware (X-Frame-Options, X-XSS-Protection, etc.)
+  - Audit logging endpoints
+- [x] **Updated Settings Page**
+  - Integrations section (MeshCentral, Vaultwarden status)
+  - Notifications section (Teams webhook status)
+  - Test Teams webhook button
 
-### NOC-Style Server Detail View (NEW)
-- [x] Live TRMM agent status with last seen timestamp
-- [x] Hardware specs: IP Address, CPU model, Graphics, Storage, Uptime
-- [x] OS Information with version badges
-- [x] TRMM Checks summary (Total/Passing/Failing/Warnings/Info)
-- [x] Software tab showing installed applications with search
-- [x] Refresh Live button for manual data refresh
-
-### CSV Export Features (NEW)
-- [x] Timesheet export with hours, billable status, totals
-- [x] Clients export with contact info, sites/servers counts
-- [x] Servers export with full specifications
-- [x] Incidents export with severity and status
-- [x] Health checks export by server/client/month
-- [x] Client report export (comprehensive client overview)
-
-### Backend (FastAPI)
-- [x] User registration and authentication (JWT + bcrypt)
-- [x] Role-based access control (admin, engineer, viewer)
-- [x] Client CRUD with Tactical RMM sync
-- [x] Site management
-- [x] Server management with health check integration
-- [x] Task management with kanban view
-- [x] Project tracking
-- [x] Incident logging and resolution
-- [x] Maintenance scheduling and completion
-- [x] Documentation with markdown support
-- [x] Time entry tracking
-- [x] Staff activity endpoint
-- [x] Dashboard stats and activity feed
-- [x] Sophie AI chat (Claude Sonnet 4.5 via Emergent)
-- [x] Tactical RMM test connection and sync
-- [x] Field-level encryption for sensitive data
-- [x] Health check templates (18 pre-loaded)
-
-### Frontend (React + Shadcn/UI)
-- [x] Login page with registration
-- [x] Dashboard with stats and activity
-- [x] Clients list and detail pages
-- [x] Servers list and detail pages
-- [x] Server health checks UI
-- [x] Tasks with list and kanban views
-- [x] Projects management
-- [x] Incidents tracking
-- [x] Maintenance log
-- [x] Documentation viewer/editor
-- [x] Time tracking
-- [x] Staff activity dashboard
-- [x] Admin panel with user management
-- [x] Settings page with theme toggle
-- [x] Sophie AI chat modal
-- [x] Responsive sidebar navigation
+### Previous Sessions
+- [x] Fixed "Objects are not valid as React child" crash
+- [x] Fixed SelectItem empty value crash
+- [x] Tactical RMM full sync (clients, sites, servers, workstations)
+- [x] NOC-style Server Detail view with live TRMM data
+- [x] CSV Export features (Clients, Servers, Incidents, Time Tracking)
+- [x] Zammad ticket integration with auto-task creation
+- [x] MSP Reports Dashboard
+- [x] Server/Workstation separation
+- [x] Background scheduler (APScheduler) for auto-sync
+- [x] Docker Compose deployment configuration
+- [x] Comprehensive User Manual
 
 ---
 
 ## Prioritized Backlog
 
 ### P0 - Critical (Next)
-- [ ] Google OAuth integration
-- [ ] TOTP 2FA setup/verification
-- [ ] Session management
+- [ ] **SendGrid Email Notifications** - BLOCKED: Waiting for user API key
+  - Server offline alerts
+  - New ticket notifications
+  - Task assignment emails
+  - Daily/weekly summary reports
 
 ### P1 - High Priority
-- [ ] Export reports (PDF/Excel)
-- [ ] Client monthly reports
-- [ ] Timesheet export
-- [ ] Health check monthly report
+- [ ] **Zammad Ticket Response** - Reply to tickets from within SynthOps
+- [ ] **Manual DC Health Check** - Run health check checklists against servers
+- [ ] **Full Project Tracking Module** - Job worksheets and tracking
+- [ ] **SSL with Let's Encrypt** - Production HTTPS setup
 
 ### P2 - Medium Priority
-- [ ] Drag-and-drop Kanban
-- [ ] Scheduled TRMM sync (cron)
-- [ ] Audit logging
-- [ ] Bulk operations
+- [ ] **Sophie AI Assistant** - Frontend chat UI with Claude integration
+- [ ] **Scheduled Maintenance Windows** - Suppress alerts during planned downtime
+- [ ] **Client Portal** - Read-only view for customers
+- [ ] **Google OAuth** - Social login option
+- [ ] **TOTP 2FA** - Two-factor authentication setup
 
 ### P3 - Future Enhancements
-- [ ] Docker Compose for production
-- [ ] One-line install script
-- [ ] Vaultwarden integration
-- [ ] phpMyAdmin integration
-- [ ] Monitoring integration (Uptime Kuma)
+- [ ] **Mobile-friendly Dashboard** - Responsive design for phones
+- [ ] **Slack/Discord Webhooks** - Additional notification channels
+- [ ] **In-App Documentation** - View USER_MANUAL.md inside app
+- [ ] **PDF Report Generation** - Exportable reports
 
 ---
 
@@ -136,57 +121,77 @@ Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - 
 │   ├── src/
 │   │   ├── App.js         # Main React app with routing
 │   │   ├── pages/         # All page components
+│   │   │   ├── NOCDisplay.jsx    # TV display dashboard
+│   │   │   ├── Settings.jsx      # Updated with integrations
+│   │   │   └── ...
 │   │   └── components/    # Layout, Sophie, UI
 │   ├── package.json
 │   └── .env
+├── docker-compose.yml     # Production deployment
+├── install.sh             # Installation script
+├── USER_MANUAL.md         # User documentation
 └── memory/
     └── PRD.md             # This file
 ```
 
 ### Database Collections (MongoDB)
-- users
-- clients
-- sites
-- servers
-- tasks
-- projects
-- incidents
-- maintenance
-- documentation
-- time_entries
-- health_checks
-- sophie_chats
+- users, clients, sites, servers
+- tasks, projects, incidents, maintenance
+- documentation, time_entries
+- health_checks, health_check_templates
+- sophie_chats, sync_logs
+- notification_log, audit_log
 
-### API Endpoints Summary
+### Key API Endpoints
 - `/api/auth/*` - Authentication
-- `/api/users/*` - User management
-- `/api/clients/*` - Client CRUD
-- `/api/sites/*` - Site CRUD
-- `/api/servers/*` - Server CRUD
-- `/api/tasks/*` - Task management
-- `/api/projects/*` - Project management
-- `/api/incidents/*` - Incident tracking
-- `/api/maintenance/*` - Maintenance logging
-- `/api/docs/*` - Documentation
-- `/api/time-entries/*` - Time tracking
-- `/api/health-checks/*` - Health checks
-- `/api/dashboard/*` - Dashboard stats
-- `/api/staff/*` - Staff activity
-- `/api/sophie/*` - AI chat
-- `/api/integrations/trmm/*` - Tactical RMM
+- `/api/config/meshcentral` - MeshCentral config
+- `/api/config/vaultwarden` - Vaultwarden config
+- `/api/notifications/config` - Notification settings
+- `/api/notifications/teams/test` - Test Teams webhook
+- `/api/sync/status` - Background sync status
+- `/api/sync/trigger/{type}` - Manual sync trigger
+- `/api/zammad/tickets` - Zammad tickets
+- `/api/trmm/agents/{id}/summary` - NOC view data
+- `/api/[entity]/export` - CSV exports
 
 ---
 
-## Next Tasks
-1. ~~Fix frontend crash on Clients page~~ ✅ DONE
-2. ~~Complete enhanced Tactical RMM integration (NOC-style live view)~~ ✅ DONE
-3. ~~Create export features~~ ✅ DONE
-4. ~~Zammad Integration~~ ✅ DONE
-5. ~~Server/Workstation separation~~ ✅ DONE
-6. ~~MSP Reports Dashboard~~ ✅ DONE
-7. ~~Ticket to Task sync~~ ✅ DONE
-8. ~~DC Health Check templates~~ ✅ DONE
-9. ~~Docker Compose deployment~~ ✅ DONE
-10. ~~Scheduled auto-sync~~ ✅ DONE
-11. Implement Google OAuth
-12. Add TOTP 2FA functionality
+## Integrations
+
+| Integration | Status | Configuration |
+|-------------|--------|---------------|
+| Tactical RMM | Active | API Key in .env |
+| Zammad | Active | API Token in .env |
+| MeshCentral | Active | URL: https://mesh.synthesis-it.co.uk |
+| Vaultwarden | Active | URL: http://localhost:8082 (Docker) |
+| Teams Webhook | Ready | TEAMS_WEBHOOK_URL in .env |
+| SendGrid | Pending | Waiting for API key |
+| Claude AI | Ready | Emergent LLM Key |
+
+---
+
+## Test Credentials
+- **Email:** admin@synthesis-it.co.uk
+- **Password:** admin123
+
+## Docker Deployment
+```bash
+# Production deployment
+docker-compose up -d
+
+# With admin tools (Mongo Express)
+docker-compose --profile admin up -d
+```
+
+## Environment Variables Required
+```
+TACTICAL_RMM_API_URL=
+TACTICAL_RMM_API_KEY=
+ZAMMAD_API_URL=
+ZAMMAD_API_TOKEN=
+MESHCENTRAL_URL=
+VAULTWARDEN_URL=
+TEAMS_WEBHOOK_URL=
+SENDGRID_API_KEY=
+SENDGRID_FROM_EMAIL=
+```
