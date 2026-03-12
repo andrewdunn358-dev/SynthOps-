@@ -20,6 +20,8 @@ import TimeTracking from './pages/TimeTracking';
 import StaffDashboard from './pages/StaffDashboard';
 import Settings from './pages/Settings';
 import Admin from './pages/Admin';
+import Tickets from './pages/Tickets';
+import Reports from './pages/Reports';
 
 // Components
 import Layout from './components/Layout';
@@ -190,10 +192,12 @@ function App() {
               <Route path="tasks" element={<Tasks />} />
               <Route path="projects" element={<Projects />} />
               <Route path="incidents" element={<Incidents />} />
+              <Route path="tickets" element={<Tickets />} />
               <Route path="maintenance" element={<Maintenance />} />
               <Route path="docs" element={<Documentation />} />
               <Route path="time" element={<TimeTracking />} />
               <Route path="staff" element={<StaffDashboard />} />
+              <Route path="reports" element={<Reports />} />
               <Route path="settings" element={<Settings />} />
               <Route path="admin" element={<Admin />} />
             </Route>

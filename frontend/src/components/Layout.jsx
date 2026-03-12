@@ -4,7 +4,8 @@ import { useAuth, useTheme } from '../App';
 import { 
   LayoutDashboard, Building2, Server, ListTodo, FolderKanban, 
   AlertTriangle, Wrench, FileText, Clock, Users, Settings, 
-  Shield, LogOut, Menu, X, Sun, Moon, MessageSquare, ChevronLeft
+  Shield, LogOut, Menu, X, Sun, Moon, MessageSquare, ChevronLeft,
+  Ticket, BarChart3
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
@@ -24,10 +25,12 @@ const navItems = [
   { path: '/tasks', icon: ListTodo, label: 'Tasks' },
   { path: '/projects', icon: FolderKanban, label: 'Projects' },
   { path: '/incidents', icon: AlertTriangle, label: 'Incidents' },
+  { path: '/tickets', icon: Ticket, label: 'Tickets' },
   { path: '/maintenance', icon: Wrench, label: 'Maintenance' },
   { path: '/docs', icon: FileText, label: 'Documentation' },
   { path: '/time', icon: Clock, label: 'Time Tracking' },
   { path: '/staff', icon: Users, label: 'Staff' },
+  { path: '/reports', icon: BarChart3, label: 'Reports' },
 ];
 
 const adminItems = [

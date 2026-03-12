@@ -1322,24 +1322,71 @@ async def delete_time_entry(entry_id: str, user: dict = Depends(get_current_user
 # ==================== HEALTH CHECKS ====================
 
 HEALTH_CHECK_TEMPLATES = [
-    {"id": "hc-1", "category": "Storage", "name": "Disk Space Usage", "description": "Check disk space (alert >80%)", "check_type": "manual", "server_roles": None, "frequency": "monthly", "is_active": True},
+    # Storage Checks
+    {"id": "hc-1", "category": "Storage", "name": "Disk Space Usage", "description": "Check disk space (alert >80%) - Run: Get-PSDrive -PSProvider FileSystem", "check_type": "manual", "server_roles": None, "frequency": "monthly", "is_active": True},
     {"id": "hc-2", "category": "Storage", "name": "RAID Health Status", "description": "Verify RAID array health", "check_type": "manual", "server_roles": ["physical"], "frequency": "monthly", "is_active": True},
-    {"id": "hc-3", "category": "Active Directory", "name": "DC Replication Status", "description": "Check AD replication between DCs", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
-    {"id": "hc-4", "category": "Active Directory", "name": "FSMO Roles Verification", "description": "Verify FSMO role holders", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
-    {"id": "hc-5", "category": "Active Directory", "name": "DNS Health Check", "description": "Verify DNS resolution and zones", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
-    {"id": "hc-6", "category": "Active Directory", "name": "Group Policy Replication", "description": "Check GPO replication status", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
-    {"id": "hc-7", "category": "Active Directory", "name": "SYSVOL Replication", "description": "Verify SYSVOL is replicating", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
-    {"id": "hc-8", "category": "Backup", "name": "Backup Job Status", "description": "Verify backup jobs completing", "check_type": "manual", "server_roles": None, "frequency": "weekly", "is_active": True},
-    {"id": "hc-9", "category": "Backup", "name": "Test Restore Verification", "description": "Perform test restore", "check_type": "manual", "server_roles": None, "frequency": "monthly", "is_active": True},
-    {"id": "hc-10", "category": "Security", "name": "Windows Updates Status", "description": "Check pending Windows updates", "check_type": "manual", "server_roles": None, "frequency": "monthly", "is_active": True},
-    {"id": "hc-11", "category": "Security", "name": "Certificate Expiry Check", "description": "Check SSL/TLS certificate expiry", "check_type": "manual", "server_roles": None, "frequency": "monthly", "is_active": True},
-    {"id": "hc-12", "category": "Security", "name": "Antivirus Definitions", "description": "Verify AV definitions are current", "check_type": "manual", "server_roles": None, "frequency": "weekly", "is_active": True},
-    {"id": "hc-13", "category": "Performance", "name": "CPU Usage Trends", "description": "Review CPU usage patterns", "check_type": "manual", "server_roles": None, "frequency": "monthly", "is_active": True},
-    {"id": "hc-14", "category": "Performance", "name": "Memory Usage Trends", "description": "Review memory usage patterns", "check_type": "manual", "server_roles": None, "frequency": "monthly", "is_active": True},
-    {"id": "hc-15", "category": "Performance", "name": "Event Log Errors Review", "description": "Review critical event log errors", "check_type": "manual", "server_roles": None, "frequency": "monthly", "is_active": True},
-    {"id": "hc-16", "category": "Hyper-V", "name": "VM Snapshot Cleanup", "description": "Remove old VM snapshots", "check_type": "manual", "server_roles": ["hypervisor"], "frequency": "monthly", "is_active": True},
-    {"id": "hc-17", "category": "Hyper-V", "name": "Hyper-V Replication Status", "description": "Check VM replication health", "check_type": "manual", "server_roles": ["hypervisor"], "frequency": "monthly", "is_active": True},
-    {"id": "hc-18", "category": "Hardware", "name": "Firmware Version Check", "description": "Check for firmware updates", "check_type": "manual", "server_roles": ["physical"], "frequency": "quarterly", "is_active": True},
+    
+    # AD Replication Checks
+    {"id": "hc-3", "category": "Active Directory - Replication", "name": "Replication Summary", "description": "Run: repadmin /replsummary - Confirm no replication failures", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    {"id": "hc-4", "category": "Active Directory - Replication", "name": "Replication Status Detail", "description": "Run: repadmin /showrepl - Check largest delta times are reasonable", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    
+    # DC Diagnostics
+    {"id": "hc-5", "category": "Active Directory - Diagnostics", "name": "DC Diagnostics Full", "description": "Run: dcdiag /v - Confirm all tests pass: Advertising, Replications, NetLogons, Services, DFSREvent, SysVolCheck", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    {"id": "hc-6", "category": "Active Directory - FSMO", "name": "FSMO Roles Verification", "description": "Run: netdom query fsmo - Confirm FSMO role holders are online and healthy", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    
+    # SYSVOL/NETLOGON
+    {"id": "hc-7", "category": "Active Directory - SYSVOL", "name": "SYSVOL Check", "description": "Run: dcdiag /test:sysvolcheck - Confirm SYSVOL share exists", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    {"id": "hc-8", "category": "Active Directory - SYSVOL", "name": "DFS Replication Event Check", "description": "Run: dcdiag /test:dfsrevent - Check for DFS replication issues", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    {"id": "hc-9", "category": "Active Directory - SYSVOL", "name": "Network Shares Verification", "description": "Run: net share - Confirm SYSVOL and NETLOGON shares exist", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    
+    # DNS Health
+    {"id": "hc-10", "category": "Active Directory - DNS", "name": "DNS Health Check", "description": "Run: dcdiag /test:dns - Confirm zones replicate correctly", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    {"id": "hc-11", "category": "Active Directory - DNS", "name": "DNS Forwarders Check", "description": "Verify DNS forwarders are configured and responding", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    {"id": "hc-12", "category": "Active Directory - DNS", "name": "DNS Event Log Review", "description": "Check DNS Server event log for errors", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    
+    # Time Synchronisation
+    {"id": "hc-13", "category": "Active Directory - Time", "name": "NTP Source Check", "description": "Run: w32tm /query /source - Verify time source", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    {"id": "hc-14", "category": "Active Directory - Time", "name": "Time Sync Status", "description": "Run: w32tm /query /status - Confirm PDC emulator uses external NTP, other DCs sync from domain hierarchy", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    
+    # Event Log Review
+    {"id": "hc-15", "category": "Active Directory - Events", "name": "Directory Service Event Log", "description": "Check Directory Service event log for NTDS errors, replication failures", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    {"id": "hc-16", "category": "Active Directory - Events", "name": "Kerberos Issues Check", "description": "Check event logs for Kerberos authentication issues", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    {"id": "hc-17", "category": "Active Directory - Events", "name": "System Event Log Review", "description": "Review System event log for critical errors", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    
+    # NTDS Service
+    {"id": "hc-18", "category": "Active Directory - Services", "name": "NTDS Service Status", "description": "Run: Get-Service NTDS - Confirm NTDS service is running", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    {"id": "hc-19", "category": "Active Directory - Services", "name": "Critical Services Check", "description": "Run: Get-Service *dns*,ntds,dfsr,netlogon,kdc - Confirm DNS, NTDS, DFSR, Netlogon, KDC are running", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    
+    # Account Management
+    {"id": "hc-20", "category": "Active Directory - Accounts", "name": "Stale Computer Accounts", "description": "Run: Get-ADComputer -Filter * -Properties LastLogonDate | Where {$_.LastLogonDate -lt (Get-Date).AddDays(-90)} - Review old computer objects", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    {"id": "hc-21", "category": "Active Directory - Accounts", "name": "Disabled Accounts Review", "description": "Run: Search-ADAccount -AccountDisabled -UsersOnly - Review for expected accounts", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    {"id": "hc-22", "category": "Active Directory - Accounts", "name": "Locked Accounts Check", "description": "Run: Search-ADAccount -LockedOut - Investigate unusual lockouts", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    
+    # Group Policy
+    {"id": "hc-23", "category": "Active Directory - GPO", "name": "Group Policy Processing", "description": "Run: gpresult /r - Confirm GPO processing works", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    {"id": "hc-24", "category": "Active Directory - GPO", "name": "GPO Report Export", "description": "Optional: Get-GPOReport -All -ReportType HTML -Path C:\\gpo_report.html - Review GPO configuration", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    
+    # Backup Verification
+    {"id": "hc-25", "category": "Backup", "name": "DC Backup Status", "description": "Confirm domain controller backups exist and System State backup is current", "check_type": "manual", "server_roles": ["domain controller"], "frequency": "monthly", "is_active": True},
+    {"id": "hc-26", "category": "Backup", "name": "Backup Job Status", "description": "Verify all backup jobs completing successfully", "check_type": "manual", "server_roles": None, "frequency": "weekly", "is_active": True},
+    {"id": "hc-27", "category": "Backup", "name": "Test Restore Verification", "description": "Perform test restore to verify backup integrity", "check_type": "manual", "server_roles": None, "frequency": "monthly", "is_active": True},
+    
+    # Security
+    {"id": "hc-28", "category": "Security", "name": "Windows Updates Status", "description": "Check pending Windows updates", "check_type": "manual", "server_roles": None, "frequency": "monthly", "is_active": True},
+    {"id": "hc-29", "category": "Security", "name": "Certificate Expiry Check", "description": "Check SSL/TLS certificate expiry dates", "check_type": "manual", "server_roles": None, "frequency": "monthly", "is_active": True},
+    {"id": "hc-30", "category": "Security", "name": "Antivirus Definitions", "description": "Verify AV definitions are current", "check_type": "manual", "server_roles": None, "frequency": "weekly", "is_active": True},
+    
+    # Performance
+    {"id": "hc-31", "category": "Performance", "name": "CPU Usage Trends", "description": "Review CPU usage patterns for anomalies", "check_type": "manual", "server_roles": None, "frequency": "monthly", "is_active": True},
+    {"id": "hc-32", "category": "Performance", "name": "Memory Usage Trends", "description": "Review memory usage patterns", "check_type": "manual", "server_roles": None, "frequency": "monthly", "is_active": True},
+    {"id": "hc-33", "category": "Performance", "name": "Event Log Errors Review", "description": "Review critical event log errors", "check_type": "manual", "server_roles": None, "frequency": "monthly", "is_active": True},
+    
+    # Hyper-V
+    {"id": "hc-34", "category": "Hyper-V", "name": "VM Snapshot Cleanup", "description": "Remove old VM snapshots", "check_type": "manual", "server_roles": ["hypervisor"], "frequency": "monthly", "is_active": True},
+    {"id": "hc-35", "category": "Hyper-V", "name": "Hyper-V Replication Status", "description": "Check VM replication health", "check_type": "manual", "server_roles": ["hypervisor"], "frequency": "monthly", "is_active": True},
+    
+    # Hardware
+    {"id": "hc-36", "category": "Hardware", "name": "Firmware Version Check", "description": "Check for firmware updates", "check_type": "manual", "server_roles": ["physical"], "frequency": "quarterly", "is_active": True},
 ]
 
 @api_router.get("/health-checks/templates", response_model=List[HealthCheckTemplateResponse])
@@ -2885,6 +2932,149 @@ async def get_zammad_stats(user: dict = Depends(get_current_user)):
             }
     except httpx.RequestError as e:
         raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
+
+
+@api_router.post("/zammad/tickets/{ticket_id}/reply")
+async def reply_to_zammad_ticket(ticket_id: int, data: dict, user: dict = Depends(get_current_user)):
+    """Send a reply to a Zammad ticket"""
+    api_url = os.environ.get("ZAMMAD_API_URL", "").rstrip("/")
+    api_token = os.environ.get("ZAMMAD_API_TOKEN", "")
+    
+    if not api_url or not api_token:
+        raise HTTPException(status_code=400, detail="Zammad not configured")
+    
+    headers = {"Authorization": f"Token token={api_token}", "Content-Type": "application/json"}
+    
+    try:
+        async with httpx.AsyncClient() as http_client:
+            # Create article (reply) on the ticket
+            article_data = {
+                "ticket_id": ticket_id,
+                "body": data.get("body", ""),
+                "type": "note",
+                "internal": data.get("internal", False),
+                "sender": "Agent"
+            }
+            
+            resp = await http_client.post(
+                f"{api_url}/api/v1/ticket_articles",
+                json=article_data,
+                headers=headers,
+                timeout=10.0
+            )
+            
+            if resp.status_code not in [200, 201]:
+                raise HTTPException(status_code=500, detail=f"Failed to create reply: {resp.text}")
+            
+            return {"message": "Reply sent", "article": resp.json()}
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
+
+@api_router.post("/zammad/ticket-to-task")
+async def create_task_from_ticket(data: dict, user: dict = Depends(get_current_user)):
+    """Create a SynthOps task from a Zammad ticket"""
+    ticket_id = data.get("ticket_id")
+    title = data.get("title", "Task from ticket")
+    organization = data.get("organization")
+    
+    # Find client by organization name
+    client = await db.clients.find_one({"name": organization}) if organization else None
+    
+    # Check if task already exists for this ticket
+    existing = await db.tasks.find_one({"zammad_ticket_id": ticket_id})
+    if existing:
+        return {"message": "Task already exists for this ticket", "task_id": existing["id"]}
+    
+    # Create task
+    task = {
+        "id": str(uuid.uuid4()),
+        "title": f"[Ticket #{ticket_id}] {title}",
+        "description": f"Created from Zammad ticket #{ticket_id}",
+        "status": "open",
+        "priority": "medium",
+        "client_id": client["id"] if client else None,
+        "zammad_ticket_id": ticket_id,
+        "created_by": user["id"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.tasks.insert_one(task)
+    
+    return {"message": "Task created", "task_id": task["id"]}
+
+@api_router.post("/zammad/sync-to-tasks")
+async def sync_zammad_tickets_to_tasks(user: dict = Depends(get_current_user)):
+    """Sync all open Zammad tickets to SynthOps tasks"""
+    api_url = os.environ.get("ZAMMAD_API_URL", "").rstrip("/")
+    api_token = os.environ.get("ZAMMAD_API_TOKEN", "")
+    
+    if not api_url or not api_token:
+        raise HTTPException(status_code=400, detail="Zammad not configured")
+    
+    headers = {"Authorization": f"Token token={api_token}"}
+    stats = {"synced": 0, "skipped": 0, "errors": 0}
+    
+    try:
+        async with httpx.AsyncClient() as http_client:
+            # Get all non-closed tickets
+            resp = await http_client.get(f"{api_url}/api/v1/tickets?per_page=500", headers=headers, timeout=30.0)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=500, detail="Failed to fetch tickets")
+            
+            tickets = resp.json()
+            
+            # Get states for filtering
+            states_resp = await http_client.get(f"{api_url}/api/v1/ticket_states", headers=headers, timeout=10.0)
+            states = {s["id"]: s["name"] for s in states_resp.json()} if states_resp.status_code == 200 else {}
+            
+            # Get organizations for mapping
+            orgs_resp = await http_client.get(f"{api_url}/api/v1/organizations", headers=headers, timeout=10.0)
+            orgs = {o["id"]: o["name"] for o in orgs_resp.json()} if orgs_resp.status_code == 200 else {}
+            
+            for ticket in tickets:
+                state_name = states.get(ticket.get("state_id"), "unknown")
+                
+                # Skip closed tickets
+                if state_name == "closed":
+                    stats["skipped"] += 1
+                    continue
+                
+                ticket_id = ticket.get("id")
+                
+                # Check if task already exists
+                existing = await db.tasks.find_one({"zammad_ticket_id": ticket_id})
+                if existing:
+                    stats["skipped"] += 1
+                    continue
+                
+                # Find client by organization
+                org_name = orgs.get(ticket.get("organization_id"))
+                client = await db.clients.find_one({"name": org_name}) if org_name else None
+                
+                # Create task
+                task = {
+                    "id": str(uuid.uuid4()),
+                    "title": f"[Ticket #{ticket.get('number')}] {ticket.get('title', 'Untitled')}",
+                    "description": f"Auto-created from Zammad ticket #{ticket.get('number')}\nOrganization: {org_name or 'Unknown'}\nState: {state_name}",
+                    "status": "open",
+                    "priority": "medium",
+                    "client_id": client["id"] if client else None,
+                    "zammad_ticket_id": ticket_id,
+                    "created_by": user["id"],
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+                
+                try:
+                    await db.tasks.insert_one(task)
+                    stats["synced"] += 1
+                except Exception:
+                    stats["errors"] += 1
+            
+            return {"message": f"Synced {stats['synced']} tickets to tasks", "stats": stats}
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
+
+
 
 
 # Include the router

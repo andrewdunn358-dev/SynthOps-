@@ -181,7 +181,12 @@ Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - 
 1. ~~Fix frontend crash on Clients page~~ ✅ DONE
 2. ~~Complete enhanced Tactical RMM integration (NOC-style live view)~~ ✅ DONE
 3. ~~Create export features~~ ✅ DONE
-4. Implement Google OAuth
-5. Add TOTP 2FA functionality
-6. Add Docker Compose for production deployment
-7. Create one-line install script for GitHub
+4. ~~Zammad Integration~~ ✅ DONE
+5. ~~Server/Workstation separation~~ ✅ DONE
+6. ~~MSP Reports Dashboard~~ ✅ DONE
+7. ~~Ticket to Task sync~~ ✅ DONE
+8. ~~DC Health Check templates~~ ✅ DONE
+9. Implement Google OAuth
+10. Add TOTP 2FA functionality
+11. Add Docker Compose for production deployment
+12. Create one-line install script for GitHub
