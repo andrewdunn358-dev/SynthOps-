@@ -15,6 +15,7 @@ import Tasks from './pages/Tasks';
 import Projects from './pages/Projects';
 import Incidents from './pages/Incidents';
 import Maintenance from './pages/Maintenance';
+import DCHealthCheck from './pages/DCHealthCheck';
 import Documentation from './pages/Documentation';
 import TimeTracking from './pages/TimeTracking';
 import StaffDashboard from './pages/StaffDashboard';
@@ -196,6 +197,7 @@ function App() {
               <Route path="incidents" element={<Incidents />} />
               <Route path="tickets" element={<Tickets />} />
               <Route path="maintenance" element={<Maintenance />} />
+              <Route path="dc-health-check" element={<DCHealthCheck />} />
               <Route path="docs" element={<Documentation />} />
               <Route path="time" element={<TimeTracking />} />
               <Route path="staff" element={<StaffDashboard />} />

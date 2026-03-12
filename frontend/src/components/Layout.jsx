@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Building2, Server, ListTodo, FolderKanban, 
   AlertTriangle, Wrench, FileText, Clock, Users, Settings, 
   Shield, LogOut, Menu, X, Sun, Moon, MessageSquare, ChevronLeft,
-  Ticket, BarChart3, KeyRound, ExternalLink, Monitor
+  Ticket, BarChart3, KeyRound, ExternalLink, Monitor, ShieldCheck
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
@@ -27,6 +27,7 @@ const navItems = [
   { path: '/incidents', icon: AlertTriangle, label: 'Incidents' },
   { path: '/tickets', icon: Ticket, label: 'Tickets' },
   { path: '/maintenance', icon: Wrench, label: 'Maintenance' },
+  { path: '/dc-health-check', icon: ShieldCheck, label: 'DC Health Check' },
   { path: '/docs', icon: FileText, label: 'Documentation' },
   { path: '/time', icon: Clock, label: 'Time Tracking' },
   { path: '/staff', icon: Users, label: 'Staff' },
@@ -74,12 +75,11 @@ export default function Layout() {
         <div className="h-16 flex items-center justify-between px-4 border-b border-border">
           {sidebarOpen && (
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-primary rounded flex items-center justify-center">
-                <span className="text-primary-foreground font-bold text-sm">S</span>
-              </div>
-              <span className="font-semibold text-lg tracking-tight" style={{ fontFamily: 'Barlow Condensed' }}>
-                SYNTHOPS
-              </span>
+              <img 
+                src="/synthesis-it-logo.png" 
+                alt="Synthesis IT" 
+                className="h-10 object-contain"
+              />
             </div>
           )}
           <Button

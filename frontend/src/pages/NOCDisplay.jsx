@@ -91,8 +91,13 @@ export default function NOCDisplay() {
       {/* Header */}
       <header className="noc-header">
         <div className="noc-logo">
-          <div className="noc-logo-icon">S</div>
-          <span>SYNTHOPS NOC</span>
+          <img 
+            src="/synthesis-it-logo.png" 
+            alt="Synthesis IT" 
+            className="h-12 object-contain"
+          />
+          <span className="noc-logo-divider">|</span>
+          <span>NOC</span>
         </div>
         <div className="noc-time">
           <Clock className="h-6 w-6" />
@@ -320,16 +325,13 @@ export default function NOCDisplay() {
           letter-spacing: 2px;
         }
 
-        .noc-logo-icon {
-          width: 50px;
-          height: 50px;
-          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-          border-radius: 8px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: bold;
-          color: white;
+        .noc-logo img {
+          height: 48px;
+        }
+
+        .noc-logo-divider {
+          color: #444;
+          font-weight: 300;
         }
 
         .noc-time {

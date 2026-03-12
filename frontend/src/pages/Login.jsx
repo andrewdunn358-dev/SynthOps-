@@ -76,12 +76,11 @@ export default function Login() {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-3 mb-2">
-            <div className="w-12 h-12 bg-primary rounded flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-xl">S</span>
-            </div>
-            <h1 className="text-4xl font-bold tracking-tight text-white" style={{ fontFamily: 'Barlow Condensed' }}>
-              SYNTHOPS
-            </h1>
+            <img 
+              src="/synthesis-it-logo.png" 
+              alt="Synthesis IT" 
+              className="h-16 object-contain"
+            />
           </div>
           <p className="text-muted-foreground">IT Operations Portal</p>
         </div>
