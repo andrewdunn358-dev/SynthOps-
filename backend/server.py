@@ -1487,7 +1487,7 @@ async def sync_from_trmm(user: dict = Depends(get_current_user)):
     
     try:
         async with httpx.AsyncClient() as http_client:
-            # Fetch clients
+            # Fetch clients (sites are embedded in the response)
             clients_resp = await http_client.get(f"{api_url}/clients/", headers=headers, timeout=30.0)
             if clients_resp.status_code != 200:
                 raise HTTPException(status_code=500, detail="Failed to fetch clients from TRMM")
@@ -1495,26 +1495,29 @@ async def sync_from_trmm(user: dict = Depends(get_current_user)):
             trmm_clients = clients_resp.json()
             
             for trmm_client in trmm_clients:
-                client_id = trmm_client.get("id")
+                client_trmm_id = trmm_client.get("id")
                 client_name = trmm_client.get("name", "Unknown")
                 
-                existing = await db.clients.find_one({"tactical_rmm_client_id": client_id})
+                # Sync client
+                existing = await db.clients.find_one({"tactical_rmm_client_id": client_trmm_id})
                 if existing:
                     await db.clients.update_one(
-                        {"tactical_rmm_client_id": client_id},
+                        {"tactical_rmm_client_id": client_trmm_id},
                         {"$set": {"name": client_name, "updated_at": datetime.now(timezone.utc).isoformat()}}
                     )
+                    local_client_id = existing["id"]
                 else:
                     code = client_name[:10].upper().replace(" ", "")
                     existing_code = await db.clients.find_one({"code": code})
                     if existing_code:
-                        code = f"{code}{client_id}"
+                        code = f"{code}{client_trmm_id}"
                     
+                    local_client_id = str(uuid.uuid4())
                     new_client = {
-                        "id": str(uuid.uuid4()),
+                        "id": local_client_id,
                         "name": client_name,
                         "code": code,
-                        "tactical_rmm_client_id": client_id,
+                        "tactical_rmm_client_id": client_trmm_id,
                         "is_active": True,
                         "created_by": user["id"],
                         "created_at": datetime.now(timezone.utc).isoformat()
@@ -1522,36 +1525,32 @@ async def sync_from_trmm(user: dict = Depends(get_current_user)):
                     await db.clients.insert_one(new_client)
                 stats["clients_synced"] += 1
                 
-                # Fetch sites for this client
-                sites_resp = await http_client.get(f"{api_url}/clients/{client_id}/sites/", headers=headers, timeout=30.0)
-                if sites_resp.status_code == 200:
-                    trmm_sites = sites_resp.json()
-                    local_client = await db.clients.find_one({"tactical_rmm_client_id": client_id})
+                # Sync sites (embedded in client response)
+                trmm_sites = trmm_client.get("sites", [])
+                for trmm_site in trmm_sites:
+                    site_trmm_id = trmm_site.get("id")
+                    site_name = trmm_site.get("name", "Default Site")
                     
-                    for trmm_site in trmm_sites:
-                        site_id = trmm_site.get("id")
-                        site_name = trmm_site.get("name", "Default Site")
-                        
-                        existing_site = await db.sites.find_one({"tactical_rmm_site_id": site_id})
-                        if existing_site:
-                            await db.sites.update_one(
-                                {"tactical_rmm_site_id": site_id},
-                                {"$set": {"name": site_name}}
-                            )
-                        else:
-                            new_site = {
-                                "id": str(uuid.uuid4()),
-                                "client_id": local_client["id"],
-                                "name": site_name,
-                                "tactical_rmm_site_id": site_id,
-                                "is_active": True,
-                                "created_at": datetime.now(timezone.utc).isoformat()
-                            }
-                            await db.sites.insert_one(new_site)
-                        stats["sites_synced"] += 1
+                    existing_site = await db.sites.find_one({"tactical_rmm_site_id": site_trmm_id})
+                    if existing_site:
+                        await db.sites.update_one(
+                            {"tactical_rmm_site_id": site_trmm_id},
+                            {"$set": {"name": site_name, "client_id": local_client_id}}
+                        )
+                    else:
+                        new_site = {
+                            "id": str(uuid.uuid4()),
+                            "client_id": local_client_id,
+                            "name": site_name,
+                            "tactical_rmm_site_id": site_trmm_id,
+                            "is_active": True,
+                            "created_at": datetime.now(timezone.utc).isoformat()
+                        }
+                        await db.sites.insert_one(new_site)
+                    stats["sites_synced"] += 1
             
-            # Fetch agents
-            agents_resp = await http_client.get(f"{api_url}/agents/", headers=headers, timeout=30.0)
+            # Fetch agents separately (they have their own endpoint)
+            agents_resp = await http_client.get(f"{api_url}/agents/", headers=headers, timeout=60.0)
             if agents_resp.status_code == 200:
                 trmm_agents = agents_resp.json()
                 
@@ -1561,22 +1560,45 @@ async def sync_from_trmm(user: dict = Depends(get_current_user)):
                     site_name = agent.get("site_name")
                     client_name = agent.get("client_name")
                     
+                    # Find local client by name
                     local_client = await db.clients.find_one({"name": client_name})
                     if not local_client:
                         continue
                     
+                    # Find local site by name and client
                     local_site = await db.sites.find_one({"client_id": local_client["id"], "name": site_name})
                     if not local_site:
+                        # Try any site for this client
                         local_site = await db.sites.find_one({"client_id": local_client["id"]})
                     if not local_site:
-                        continue
+                        # Create a default site if none exists
+                        local_site = {
+                            "id": str(uuid.uuid4()),
+                            "client_id": local_client["id"],
+                            "name": site_name or "Default Site",
+                            "is_active": True,
+                            "created_at": datetime.now(timezone.utc).isoformat()
+                        }
+                        await db.sites.insert_one(local_site)
                     
+                    # Get local IPs - handle both string and list
+                    local_ips = agent.get("local_ips", "")
+                    if isinstance(local_ips, list):
+                        ip_address = local_ips[0] if local_ips else None
+                    else:
+                        ip_address = local_ips or None
+                    
+                    # Sync server/agent
                     existing_server = await db.servers.find_one({"tactical_rmm_agent_id": agent_id})
                     server_data = {
                         "hostname": hostname,
-                        "ip_address": agent.get("public_ip") or agent.get("local_ips", [None])[0] if agent.get("local_ips") else None,
+                        "ip_address": agent.get("public_ip") or ip_address,
                         "operating_system": agent.get("operating_system"),
+                        "os_version": agent.get("version"),
                         "status": "online" if agent.get("status") == "online" else "offline",
+                        "server_type": "workstation" if agent.get("monitoring_type") == "workstation" else "server",
+                        "cpu_cores": len(agent.get("cpu_model", [])) if agent.get("cpu_model") else None,
+                        "notes": agent.get("description"),
                         "updated_at": datetime.now(timezone.utc).isoformat()
                     }
                     
@@ -1587,7 +1609,6 @@ async def sync_from_trmm(user: dict = Depends(get_current_user)):
                             "id": str(uuid.uuid4()),
                             "site_id": local_site["id"],
                             "tactical_rmm_agent_id": agent_id,
-                            "server_type": "virtual",
                             "environment": "production",
                             "criticality": "medium",
                             "created_by": user["id"],

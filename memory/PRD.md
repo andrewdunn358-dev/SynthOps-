@@ -37,6 +37,9 @@ Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - 
   - Changed empty string values to 'none' and updated handlers to convert back to null
 - [x] Fixed `contract_hours_monthly` field to send null instead of empty string
 - [x] Added comprehensive backend API tests (22 tests passing)
+- [x] **FIXED TRMM Sync**: Sites now sync from embedded client data, agents sync correctly
+  - 42 clients, 52 sites, 527 agents synced successfully
+- [x] **Created User Manual**: Comprehensive documentation at `/app/docs/USER_MANUAL.md`
 
 ### Backend (FastAPI)
 - [x] User registration and authentication (JWT + bcrypt)
