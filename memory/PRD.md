@@ -29,6 +29,15 @@ Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - 
 
 ## What's Been Implemented (March 12, 2026)
 
+### Recent Bug Fixes (Latest Session)
+- [x] **CRITICAL FIX**: Fixed "Objects are not valid as React child" crash on Clients page
+  - Created `getErrorMessage` utility to convert Pydantic validation errors to readable strings
+  - Applied fix across all pages with toast.error calls
+- [x] **CRITICAL FIX**: Fixed SelectItem empty value crash in Tasks, Projects, Incidents, TimeTracking pages
+  - Changed empty string values to 'none' and updated handlers to convert back to null
+- [x] Fixed `contract_hours_monthly` field to send null instead of empty string
+- [x] Added comprehensive backend API tests (22 tests passing)
+
 ### Backend (FastAPI)
 - [x] User registration and authentication (JWT + bcrypt)
 - [x] Role-based access control (admin, engineer, viewer)
@@ -150,8 +159,10 @@ Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - 
 ---
 
 ## Next Tasks
-1. Implement Google OAuth
-2. Add TOTP 2FA functionality
-3. Create export/report features
-4. Add Docker Compose for production deployment
-5. Create one-line install script for GitHub
+1. ~~Fix frontend crash on Clients page~~ ✅ DONE
+2. Complete enhanced Tactical RMM integration (NOC-style live view)
+3. Implement Google OAuth
+4. Add TOTP 2FA functionality
+5. Create export/report features
+6. Add Docker Compose for production deployment
+7. Create one-line install script for GitHub
