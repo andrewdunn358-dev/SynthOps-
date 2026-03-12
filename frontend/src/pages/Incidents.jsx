@@ -31,7 +31,7 @@ import {
 } from '../components/ui/table';
 import { 
   AlertTriangle, Plus, Search, MoreVertical, CheckCircle,
-  Clock, AlertCircle
+  Clock, AlertCircle, Download
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -167,14 +167,22 @@ export default function Incidents() {
           </h1>
           <p className="text-muted-foreground">Track and manage incidents</p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
-          <DialogTrigger asChild>
-            <Button data-testid="add-incident">
-              <Plus className="h-4 w-4 mr-2" />
-              Log Incident
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline"
+            onClick={() => window.open(`${process.env.REACT_APP_BACKEND_URL}/api/export/incidents`, '_blank')}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export
+          </Button>
+          <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
+            <DialogTrigger asChild>
+              <Button data-testid="add-incident">
+                <Plus className="h-4 w-4 mr-2" />
+                Log Incident
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Log New Incident</DialogTitle>
             </DialogHeader>
@@ -258,6 +266,7 @@ export default function Incidents() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Filters */}

@@ -2260,6 +2260,412 @@ async def get_staff_activity(user: dict = Depends(get_current_user)):
     
     return result
 
+# ==================== EXPORT ENDPOINTS ====================
+
+import io
+import csv
+
+@api_router.get("/export/timesheet")
+async def export_timesheet(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user_id: Optional[str] = None,
+    client_id: Optional[str] = None,
+    format: str = "csv",
+    user: dict = Depends(get_current_user)
+):
+    """Export timesheet data as CSV"""
+    query = {}
+    
+    if start_date:
+        query["entry_date"] = {"$gte": start_date}
+    if end_date:
+        if "entry_date" in query:
+            query["entry_date"]["$lte"] = end_date
+        else:
+            query["entry_date"] = {"$lte": end_date}
+    if user_id:
+        query["user_id"] = user_id
+    if client_id:
+        query["client_id"] = client_id
+    
+    entries = await db.time_entries.find(query, {"_id": 0}).sort("entry_date", -1).to_list(10000)
+    
+    # Enrich with names
+    for entry in entries:
+        if entry.get("user_id"):
+            u = await db.users.find_one({"id": entry["user_id"]}, {"username": 1})
+            entry["username"] = u["username"] if u else "Unknown"
+        if entry.get("client_id"):
+            c = await db.clients.find_one({"id": entry["client_id"]}, {"name": 1})
+            entry["client_name"] = c["name"] if c else "Unknown"
+        if entry.get("task_id"):
+            t = await db.tasks.find_one({"id": entry["task_id"]}, {"title": 1})
+            entry["task_title"] = t["title"] if t else "Unknown"
+        if entry.get("project_id"):
+            p = await db.projects.find_one({"id": entry["project_id"]}, {"name": 1})
+            entry["project_name"] = p["name"] if p else "Unknown"
+    
+    # Generate CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow([
+        "Date", "User", "Client", "Project", "Task", "Description",
+        "Duration (min)", "Hours", "Billable"
+    ])
+    
+    total_minutes = 0
+    total_billable = 0
+    
+    for e in entries:
+        hours = round(e.get("duration_minutes", 0) / 60, 2)
+        writer.writerow([
+            e.get("entry_date", ""),
+            e.get("username", ""),
+            e.get("client_name", ""),
+            e.get("project_name", ""),
+            e.get("task_title", ""),
+            e.get("description", ""),
+            e.get("duration_minutes", 0),
+            hours,
+            "Yes" if e.get("is_billable") else "No"
+        ])
+        total_minutes += e.get("duration_minutes", 0)
+        if e.get("is_billable"):
+            total_billable += e.get("duration_minutes", 0)
+    
+    # Summary row
+    writer.writerow([])
+    writer.writerow(["TOTALS", "", "", "", "", "", total_minutes, round(total_minutes/60, 2), ""])
+    writer.writerow(["BILLABLE", "", "", "", "", "", total_billable, round(total_billable/60, 2), ""])
+    
+    output.seek(0)
+    filename = f"timesheet_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+@api_router.get("/export/clients")
+async def export_clients(format: str = "csv", user: dict = Depends(get_current_user)):
+    """Export clients list as CSV"""
+    clients = await db.clients.find({}, {"_id": 0}).sort("name", 1).to_list(1000)
+    
+    # Enrich with server/site counts
+    for c in clients:
+        c["site_count"] = await db.sites.count_documents({"client_id": c["id"]})
+        c["server_count"] = await db.servers.count_documents({"client_id": c["id"]})
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    writer.writerow([
+        "Name", "Code", "Contact Name", "Email", "Phone", "Address",
+        "Contract Type", "Monthly Hours", "Sites", "Servers", "Active", "Created"
+    ])
+    
+    for c in clients:
+        writer.writerow([
+            c.get("name", ""),
+            c.get("code", ""),
+            c.get("contact_name", ""),
+            c.get("contact_email", ""),
+            c.get("contact_phone", ""),
+            c.get("address", ""),
+            c.get("contract_type", ""),
+            c.get("contract_hours_monthly", ""),
+            c.get("site_count", 0),
+            c.get("server_count", 0),
+            "Yes" if c.get("is_active") else "No",
+            c.get("created_at", "")[:10] if c.get("created_at") else ""
+        ])
+    
+    output.seek(0)
+    filename = f"clients_{datetime.now().strftime('%Y%m%d')}.csv"
+    
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+@api_router.get("/export/servers")
+async def export_servers(client_id: Optional[str] = None, format: str = "csv", user: dict = Depends(get_current_user)):
+    """Export servers list as CSV"""
+    query = {}
+    if client_id:
+        query["client_id"] = client_id
+    
+    servers = await db.servers.find(query, {"_id": 0}).sort("hostname", 1).to_list(10000)
+    
+    # Enrich with client/site names
+    for s in servers:
+        if s.get("site_id"):
+            site = await db.sites.find_one({"id": s["site_id"]}, {"name": 1, "client_id": 1})
+            s["site_name"] = site["name"] if site else ""
+            if site and site.get("client_id"):
+                client = await db.clients.find_one({"id": site["client_id"]}, {"name": 1})
+                s["client_name"] = client["name"] if client else ""
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    writer.writerow([
+        "Hostname", "Client", "Site", "Role", "IP Address", "Operating System",
+        "Type", "CPU Cores", "RAM (GB)", "Storage (GB)", "Environment",
+        "Criticality", "Status", "Created"
+    ])
+    
+    for s in servers:
+        writer.writerow([
+            s.get("hostname", ""),
+            s.get("client_name", ""),
+            s.get("site_name", ""),
+            s.get("role", ""),
+            s.get("ip_address", ""),
+            s.get("operating_system", ""),
+            s.get("server_type", ""),
+            s.get("cpu_cores", ""),
+            s.get("ram_gb", ""),
+            s.get("storage_gb", ""),
+            s.get("environment", ""),
+            s.get("criticality", ""),
+            s.get("status", ""),
+            s.get("created_at", "")[:10] if s.get("created_at") else ""
+        ])
+    
+    output.seek(0)
+    filename = f"servers_{datetime.now().strftime('%Y%m%d')}.csv"
+    
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+@api_router.get("/export/incidents")
+async def export_incidents(
+    client_id: Optional[str] = None,
+    status: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    format: str = "csv",
+    user: dict = Depends(get_current_user)
+):
+    """Export incidents as CSV"""
+    query = {}
+    if client_id:
+        query["client_id"] = client_id
+    if status:
+        query["status"] = status
+    if start_date:
+        query["date_opened"] = {"$gte": start_date}
+    if end_date:
+        if "date_opened" in query:
+            query["date_opened"]["$lte"] = end_date
+        else:
+            query["date_opened"] = {"$lte": end_date}
+    
+    incidents = await db.incidents.find(query, {"_id": 0}).sort("date_opened", -1).to_list(10000)
+    
+    # Enrich with names
+    for i in incidents:
+        if i.get("client_id"):
+            c = await db.clients.find_one({"id": i["client_id"]}, {"name": 1})
+            i["client_name"] = c["name"] if c else ""
+        if i.get("server_id"):
+            s = await db.servers.find_one({"id": i["server_id"]}, {"hostname": 1})
+            i["server_name"] = s["hostname"] if s else ""
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    writer.writerow([
+        "Title", "Client", "Server", "Severity", "Status", "Description",
+        "Resolution", "Opened", "Resolved"
+    ])
+    
+    for i in incidents:
+        writer.writerow([
+            i.get("title", ""),
+            i.get("client_name", ""),
+            i.get("server_name", ""),
+            i.get("severity", ""),
+            i.get("status", ""),
+            i.get("description", ""),
+            i.get("resolution", ""),
+            i.get("date_opened", "")[:10] if i.get("date_opened") else "",
+            i.get("date_closed", "")[:10] if i.get("date_closed") else ""
+        ])
+    
+    output.seek(0)
+    filename = f"incidents_{datetime.now().strftime('%Y%m%d')}.csv"
+    
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+@api_router.get("/export/health-checks")
+async def export_health_checks(
+    server_id: Optional[str] = None,
+    client_id: Optional[str] = None,
+    month: Optional[str] = None,
+    format: str = "csv",
+    user: dict = Depends(get_current_user)
+):
+    """Export health checks as CSV"""
+    query = {}
+    if server_id:
+        query["server_id"] = server_id
+    if month:
+        query["check_month"] = month
+    
+    # If client_id, get all servers for that client first
+    if client_id and not server_id:
+        servers = await db.servers.find({"client_id": client_id}, {"id": 1}).to_list(1000)
+        server_ids = [s["id"] for s in servers]
+        if server_ids:
+            query["server_id"] = {"$in": server_ids}
+    
+    checks = await db.health_checks.find(query, {"_id": 0}).sort("created_at", -1).to_list(10000)
+    
+    # Enrich
+    for c in checks:
+        if c.get("server_id"):
+            s = await db.servers.find_one({"id": c["server_id"]}, {"hostname": 1, "site_id": 1})
+            c["server_name"] = s["hostname"] if s else ""
+            if s and s.get("site_id"):
+                site = await db.sites.find_one({"id": s["site_id"]}, {"client_id": 1})
+                if site and site.get("client_id"):
+                    client = await db.clients.find_one({"id": site["client_id"]}, {"name": 1})
+                    c["client_name"] = client["name"] if client else ""
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    writer.writerow([
+        "Client", "Server", "Category", "Check Name", "Status", "Value",
+        "Notes", "Month", "Completed By", "Completed At"
+    ])
+    
+    for c in checks:
+        writer.writerow([
+            c.get("client_name", ""),
+            c.get("server_name", ""),
+            c.get("category", ""),
+            c.get("template_name", ""),
+            c.get("status", ""),
+            c.get("value_recorded", ""),
+            c.get("notes", ""),
+            c.get("check_month", ""),
+            c.get("completed_by_name", ""),
+            c.get("completed_at", "")[:16] if c.get("completed_at") else ""
+        ])
+    
+    output.seek(0)
+    filename = f"health_checks_{datetime.now().strftime('%Y%m%d')}.csv"
+    
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+@api_router.get("/export/client-report/{client_id}")
+async def export_client_report(client_id: str, user: dict = Depends(get_current_user)):
+    """Generate a comprehensive client report"""
+    client = await db.clients.find_one({"id": client_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    # Gather all data
+    sites = await db.sites.find({"client_id": client_id}, {"_id": 0}).to_list(100)
+    servers = await db.servers.find({"client_id": client_id}, {"_id": 0}).to_list(1000)
+    
+    # Get server IDs for further queries
+    server_ids = [s["id"] for s in servers]
+    
+    incidents = await db.incidents.find({"client_id": client_id}, {"_id": 0}).sort("date_opened", -1).to_list(100)
+    tasks = await db.tasks.find({"client_id": client_id}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    projects = await db.projects.find({"client_id": client_id}, {"_id": 0}).to_list(100)
+    
+    # Time entries for this month
+    this_month = datetime.now(timezone.utc).strftime("%Y-%m")
+    time_entries = await db.time_entries.find({
+        "client_id": client_id,
+        "entry_date": {"$regex": f"^{this_month}"}
+    }, {"_id": 0}).to_list(1000)
+    
+    total_hours = sum(e.get("duration_minutes", 0) for e in time_entries) / 60
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Client Info
+    writer.writerow(["CLIENT REPORT"])
+    writer.writerow(["Generated", datetime.now().strftime("%Y-%m-%d %H:%M")])
+    writer.writerow([])
+    writer.writerow(["CLIENT INFORMATION"])
+    writer.writerow(["Name", client.get("name", "")])
+    writer.writerow(["Code", client.get("code", "")])
+    writer.writerow(["Contact", client.get("contact_name", "")])
+    writer.writerow(["Email", client.get("contact_email", "")])
+    writer.writerow(["Phone", client.get("contact_phone", "")])
+    writer.writerow(["Contract Type", client.get("contract_type", "")])
+    writer.writerow(["Monthly Hours", client.get("contract_hours_monthly", "")])
+    writer.writerow([])
+    
+    # Summary
+    writer.writerow(["SUMMARY"])
+    writer.writerow(["Total Sites", len(sites)])
+    writer.writerow(["Total Servers", len(servers)])
+    online_servers = len([s for s in servers if s.get("status") == "online"])
+    writer.writerow(["Servers Online", online_servers])
+    writer.writerow(["Open Incidents", len([i for i in incidents if i.get("status") != "resolved"])])
+    writer.writerow(["Open Tasks", len([t for t in tasks if t.get("status") not in ["completed", "blocked"]])])
+    writer.writerow(["Active Projects", len([p for p in projects if p.get("status") == "active"])])
+    writer.writerow(["Hours This Month", round(total_hours, 1)])
+    writer.writerow([])
+    
+    # Servers
+    writer.writerow(["SERVERS"])
+    writer.writerow(["Hostname", "Role", "IP", "OS", "Status"])
+    for s in servers:
+        writer.writerow([
+            s.get("hostname", ""),
+            s.get("role", ""),
+            s.get("ip_address", ""),
+            s.get("operating_system", "")[:40] if s.get("operating_system") else "",
+            s.get("status", "")
+        ])
+    writer.writerow([])
+    
+    # Recent Incidents
+    writer.writerow(["RECENT INCIDENTS (Last 10)"])
+    writer.writerow(["Title", "Severity", "Status", "Opened"])
+    for i in incidents[:10]:
+        writer.writerow([
+            i.get("title", ""),
+            i.get("severity", ""),
+            i.get("status", ""),
+            i.get("date_opened", "")[:10] if i.get("date_opened") else ""
+        ])
+    
+    output.seek(0)
+    filename = f"client_report_{client.get('code', 'UNKNOWN')}_{datetime.now().strftime('%Y%m%d')}.csv"
+    
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
 # Include the router
 app.include_router(api_router)
 

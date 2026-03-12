@@ -1,15 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiClient } from '../App';
 import { toast } from 'sonner';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { getErrorMessage } from '../lib/errorHandler';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Progress } from '../components/ui/progress';
+import { Input } from '../components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/table';
 import { 
   Server, ArrowLeft, Cpu, HardDrive, Database, Network,
-  CheckCircle, AlertTriangle, Clock, RefreshCw, Check, X, AlertCircle
+  CheckCircle, AlertTriangle, Clock, RefreshCw, Check, X, AlertCircle,
+  Monitor, Package, Shield, Users, Activity, Disc, Wifi,
+  Search, Download, Eye, ExternalLink
 } from 'lucide-react';
 
 export default function ServerDetail() {
@@ -21,6 +33,13 @@ export default function ServerDetail() {
   const [maintenance, setMaintenance] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  
+  // TRMM Live Data
+  const [trmmData, setTrmmData] = useState(null);
+  const [software, setSoftware] = useState([]);
+  const [softwareSearch, setSoftwareSearch] = useState('');
+  const [loadingTrmm, setLoadingTrmm] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -38,6 +57,11 @@ export default function ServerDetail() {
       setHealthChecks(healthRes.data);
       setIncidents(incidentsRes.data);
       setMaintenance(maintenanceRes.data);
+      
+      // If server has TRMM agent ID, fetch live data
+      if (serverRes.data.tactical_rmm_agent_id) {
+        fetchTrmmData(serverRes.data.tactical_rmm_agent_id);
+      }
     } catch (error) {
       toast.error('Failed to load server details');
       navigate('/servers');
@@ -45,6 +69,29 @@ export default function ServerDetail() {
       setLoading(false);
     }
   };
+
+  const fetchTrmmData = async (agentId) => {
+    setLoadingTrmm(true);
+    try {
+      const [detailsRes, softwareRes] = await Promise.all([
+        apiClient.get(`/integrations/trmm/agent/${agentId}`),
+        apiClient.get(`/integrations/trmm/agent/${agentId}/software`)
+      ]);
+      setTrmmData(detailsRes.data);
+      setSoftware(softwareRes.data?.software || []);
+      setLastRefresh(new Date());
+    } catch (error) {
+      console.error('Failed to fetch TRMM data:', error);
+    } finally {
+      setLoadingTrmm(false);
+    }
+  };
+
+  const refreshTrmmData = useCallback(() => {
+    if (server?.tactical_rmm_agent_id) {
+      fetchTrmmData(server.tactical_rmm_agent_id);
+    }
+  }, [server]);
 
   const generateHealthChecks = async () => {
     setGenerating(true);
@@ -89,6 +136,27 @@ export default function ServerDetail() {
     }
   };
 
+  // Format uptime from boot_time
+  const formatUptime = (bootTime) => {
+    if (!bootTime) return 'Unknown';
+    const bootDate = new Date(bootTime * 1000);
+    const now = new Date();
+    const diffMs = now - bootDate;
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    
+    if (days > 0) return `${days}d ${hours}h ${mins}m`;
+    if (hours > 0) return `${hours}h ${mins}m`;
+    return `${mins}m`;
+  };
+
+  // Filter software
+  const filteredSoftware = software.filter(s => 
+    s.name?.toLowerCase().includes(softwareSearch.toLowerCase()) ||
+    s.publisher?.toLowerCase().includes(softwareSearch.toLowerCase())
+  );
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -111,6 +179,9 @@ export default function ServerDetail() {
     acc[cat].push(check);
     return acc;
   }, {});
+
+  // Check if has TRMM integration
+  const hasTrmm = !!server.tactical_rmm_agent_id;
 
   return (
     <div className="space-y-6" data-testid="server-detail">
@@ -140,16 +211,72 @@ export default function ServerDetail() {
             </div>
           </div>
         </div>
-        <Badge className={`capitalize ${
-          server.status === 'online' ? 'bg-emerald-500/20 text-emerald-400' :
-          server.status === 'maintenance' ? 'bg-amber-500/20 text-amber-400' :
-          'bg-red-500/20 text-red-400'
-        }`}>
-          {server.status}
-        </Badge>
+        <div className="flex items-center gap-2">
+          {hasTrmm && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={refreshTrmmData}
+              disabled={loadingTrmm}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${loadingTrmm ? 'animate-spin' : ''}`} />
+              Refresh Live
+            </Button>
+          )}
+          <Badge className={`capitalize ${
+            server.status === 'online' ? 'bg-emerald-500/20 text-emerald-400' :
+            server.status === 'maintenance' ? 'bg-amber-500/20 text-amber-400' :
+            'bg-red-500/20 text-red-400'
+          }`}>
+            {server.status}
+          </Badge>
+        </div>
       </div>
 
-      {/* Specs Cards */}
+      {/* Live Status Banner */}
+      {hasTrmm && trmmData && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Activity className={`h-5 w-5 ${trmmData.status === 'online' ? 'text-emerald-400' : 'text-red-400'}`} />
+                  <span className="font-semibold">
+                    {trmmData.status === 'online' ? 'Agent Online' : 'Agent Offline'}
+                  </span>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  Last seen: {trmmData.last_seen ? new Date(trmmData.last_seen).toLocaleString() : 'Unknown'}
+                </div>
+                {trmmData.logged_username && (
+                  <div className="flex items-center gap-1 text-sm">
+                    <Users className="h-4 w-4" />
+                    <span>Logged in: <span className="font-mono">{trmmData.logged_username}</span></span>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                {trmmData.needs_reboot && (
+                  <Badge variant="destructive">Reboot Required</Badge>
+                )}
+                {trmmData.has_patches_pending && (
+                  <Badge className="bg-amber-500/20 text-amber-400">Updates Pending</Badge>
+                )}
+                {trmmData.maintenance_mode && (
+                  <Badge variant="outline">Maintenance Mode</Badge>
+                )}
+                {lastRefresh && (
+                  <span className="text-xs text-muted-foreground">
+                    Updated: {lastRefresh.toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Hardware Specs - Enhanced with TRMM data */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
         <Card>
           <CardContent className="p-4">
@@ -157,7 +284,10 @@ export default function ServerDetail() {
               <Network className="h-4 w-4" />
               <span className="text-xs">IP Address</span>
             </div>
-            <p className="font-mono text-sm">{server.ip_address || '-'}</p>
+            <p className="font-mono text-sm">{trmmData?.local_ips || server.ip_address || '-'}</p>
+            {trmmData?.public_ip && (
+              <p className="font-mono text-xs text-muted-foreground">Public: {trmmData.public_ip}</p>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -166,7 +296,7 @@ export default function ServerDetail() {
               <Server className="h-4 w-4" />
               <span className="text-xs">Role</span>
             </div>
-            <p className="text-sm">{server.role || '-'}</p>
+            <p className="text-sm">{server.role || trmmData?.monitoring_type || '-'}</p>
           </CardContent>
         </Card>
         <Card>
@@ -175,16 +305,18 @@ export default function ServerDetail() {
               <Cpu className="h-4 w-4" />
               <span className="text-xs">CPU</span>
             </div>
-            <p className="font-mono text-sm">{server.cpu_cores || '-'} cores</p>
+            <p className="font-mono text-sm">
+              {trmmData?.cpu_model?.[0]?.split(',')[0] || `${server.cpu_cores || '-'} cores`}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <Database className="h-4 w-4" />
-              <span className="text-xs">RAM</span>
+              <Monitor className="h-4 w-4" />
+              <span className="text-xs">Graphics</span>
             </div>
-            <p className="font-mono text-sm">{server.ram_gb || '-'} GB</p>
+            <p className="text-sm truncate">{trmmData?.graphics || '-'}</p>
           </CardContent>
         </Card>
         <Card>
@@ -193,43 +325,168 @@ export default function ServerDetail() {
               <HardDrive className="h-4 w-4" />
               <span className="text-xs">Storage</span>
             </div>
-            <p className="font-mono text-sm">{server.storage_gb || '-'} GB</p>
+            <p className="text-sm truncate">
+              {trmmData?.physical_disks?.[0] || `${server.storage_gb || '-'} GB`}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <Server className="h-4 w-4" />
-              <span className="text-xs">Type</span>
+              <Clock className="h-4 w-4" />
+              <span className="text-xs">Uptime</span>
             </div>
-            <p className="text-sm capitalize">{server.server_type}</p>
+            <p className="font-mono text-sm">{formatUptime(trmmData?.boot_time)}</p>
           </CardContent>
         </Card>
       </div>
 
       {/* OS Info */}
-      {server.operating_system && (
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <p className="text-sm text-muted-foreground">Operating System</p>
-                <p className="font-medium">{server.operating_system} {server.os_version}</p>
-              </div>
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex-1 min-w-[200px]">
+              <p className="text-sm text-muted-foreground">Operating System</p>
+              <p className="font-medium">{trmmData?.operating_system || server.operating_system || '-'}</p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {trmmData?.version && (
+                <Badge variant="outline">Agent v{trmmData.version}</Badge>
+              )}
               <Badge variant="outline" className="capitalize">{server.environment}</Badge>
               <Badge className={`priority-${server.criticality}`}>{server.criticality}</Badge>
+              {trmmData?.plat && (
+                <Badge variant="outline">{trmmData.plat} / {trmmData.goarch}</Badge>
+              )}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Checks Summary from TRMM */}
+      {trmmData?.checks && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-3xl font-bold">{trmmData.checks.total}</p>
+              <p className="text-sm text-muted-foreground">Total Checks</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-3xl font-bold text-emerald-400">{trmmData.checks.passing}</p>
+              <p className="text-sm text-muted-foreground">Passing</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-3xl font-bold text-red-400">{trmmData.checks.failing}</p>
+              <p className="text-sm text-muted-foreground">Failing</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-3xl font-bold text-amber-400">{trmmData.checks.warning}</p>
+              <p className="text-sm text-muted-foreground">Warnings</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-3xl font-bold text-blue-400">{trmmData.checks.info}</p>
+              <p className="text-sm text-muted-foreground">Info</p>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue="health">
+      <Tabs defaultValue={hasTrmm ? "software" : "health"}>
         <TabsList>
+          {hasTrmm && (
+            <TabsTrigger value="software">
+              <Package className="h-4 w-4 mr-2" />
+              Software ({software.length})
+            </TabsTrigger>
+          )}
           <TabsTrigger value="health">Health Checks ({healthChecks.length})</TabsTrigger>
           <TabsTrigger value="incidents">Incidents ({incidents.length})</TabsTrigger>
           <TabsTrigger value="maintenance">Maintenance ({maintenance.length})</TabsTrigger>
         </TabsList>
+
+        {/* Software Tab - NOC Style */}
+        {hasTrmm && (
+          <TabsContent value="software" className="mt-4 space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Installed Software</CardTitle>
+                    <CardDescription>
+                      {software.length} applications installed on this machine
+                    </CardDescription>
+                  </div>
+                  <div className="relative w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search software..."
+                      value={softwareSearch}
+                      onChange={(e) => setSoftwareSearch(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loadingTrmm ? (
+                  <div className="p-8 text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
+                    <p className="text-muted-foreground mt-2">Loading software list...</p>
+                  </div>
+                ) : filteredSoftware.length === 0 ? (
+                  <div className="empty-state py-8">
+                    <Package className="h-12 w-12" />
+                    <p>No software found</p>
+                  </div>
+                ) : (
+                  <div className="max-h-[500px] overflow-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Version</TableHead>
+                          <TableHead>Publisher</TableHead>
+                          <TableHead>Size</TableHead>
+                          <TableHead>Installed</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredSoftware.map((sw, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell className="font-medium max-w-[300px] truncate">
+                              {sw.name}
+                            </TableCell>
+                            <TableCell className="font-mono text-sm">
+                              {sw.version?.substring(0, 20) || '-'}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {sw.publisher || '-'}
+                            </TableCell>
+                            <TableCell className="font-mono text-sm">
+                              {sw.size || '-'}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground text-sm">
+                              {sw.install_date && sw.install_date !== '01-1-01' ? sw.install_date : '-'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         <TabsContent value="health" className="mt-4 space-y-4">
           {/* Health Check Progress */}

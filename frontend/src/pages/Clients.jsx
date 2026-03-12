@@ -25,7 +25,7 @@ import {
 } from '../components/ui/select';
 import { 
   Building2, Plus, Search, Server, MapPin, Phone, Mail,
-  MoreVertical, Edit, Trash2, RefreshCw, ArrowRight
+  MoreVertical, Edit, Trash2, RefreshCw, ArrowRight, Download
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -166,6 +166,13 @@ export default function Clients() {
           <p className="text-muted-foreground">Manage your client organizations</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            onClick={() => window.open(`${process.env.REACT_APP_BACKEND_URL}/api/export/clients`, '_blank')}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export
+          </Button>
           <Button variant="outline" onClick={handleSync} disabled={syncing} data-testid="sync-trmm">
             <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
             Sync from TRMM

@@ -32,7 +32,7 @@ import {
 } from '../components/ui/table';
 import { 
   Server, Plus, Search, MoreVertical, Edit, Trash2,
-  HardDrive, Cpu, Database
+  HardDrive, Cpu, Database, Download
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -225,13 +225,21 @@ export default function Servers() {
           </h1>
           <p className="text-muted-foreground">Manage your infrastructure</p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
-          <DialogTrigger asChild>
-            <Button data-testid="add-server">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Server
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline"
+            onClick={() => window.open(`${process.env.REACT_APP_BACKEND_URL}/api/export/servers`, '_blank')}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export
+          </Button>
+          <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
+            <DialogTrigger asChild>
+              <Button data-testid="add-server">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Server
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>{editingServer ? 'Edit Server' : 'Add New Server'}</DialogTitle>
@@ -425,6 +433,7 @@ export default function Servers() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Filters */}

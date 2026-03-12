@@ -146,9 +146,15 @@ export default function TimeTracking() {
           <p className="text-muted-foreground">Log and track your work hours</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" data-testid="export-time">
+          <Button 
+            variant="outline" 
+            data-testid="export-time"
+            onClick={() => {
+              window.open(`${process.env.REACT_APP_BACKEND_URL}/api/export/timesheet`, '_blank');
+            }}
+          >
             <Download className="h-4 w-4 mr-2" />
-            Export
+            Export CSV
           </Button>
           <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
             <DialogTrigger asChild>
