@@ -8,7 +8,8 @@ import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { 
   Building2, Server, MapPin, Phone, Mail, ArrowLeft, Plus,
-  Edit, AlertTriangle, ListTodo, Clock
+  Edit, AlertTriangle, ListTodo, Clock, Monitor, Laptop, Ticket,
+  ExternalLink, MessageSquare
 } from 'lucide-react';
 
 export default function ClientDetail() {
@@ -19,7 +20,9 @@ export default function ClientDetail() {
   const [servers, setServers] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [incidents, setIncidents] = useState([]);
+  const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingTickets, setLoadingTickets] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -39,11 +42,38 @@ export default function ClientDetail() {
       setServers(serversRes.data);
       setTasks(tasksRes.data);
       setIncidents(incidentsRes.data);
+      
+      // Try to fetch Zammad tickets for this client
+      fetchTickets(clientRes.data.name);
     } catch (error) {
       toast.error('Failed to load client details');
       navigate('/clients');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchTickets = async (clientName) => {
+    setLoadingTickets(true);
+    try {
+      const res = await apiClient.get(`/zammad/tickets?organization=${encodeURIComponent(clientName)}`);
+      setTickets(res.data || []);
+    } catch (error) {
+      console.log('Zammad tickets not available:', error);
+    } finally {
+      setLoadingTickets(false);
+    }
+  };
+
+  // Separate servers and workstations
+  const actualServers = servers.filter(s => s.server_type === 'server');
+  const workstations = servers.filter(s => s.server_type === 'workstation' || s.server_type !== 'server');
+
+  const getStatusClass = (status) => {
+    switch (status) {
+      case 'online': return 'status-online';
+      case 'maintenance': return 'status-maintenance';
+      default: return 'status-offline';
     }
   };
 
@@ -57,6 +87,10 @@ export default function ClientDetail() {
   }
 
   if (!client) return null;
+
+  const openTasks = tasks.filter(t => t.status !== 'completed').length;
+  const openIncidents = incidents.filter(i => i.status !== 'resolved').length;
+  const openTickets = tickets.filter(t => t.state !== 'closed').length;
 
   return (
     <div className="space-y-6" data-testid="client-detail">
@@ -81,8 +115,8 @@ export default function ClientDetail() {
         <Badge variant="outline" className="capitalize">{client.contract_type}</Badge>
       </div>
 
-      {/* Info Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Info Cards - Now with Servers, Workstations, and Tickets */}
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
@@ -98,7 +132,25 @@ export default function ClientDetail() {
               <Server className="h-4 w-4" />
               <span className="text-sm">Servers</span>
             </div>
-            <p className="text-2xl font-bold font-mono">{servers.length}</p>
+            <p className="text-2xl font-bold font-mono">{actualServers.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+              <Laptop className="h-4 w-4" />
+              <span className="text-sm">Workstations</span>
+            </div>
+            <p className="text-2xl font-bold font-mono">{workstations.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+              <Ticket className="h-4 w-4" />
+              <span className="text-sm">Open Tickets</span>
+            </div>
+            <p className="text-2xl font-bold font-mono">{openTickets}</p>
           </CardContent>
         </Card>
         <Card>
@@ -107,7 +159,7 @@ export default function ClientDetail() {
               <ListTodo className="h-4 w-4" />
               <span className="text-sm">Open Tasks</span>
             </div>
-            <p className="text-2xl font-bold font-mono">{tasks.filter(t => t.status !== 'completed').length}</p>
+            <p className="text-2xl font-bold font-mono">{openTasks}</p>
           </CardContent>
         </Card>
         <Card>
@@ -116,7 +168,7 @@ export default function ClientDetail() {
               <AlertTriangle className="h-4 w-4" />
               <span className="text-sm">Open Incidents</span>
             </div>
-            <p className="text-2xl font-bold font-mono">{incidents.filter(i => i.status !== 'resolved').length}</p>
+            <p className="text-2xl font-bold font-mono">{openIncidents}</p>
           </CardContent>
         </Card>
       </div>
@@ -156,11 +208,22 @@ export default function ClientDetail() {
         </Card>
       )}
 
-      {/* Tabs */}
-      <Tabs defaultValue="sites">
+      {/* Tabs - Now with separate Servers/Workstations and Tickets */}
+      <Tabs defaultValue="servers">
         <TabsList>
           <TabsTrigger value="sites">Sites ({sites.length})</TabsTrigger>
-          <TabsTrigger value="servers">Servers ({servers.length})</TabsTrigger>
+          <TabsTrigger value="servers">
+            <Server className="h-4 w-4 mr-1" />
+            Servers ({actualServers.length})
+          </TabsTrigger>
+          <TabsTrigger value="workstations">
+            <Laptop className="h-4 w-4 mr-1" />
+            Workstations ({workstations.length})
+          </TabsTrigger>
+          <TabsTrigger value="tickets">
+            <Ticket className="h-4 w-4 mr-1" />
+            Tickets ({tickets.length})
+          </TabsTrigger>
           <TabsTrigger value="tasks">Tasks ({tasks.length})</TabsTrigger>
           <TabsTrigger value="incidents">Incidents ({incidents.length})</TabsTrigger>
         </TabsList>
@@ -181,7 +244,7 @@ export default function ClientDetail() {
                         <p className="font-medium">{site.name}</p>
                         {site.address && <p className="text-sm text-muted-foreground">{site.address}</p>}
                       </div>
-                      <Badge variant="outline">{site.server_count} servers</Badge>
+                      <Badge variant="outline">{site.server_count || 0} devices</Badge>
                     </div>
                   ))}
                 </div>
@@ -193,27 +256,120 @@ export default function ClientDetail() {
         <TabsContent value="servers" className="mt-4">
           <Card>
             <CardContent className="p-4">
-              {servers.length === 0 ? (
+              {actualServers.length === 0 ? (
                 <div className="empty-state py-8">
                   <Server className="h-12 w-12" />
                   <p>No servers found</p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {servers.map((server) => (
+                  {actualServers.map((server) => (
                     <div 
                       key={server.id} 
                       className="flex items-center justify-between p-3 rounded-sm bg-muted/50 hover:bg-muted cursor-pointer"
                       onClick={() => navigate(`/servers/${server.id}`)}
                     >
                       <div className="flex items-center gap-3">
-                        <span className={`status-dot ${server.status === 'online' ? 'status-online' : server.status === 'maintenance' ? 'status-maintenance' : 'status-offline'}`} />
+                        <span className={`status-dot ${getStatusClass(server.status)}`} />
                         <div>
                           <p className="font-medium font-mono">{server.hostname}</p>
-                          <p className="text-sm text-muted-foreground">{server.role || 'Server'} • {server.ip_address}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {server.role || 'Server'} • {server.ip_address || 'No IP'}
+                          </p>
                         </div>
                       </div>
-                      <Badge variant="outline" className="capitalize">{server.environment}</Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs">{server.operating_system?.split(',')[0] || 'Unknown OS'}</Badge>
+                        <Badge variant="outline" className="capitalize">{server.environment}</Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="workstations" className="mt-4">
+          <Card>
+            <CardContent className="p-4">
+              {workstations.length === 0 ? (
+                <div className="empty-state py-8">
+                  <Laptop className="h-12 w-12" />
+                  <p>No workstations found</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {workstations.map((ws) => (
+                    <div 
+                      key={ws.id} 
+                      className="flex items-center justify-between p-3 rounded-sm bg-muted/50 hover:bg-muted cursor-pointer"
+                      onClick={() => navigate(`/servers/${ws.id}`)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className={`status-dot ${getStatusClass(ws.status)}`} />
+                        <div>
+                          <p className="font-medium font-mono">{ws.hostname}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {ws.ip_address || 'No IP'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs">{ws.operating_system?.split(',')[0] || 'Unknown OS'}</Badge>
+                        <Badge variant="outline" className={ws.status === 'online' ? 'bg-emerald-500/20 text-emerald-400' : ''}>
+                          {ws.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="tickets" className="mt-4">
+          <Card>
+            <CardContent className="p-4">
+              {loadingTickets ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+                </div>
+              ) : tickets.length === 0 ? (
+                <div className="empty-state py-8">
+                  <Ticket className="h-12 w-12" />
+                  <p>No tickets found</p>
+                  <p className="text-sm text-muted-foreground">Zammad tickets will appear here</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {tickets.map((ticket) => (
+                    <div 
+                      key={ticket.id} 
+                      className="flex items-center justify-between p-3 rounded-sm bg-muted/50 hover:bg-muted cursor-pointer"
+                      onClick={() => window.open(`https://help.synthesis-it.co.uk/#ticket/zoom/${ticket.id}`, '_blank')}
+                    >
+                      <div className="flex items-center gap-3">
+                        <MessageSquare className="h-5 w-5 text-muted-foreground" />
+                        <div>
+                          <p className="font-medium">{ticket.title}</p>
+                          <p className="text-sm text-muted-foreground">
+                            #{ticket.number} • {new Date(ticket.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge className={
+                          ticket.state === 'open' ? 'bg-red-500/20 text-red-400' :
+                          ticket.state === 'pending' ? 'bg-amber-500/20 text-amber-400' :
+                          ticket.state === 'closed' ? 'bg-emerald-500/20 text-emerald-400' :
+                          ''
+                        }>
+                          {ticket.state}
+                        </Badge>
+                        <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                      </div>
                     </div>
                   ))}
                 </div>

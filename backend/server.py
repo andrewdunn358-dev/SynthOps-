@@ -2666,6 +2666,227 @@ async def export_client_report(client_id: str, user: dict = Depends(get_current_
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
+
+# ==================== ZAMMAD INTEGRATION ====================
+
+@api_router.get("/zammad/test")
+async def test_zammad_connection(user: dict = Depends(get_current_user)):
+    """Test Zammad API connection"""
+    api_url = os.environ.get("ZAMMAD_API_URL", "").rstrip("/")
+    api_token = os.environ.get("ZAMMAD_API_TOKEN", "")
+    
+    if not api_url or not api_token:
+        raise HTTPException(status_code=400, detail="Zammad not configured")
+    
+    headers = {"Authorization": f"Token token={api_token}"}
+    
+    try:
+        async with httpx.AsyncClient() as http_client:
+            resp = await http_client.get(f"{api_url}/api/v1/users/me", headers=headers, timeout=10.0)
+            if resp.status_code == 200:
+                user_data = resp.json()
+                return {"status": "connected", "message": f"Connected as {user_data.get('email', 'Unknown')}"}
+            else:
+                raise HTTPException(status_code=500, detail=f"Zammad API error: {resp.status_code}")
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
+
+@api_router.get("/zammad/tickets")
+async def get_zammad_tickets(
+    organization: Optional[str] = None,
+    state: Optional[str] = None,
+    limit: int = 100,
+    user: dict = Depends(get_current_user)
+):
+    """Get tickets from Zammad, optionally filtered by organization"""
+    api_url = os.environ.get("ZAMMAD_API_URL", "").rstrip("/")
+    api_token = os.environ.get("ZAMMAD_API_TOKEN", "")
+    
+    if not api_url or not api_token:
+        raise HTTPException(status_code=400, detail="Zammad not configured")
+    
+    headers = {"Authorization": f"Token token={api_token}"}
+    
+    try:
+        async with httpx.AsyncClient() as http_client:
+            # Get tickets
+            resp = await http_client.get(
+                f"{api_url}/api/v1/tickets?per_page={limit}&expand=true",
+                headers=headers,
+                timeout=30.0
+            )
+            if resp.status_code != 200:
+                raise HTTPException(status_code=500, detail="Failed to fetch tickets")
+            
+            tickets = resp.json()
+            
+            # Get states for mapping
+            states_resp = await http_client.get(f"{api_url}/api/v1/ticket_states", headers=headers, timeout=10.0)
+            states = {s["id"]: s["name"] for s in states_resp.json()} if states_resp.status_code == 200 else {}
+            
+            # Get priorities for mapping
+            priorities_resp = await http_client.get(f"{api_url}/api/v1/ticket_priorities", headers=headers, timeout=10.0)
+            priorities = {p["id"]: p["name"] for p in priorities_resp.json()} if priorities_resp.status_code == 200 else {}
+            
+            # Get organizations for mapping
+            orgs_resp = await http_client.get(f"{api_url}/api/v1/organizations", headers=headers, timeout=10.0)
+            orgs = {o["id"]: o["name"] for o in orgs_resp.json()} if orgs_resp.status_code == 200 else {}
+            
+            # Get groups for mapping
+            groups_resp = await http_client.get(f"{api_url}/api/v1/groups", headers=headers, timeout=10.0)
+            groups = {g["id"]: g["name"] for g in groups_resp.json()} if groups_resp.status_code == 200 else {}
+            
+            # Enrich tickets
+            result = []
+            for t in tickets:
+                org_name = orgs.get(t.get("organization_id"), "")
+                
+                # Filter by organization if specified
+                if organization and org_name.lower() != organization.lower():
+                    continue
+                
+                # Filter by state if specified
+                state_name = states.get(t.get("state_id"), "unknown")
+                if state and state_name.lower() != state.lower():
+                    continue
+                
+                result.append({
+                    "id": t.get("id"),
+                    "number": t.get("number"),
+                    "title": t.get("title"),
+                    "state": state_name,
+                    "priority": priorities.get(t.get("priority_id"), "normal"),
+                    "organization": org_name,
+                    "group": groups.get(t.get("group_id"), ""),
+                    "customer_id": t.get("customer_id"),
+                    "owner_id": t.get("owner_id"),
+                    "article_count": t.get("article_count", 0),
+                    "created_at": t.get("created_at"),
+                    "updated_at": t.get("updated_at"),
+                    "first_response_at": t.get("first_response_at"),
+                    "close_at": t.get("close_at"),
+                    "last_contact_at": t.get("last_contact_at")
+                })
+            
+            return result
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
+
+@api_router.get("/zammad/tickets/{ticket_id}")
+async def get_zammad_ticket_detail(ticket_id: int, user: dict = Depends(get_current_user)):
+    """Get detailed ticket information including articles"""
+    api_url = os.environ.get("ZAMMAD_API_URL", "").rstrip("/")
+    api_token = os.environ.get("ZAMMAD_API_TOKEN", "")
+    
+    if not api_url or not api_token:
+        raise HTTPException(status_code=400, detail="Zammad not configured")
+    
+    headers = {"Authorization": f"Token token={api_token}"}
+    
+    try:
+        async with httpx.AsyncClient() as http_client:
+            # Get ticket
+            ticket_resp = await http_client.get(
+                f"{api_url}/api/v1/tickets/{ticket_id}?expand=true",
+                headers=headers,
+                timeout=10.0
+            )
+            if ticket_resp.status_code != 200:
+                raise HTTPException(status_code=404, detail="Ticket not found")
+            
+            ticket = ticket_resp.json()
+            
+            # Get articles for this ticket
+            articles_resp = await http_client.get(
+                f"{api_url}/api/v1/ticket_articles/by_ticket/{ticket_id}",
+                headers=headers,
+                timeout=10.0
+            )
+            articles = articles_resp.json() if articles_resp.status_code == 200 else []
+            
+            # Get users for mapping
+            users_resp = await http_client.get(f"{api_url}/api/v1/users", headers=headers, timeout=10.0)
+            users = {u["id"]: f"{u.get('firstname', '')} {u.get('lastname', '')}".strip() or u.get("email", "Unknown") 
+                     for u in users_resp.json()} if users_resp.status_code == 200 else {}
+            
+            return {
+                "ticket": ticket,
+                "articles": [{
+                    "id": a.get("id"),
+                    "from": a.get("from"),
+                    "to": a.get("to"),
+                    "subject": a.get("subject"),
+                    "body": a.get("body"),
+                    "internal": a.get("internal", False),
+                    "created_by": users.get(a.get("created_by_id"), "Unknown"),
+                    "created_at": a.get("created_at")
+                } for a in articles]
+            }
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
+
+@api_router.get("/zammad/organizations")
+async def get_zammad_organizations(user: dict = Depends(get_current_user)):
+    """Get all organizations from Zammad"""
+    api_url = os.environ.get("ZAMMAD_API_URL", "").rstrip("/")
+    api_token = os.environ.get("ZAMMAD_API_TOKEN", "")
+    
+    if not api_url or not api_token:
+        raise HTTPException(status_code=400, detail="Zammad not configured")
+    
+    headers = {"Authorization": f"Token token={api_token}"}
+    
+    try:
+        async with httpx.AsyncClient() as http_client:
+            resp = await http_client.get(f"{api_url}/api/v1/organizations", headers=headers, timeout=10.0)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=500, detail="Failed to fetch organizations")
+            
+            return resp.json()
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
+
+@api_router.get("/zammad/stats")
+async def get_zammad_stats(user: dict = Depends(get_current_user)):
+    """Get Zammad ticket statistics"""
+    api_url = os.environ.get("ZAMMAD_API_URL", "").rstrip("/")
+    api_token = os.environ.get("ZAMMAD_API_TOKEN", "")
+    
+    if not api_url or not api_token:
+        raise HTTPException(status_code=400, detail="Zammad not configured")
+    
+    headers = {"Authorization": f"Token token={api_token}"}
+    
+    try:
+        async with httpx.AsyncClient() as http_client:
+            # Get tickets
+            resp = await http_client.get(f"{api_url}/api/v1/tickets?per_page=500", headers=headers, timeout=30.0)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=500, detail="Failed to fetch tickets")
+            
+            tickets = resp.json()
+            
+            # Get states for mapping
+            states_resp = await http_client.get(f"{api_url}/api/v1/ticket_states", headers=headers, timeout=10.0)
+            states = {s["id"]: s["name"] for s in states_resp.json()} if states_resp.status_code == 200 else {}
+            
+            # Count by state
+            state_counts = {}
+            for t in tickets:
+                state_name = states.get(t.get("state_id"), "unknown")
+                state_counts[state_name] = state_counts.get(state_name, 0) + 1
+            
+            return {
+                "total": len(tickets),
+                "by_state": state_counts,
+                "open": state_counts.get("open", 0) + state_counts.get("new", 0),
+                "pending": state_counts.get("pending reminder", 0) + state_counts.get("pending close", 0),
+                "closed": state_counts.get("closed", 0)
+            }
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
+
+
 # Include the router
 app.include_router(api_router)
 
