@@ -13,6 +13,7 @@ import Servers from './pages/Servers';
 import ServerDetail from './pages/ServerDetail';
 import Tasks from './pages/Tasks';
 import Projects from './pages/Projects';
+import ProjectDetail from './pages/ProjectDetail';
 import Incidents from './pages/Incidents';
 import Maintenance from './pages/Maintenance';
 import DCHealthCheck from './pages/DCHealthCheck';
@@ -194,6 +195,7 @@ function App() {
               <Route path="servers/:id" element={<ServerDetail />} />
               <Route path="tasks" element={<Tasks />} />
               <Route path="projects" element={<Projects />} />
+              <Route path="projects/:id" element={<ProjectDetail />} />
               <Route path="incidents" element={<Incidents />} />
               <Route path="tickets" element={<Tickets />} />
               <Route path="maintenance" element={<Maintenance />} />

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../App';
 import { toast } from 'sonner';
 import { getErrorMessage } from '../lib/errorHandler';
@@ -24,7 +25,7 @@ import {
 } from '../components/ui/select';
 import { 
   FolderKanban, Plus, Search, MoreVertical, Edit, Trash2,
-  Calendar, ListTodo
+  Calendar, ListTodo, Eye
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -35,6 +36,7 @@ import {
 import { Textarea } from '../components/ui/textarea';
 
 export default function Projects() {
+  const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -297,8 +299,9 @@ export default function Projects() {
             return (
               <Card 
                 key={project.id} 
-                className="hover:border-primary/50 transition-colors"
+                className="hover:border-primary/50 transition-colors cursor-pointer"
                 data-testid={`project-card-${project.id}`}
+                onClick={() => navigate(`/projects/${project.id}`)}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">
@@ -315,17 +318,21 @@ export default function Projects() {
                     </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => e.stopPropagation()}>
                           <MoreVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleEdit(project)}>
+                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}`); }}>
+                          <Eye className="h-4 w-4 mr-2" />
+                          View
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEdit(project); }}>
                           <Edit className="h-4 w-4 mr-2" />
                           Edit
                         </DropdownMenuItem>
                         <DropdownMenuItem 
-                          onClick={() => handleDelete(project.id)}
+                          onClick={(e) => { e.stopPropagation(); handleDelete(project.id); }}
                           className="text-destructive"
                         >
                           <Trash2 className="h-4 w-4 mr-2" />

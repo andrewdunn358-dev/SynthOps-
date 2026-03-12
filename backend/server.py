@@ -1043,6 +1043,38 @@ async def create_project(project_data: ProjectCreate, user: dict = Depends(get_c
     projects = await list_projects(user=user)
     return next(p for p in projects if p.id == project["id"])
 
+@api_router.get("/projects/{project_id}", response_model=ProjectResponse)
+async def get_project(project_id: str, user: dict = Depends(get_current_user)):
+    """Get a single project by ID"""
+    project = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Get client name
+    client_name = None
+    if project.get("client_id"):
+        client = await db.clients.find_one({"id": project["client_id"]}, {"name": 1})
+        client_name = client["name"] if client else None
+    
+    # Count tasks
+    task_count = await db.tasks.count_documents({"project_id": project_id})
+    completed_tasks = await db.tasks.count_documents({"project_id": project_id, "status": "done"})
+    
+    return ProjectResponse(
+        id=project["id"],
+        name=project["name"],
+        description=project.get("description"),
+        client_id=project.get("client_id"),
+        client_name=client_name,
+        status=project.get("status", "planning"),
+        start_date=datetime.fromisoformat(project["start_date"]) if project.get("start_date") else None,
+        target_date=datetime.fromisoformat(project["target_date"]) if project.get("target_date") else None,
+        created_by=project["created_by"],
+        created_at=datetime.fromisoformat(project["created_at"]),
+        task_count=task_count,
+        completed_tasks=completed_tasks
+    )
+
 @api_router.put("/projects/{project_id}", response_model=ProjectResponse)
 async def update_project(project_id: str, project_data: ProjectCreate, user: dict = Depends(get_current_user)):
     update_data = {
@@ -1065,7 +1097,167 @@ async def delete_project(project_id: str, user: dict = Depends(get_current_user)
     result = await db.projects.delete_one({"id": project_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Project not found")
+    # Also delete associated jobs
+    await db.project_jobs.delete_many({"project_id": project_id})
     return {"message": "Project deleted"}
+
+# ==================== PROJECT JOBS & WORKSHEETS ====================
+
+class JobCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    status: str = "pending"
+    priority: str = "medium"
+    assigned_to: Optional[str] = None
+    estimated_hours: Optional[float] = None
+    due_date: Optional[datetime] = None
+
+class WorksheetCreate(BaseModel):
+    work_performed: str
+    hours_spent: float
+    notes: Optional[str] = None
+    billable: bool = True
+
+@api_router.get("/projects/{project_id}/jobs")
+async def get_project_jobs(project_id: str, user: dict = Depends(get_current_user)):
+    """Get all jobs for a project"""
+    jobs = await db.project_jobs.find({"project_id": project_id}, {"_id": 0}).to_list(100)
+    
+    result = []
+    for job in jobs:
+        # Get assignee name
+        assigned_to_name = None
+        if job.get("assigned_to"):
+            assignee = await db.users.find_one({"id": job["assigned_to"]}, {"username": 1})
+            assigned_to_name = assignee["username"] if assignee else None
+        
+        # Get worksheets
+        worksheets = await db.job_worksheets.find({"job_id": job["id"]}, {"_id": 0}).to_list(100)
+        
+        # Calculate actual hours
+        actual_hours = sum(ws.get("hours_spent", 0) for ws in worksheets)
+        
+        result.append({
+            **job,
+            "assigned_to_name": assigned_to_name,
+            "actual_hours": actual_hours,
+            "worksheets": worksheets
+        })
+    
+    return result
+
+@api_router.post("/projects/{project_id}/jobs")
+async def create_project_job(project_id: str, job_data: JobCreate, user: dict = Depends(get_current_user)):
+    """Create a new job for a project"""
+    # Verify project exists
+    project = await db.projects.find_one({"id": project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    job = {
+        "id": str(uuid.uuid4()),
+        "project_id": project_id,
+        "title": job_data.title,
+        "description": job_data.description,
+        "status": job_data.status,
+        "priority": job_data.priority,
+        "assigned_to": job_data.assigned_to,
+        "estimated_hours": job_data.estimated_hours,
+        "due_date": job_data.due_date.isoformat() if job_data.due_date else None,
+        "created_by": user["id"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.project_jobs.insert_one(job)
+    return {"id": job["id"], "message": "Job created"}
+
+@api_router.put("/projects/{project_id}/jobs/{job_id}")
+async def update_project_job(project_id: str, job_id: str, job_data: JobCreate, user: dict = Depends(get_current_user)):
+    """Update a project job"""
+    update_data = {
+        "title": job_data.title,
+        "description": job_data.description,
+        "status": job_data.status,
+        "priority": job_data.priority,
+        "assigned_to": job_data.assigned_to,
+        "estimated_hours": job_data.estimated_hours,
+        "due_date": job_data.due_date.isoformat() if job_data.due_date else None,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    result = await db.project_jobs.update_one(
+        {"id": job_id, "project_id": project_id},
+        {"$set": update_data}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    return {"message": "Job updated"}
+
+@api_router.delete("/projects/{project_id}/jobs/{job_id}")
+async def delete_project_job(project_id: str, job_id: str, user: dict = Depends(get_current_user)):
+    """Delete a project job and its worksheets"""
+    result = await db.project_jobs.delete_one({"id": job_id, "project_id": project_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Delete associated worksheets
+    await db.job_worksheets.delete_many({"job_id": job_id})
+    
+    return {"message": "Job deleted"}
+
+@api_router.post("/projects/{project_id}/jobs/{job_id}/worksheets")
+async def add_job_worksheet(project_id: str, job_id: str, worksheet_data: WorksheetCreate, user: dict = Depends(get_current_user)):
+    """Add a worksheet entry to a job"""
+    # Verify job exists
+    job = await db.project_jobs.find_one({"id": job_id, "project_id": project_id})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    worksheet = {
+        "id": str(uuid.uuid4()),
+        "job_id": job_id,
+        "project_id": project_id,
+        "work_performed": worksheet_data.work_performed,
+        "hours_spent": worksheet_data.hours_spent,
+        "notes": worksheet_data.notes,
+        "billable": worksheet_data.billable,
+        "user_id": user["id"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.job_worksheets.insert_one(worksheet)
+    
+    # Also create a time entry
+    await db.time_entries.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "project_id": project_id,
+        "task_id": None,
+        "date": datetime.now(timezone.utc).isoformat(),
+        "hours": worksheet_data.hours_spent,
+        "description": f"[Job: {job['title']}] {worksheet_data.work_performed}",
+        "billable": worksheet_data.billable,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"id": worksheet["id"], "message": "Worksheet added"}
+
+@api_router.get("/projects/{project_id}/jobs/{job_id}/worksheets")
+async def get_job_worksheets(project_id: str, job_id: str, user: dict = Depends(get_current_user)):
+    """Get all worksheets for a job"""
+    worksheets = await db.job_worksheets.find(
+        {"job_id": job_id, "project_id": project_id}, 
+        {"_id": 0}
+    ).to_list(100)
+    
+    for ws in worksheets:
+        if ws.get("user_id"):
+            u = await db.users.find_one({"id": ws["user_id"]}, {"username": 1})
+            ws["user_name"] = u["username"] if u else None
+    
+    return worksheets
 
 # ==================== INCIDENTS ====================
 

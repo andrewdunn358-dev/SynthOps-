@@ -34,7 +34,16 @@ Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - 
 
 ## What's Been Implemented (March 12, 2026)
 
-### Latest Session - Logo & P1 Features
+### Latest Session - P2 Features Complete
+- [x] **Full Project Tracking with Jobs & Worksheets**
+  - Project Detail page with tabs (Jobs, Tasks, Time Entries, Overview)
+  - Create/Edit/Delete jobs with status, priority, assignee
+  - Log work with worksheets (hours, work performed, billable flag)
+  - Progress tracking with stats cards
+  - Click project card to view details
+- [x] **Sophie AI Assistant** - Already working! Chat with Claude for IT troubleshooting advice
+
+### Previous - Logo & P1 Features
 - [x] **Synthesis IT Logo** - Updated sidebar, login, and NOC display with company branding
 - [x] **Zammad Ticket Response** - Full ticket conversation view with reply functionality
 - [x] **DC Health Check Page** (`/dc-health-check`)
