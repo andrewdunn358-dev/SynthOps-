@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient, useAuth } from '../App';
 import { toast } from 'sonner';
+import { getErrorMessage } from '../lib/errorHandler';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -95,7 +96,7 @@ export default function Admin() {
       const response = await apiClient.post('/integrations/trmm/sync');
       toast.success(`Synced: ${response.data.stats.clients_synced} clients, ${response.data.stats.sites_synced} sites, ${response.data.stats.agents_synced} agents`);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Sync failed');
+      toast.error(getErrorMessage(error, 'Sync failed'));
     } finally {
       setSyncing(false);
     }

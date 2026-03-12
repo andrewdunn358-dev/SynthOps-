@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../App';
 import { toast } from 'sonner';
+import { getErrorMessage } from '../lib/errorHandler';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -138,7 +139,7 @@ export default function Servers() {
       resetForm();
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save server');
+      toast.error(getErrorMessage(error, 'Failed to save server'));
     }
   };
 

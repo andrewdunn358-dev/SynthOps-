@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient } from '../App';
 import { toast } from 'sonner';
+import { getErrorMessage } from '../lib/errorHandler';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -76,7 +77,7 @@ export default function Projects() {
         ...form,
         start_date: form.start_date ? new Date(form.start_date).toISOString() : null,
         target_date: form.target_date ? new Date(form.target_date).toISOString() : null,
-        client_id: form.client_id || null
+        client_id: form.client_id && form.client_id !== 'none' ? form.client_id : null
       };
       
       if (editingProject) {
@@ -90,7 +91,7 @@ export default function Projects() {
       resetForm();
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save project');
+      toast.error(getErrorMessage(error, 'Failed to save project'));
     }
   };
 
@@ -196,7 +197,7 @@ export default function Projects() {
                       <SelectValue placeholder="Select client" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {clients.map((c) => (
                         <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                       ))}

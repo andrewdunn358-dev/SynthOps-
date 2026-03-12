@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient, useAuth } from '../App';
 import { toast } from 'sonner';
+import { getErrorMessage } from '../lib/errorHandler';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -89,9 +90,9 @@ export default function Tasks() {
       const data = {
         ...form,
         due_date: form.due_date ? new Date(form.due_date).toISOString() : null,
-        client_id: form.client_id || null,
-        project_id: form.project_id || null,
-        assigned_to: form.assigned_to || null
+        client_id: form.client_id && form.client_id !== 'none' ? form.client_id : null,
+        project_id: form.project_id && form.project_id !== 'none' ? form.project_id : null,
+        assigned_to: form.assigned_to && form.assigned_to !== 'none' ? form.assigned_to : null
       };
       
       if (editingTask) {
@@ -105,7 +106,7 @@ export default function Tasks() {
       resetForm();
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save task');
+      toast.error(getErrorMessage(error, 'Failed to save task'));
     }
   };
 
@@ -267,7 +268,7 @@ export default function Tasks() {
                         <SelectValue placeholder="Select client" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">None</SelectItem>
+                        <SelectItem value="none">None</SelectItem>
                         {clients.map((c) => (
                           <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                         ))}
@@ -281,7 +282,7 @@ export default function Tasks() {
                         <SelectValue placeholder="Select project" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">None</SelectItem>
+                        <SelectItem value="none">None</SelectItem>
                         {projects.map((p) => (
                           <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                         ))}
@@ -338,7 +339,7 @@ export default function Tasks() {
                         <SelectValue placeholder="Assign to" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Unassigned</SelectItem>
+                        <SelectItem value="none">Unassigned</SelectItem>
                         {users.map((u) => (
                           <SelectItem key={u.id} value={u.id}>{u.username}</SelectItem>
                         ))}

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../App';
 import { toast } from 'sonner';
+import { getErrorMessage } from '../lib/errorHandler';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -34,7 +35,7 @@ export default function Login() {
       toast.success('Welcome back!');
       navigate(from, { replace: true });
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Login failed');
+      toast.error(getErrorMessage(error, 'Login failed'));
     } finally {
       setLoading(false);
     }
@@ -61,7 +62,7 @@ export default function Login() {
       toast.success('Account created! Please login.');
       setLoginForm({ email: registerForm.email, password: '' });
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Registration failed');
+      toast.error(getErrorMessage(error, 'Registration failed'));
     } finally {
       setLoading(false);
     }

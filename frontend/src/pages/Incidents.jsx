@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient } from '../App';
 import { toast } from 'sonner';
+import { getErrorMessage } from '../lib/errorHandler';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -90,8 +91,8 @@ export default function Incidents() {
     try {
       const data = {
         ...form,
-        client_id: form.client_id || null,
-        server_id: form.server_id || null
+        client_id: form.client_id && form.client_id !== 'none' ? form.client_id : null,
+        server_id: form.server_id && form.server_id !== 'none' ? form.server_id : null
       };
       await apiClient.post('/incidents', data);
       toast.success('Incident created');
@@ -99,7 +100,7 @@ export default function Incidents() {
       resetForm();
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create incident');
+      toast.error(getErrorMessage(error, 'Failed to create incident'));
     }
   };
 
@@ -197,7 +198,7 @@ export default function Incidents() {
                       <SelectValue placeholder="Select client" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {clients.map((c) => (
                         <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                       ))}
@@ -227,7 +228,7 @@ export default function Incidents() {
                     <SelectValue placeholder="Select server" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {servers.map((s) => (
                       <SelectItem key={s.id} value={s.id}>{s.hostname} ({s.client_name})</SelectItem>
                     ))}

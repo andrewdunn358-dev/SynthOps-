@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../App';
 import { toast } from 'sonner';
+import { getErrorMessage } from '../lib/errorHandler';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -73,18 +74,24 @@ export default function Clients() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      // Convert contract_hours_monthly to integer or null
+      const data = {
+        ...form,
+        contract_hours_monthly: form.contract_hours_monthly ? parseInt(form.contract_hours_monthly, 10) : null
+      };
+      
       if (editingClient) {
-        await apiClient.put(`/clients/${editingClient.id}`, form);
+        await apiClient.put(`/clients/${editingClient.id}`, data);
         toast.success('Client updated');
       } else {
-        await apiClient.post('/clients', form);
+        await apiClient.post('/clients', data);
         toast.success('Client created');
       }
       setDialogOpen(false);
       resetForm();
       fetchClients();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save client');
+      toast.error(getErrorMessage(error, 'Failed to save client'));
     }
   };
 
@@ -122,7 +129,7 @@ export default function Clients() {
       toast.success(`Synced: ${response.data.stats.clients_synced} clients, ${response.data.stats.sites_synced} sites, ${response.data.stats.agents_synced} agents`);
       fetchClients();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Sync failed');
+      toast.error(getErrorMessage(error, 'Sync failed'));
     } finally {
       setSyncing(false);
     }

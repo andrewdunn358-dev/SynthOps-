@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient } from '../App';
 import { toast } from 'sonner';
+import { getErrorMessage } from '../lib/errorHandler';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -81,7 +82,7 @@ export default function Documentation() {
       resetForm();
       fetchDocs();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save document');
+      toast.error(getErrorMessage(error, 'Failed to save document'));
     }
   };
 

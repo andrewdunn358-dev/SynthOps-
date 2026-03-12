@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient, useAuth } from '../App';
 import { toast } from 'sonner';
+import { getErrorMessage } from '../lib/errorHandler';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -80,9 +81,9 @@ export default function TimeTracking() {
         ...form,
         entry_date: new Date(form.entry_date).toISOString(),
         duration_minutes: parseInt(form.duration_minutes),
-        client_id: form.client_id || null,
-        task_id: form.task_id || null,
-        project_id: form.project_id || null
+        client_id: form.client_id && form.client_id !== 'none' ? form.client_id : null,
+        task_id: form.task_id && form.task_id !== 'none' ? form.task_id : null,
+        project_id: form.project_id && form.project_id !== 'none' ? form.project_id : null
       };
       await apiClient.post('/time-entries', data);
       toast.success('Time entry added');
@@ -90,7 +91,7 @@ export default function TimeTracking() {
       resetForm();
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add time entry');
+      toast.error(getErrorMessage(error, 'Failed to add time entry'));
     }
   };
 
@@ -192,7 +193,7 @@ export default function TimeTracking() {
                       <SelectValue placeholder="Select client" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {clients.map((c) => (
                         <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                       ))}
@@ -207,7 +208,7 @@ export default function TimeTracking() {
                       <SelectValue placeholder="Select task" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {tasks.map((t) => (
                         <SelectItem key={t.id} value={t.id}>{t.title}</SelectItem>
                       ))}

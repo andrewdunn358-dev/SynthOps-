@@ -1601,7 +1601,472 @@ async def sync_from_trmm(user: dict = Depends(get_current_user)):
     except httpx.RequestError as e:
         raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
 
-# ==================== SOPHIE AI ====================
+# ==================== TRMM DETAILED AGENT INFO ====================
+
+@api_router.get("/integrations/trmm/agent/{agent_id}")
+async def get_trmm_agent_details(agent_id: str, user: dict = Depends(get_current_user)):
+    """Get detailed agent info directly from TRMM"""
+    api_url = os.environ.get("TACTICAL_RMM_API_URL", "").rstrip("/")
+    api_key = os.environ.get("TACTICAL_RMM_API_KEY", "")
+    
+    if not api_url or not api_key:
+        raise HTTPException(status_code=400, detail="Tactical RMM not configured")
+    
+    headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
+    
+    try:
+        async with httpx.AsyncClient() as http_client:
+            response = await http_client.get(
+                f"{api_url}/agents/{agent_id}/",
+                headers=headers,
+                timeout=30.0
+            )
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise HTTPException(status_code=response.status_code, detail="Failed to fetch agent from TRMM")
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
+
+@api_router.get("/integrations/trmm/agent/{agent_id}/software")
+async def get_trmm_agent_software(agent_id: str, user: dict = Depends(get_current_user)):
+    """Get installed software from TRMM agent"""
+    api_url = os.environ.get("TACTICAL_RMM_API_URL", "").rstrip("/")
+    api_key = os.environ.get("TACTICAL_RMM_API_KEY", "")
+    
+    if not api_url or not api_key:
+        raise HTTPException(status_code=400, detail="Tactical RMM not configured")
+    
+    headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
+    
+    try:
+        async with httpx.AsyncClient() as http_client:
+            response = await http_client.get(
+                f"{api_url}/software/{agent_id}/",
+                headers=headers,
+                timeout=30.0
+            )
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return []
+    except httpx.RequestError as e:
+        return []
+
+@api_router.get("/integrations/trmm/agent/{agent_id}/patches")
+async def get_trmm_agent_patches(agent_id: str, user: dict = Depends(get_current_user)):
+    """Get Windows updates/patches from TRMM agent"""
+    api_url = os.environ.get("TACTICAL_RMM_API_URL", "").rstrip("/")
+    api_key = os.environ.get("TACTICAL_RMM_API_KEY", "")
+    
+    if not api_url or not api_key:
+        raise HTTPException(status_code=400, detail="Tactical RMM not configured")
+    
+    headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
+    
+    try:
+        async with httpx.AsyncClient() as http_client:
+            response = await http_client.get(
+                f"{api_url}/winupdate/{agent_id}/",
+                headers=headers,
+                timeout=30.0
+            )
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return []
+    except httpx.RequestError as e:
+        return []
+
+@api_router.post("/integrations/trmm/sync/full")
+async def full_sync_from_trmm(user: dict = Depends(get_current_user)):
+    """Full sync including detailed agent info - hardware, software, etc."""
+    api_url = os.environ.get("TACTICAL_RMM_API_URL", "").rstrip("/")
+    api_key = os.environ.get("TACTICAL_RMM_API_KEY", "")
+    
+    if not api_url or not api_key:
+        raise HTTPException(status_code=400, detail="Tactical RMM not configured")
+    
+    headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
+    stats = {"clients_synced": 0, "sites_synced": 0, "agents_synced": 0, "workstations_synced": 0}
+    
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as http_client:
+            # Fetch clients
+            clients_resp = await http_client.get(f"{api_url}/clients/", headers=headers)
+            if clients_resp.status_code != 200:
+                raise HTTPException(status_code=500, detail="Failed to fetch clients from TRMM")
+            
+            trmm_clients = clients_resp.json()
+            
+            for trmm_client in trmm_clients:
+                client_id = trmm_client.get("id")
+                client_name = trmm_client.get("name", "Unknown")
+                
+                existing = await db.clients.find_one({"tactical_rmm_client_id": client_id})
+                if existing:
+                    await db.clients.update_one(
+                        {"tactical_rmm_client_id": client_id},
+                        {"$set": {"name": client_name, "updated_at": datetime.now(timezone.utc).isoformat()}}
+                    )
+                    local_client_id = existing["id"]
+                else:
+                    code = client_name[:10].upper().replace(" ", "").replace("-", "")
+                    existing_code = await db.clients.find_one({"code": code})
+                    if existing_code:
+                        code = f"{code}{client_id}"
+                    
+                    local_client_id = str(uuid.uuid4())
+                    new_client = {
+                        "id": local_client_id,
+                        "name": client_name,
+                        "code": code,
+                        "tactical_rmm_client_id": client_id,
+                        "is_active": True,
+                        "created_by": user["id"],
+                        "created_at": datetime.now(timezone.utc).isoformat()
+                    }
+                    await db.clients.insert_one(new_client)
+                stats["clients_synced"] += 1
+                
+                # Fetch sites for this client
+                sites_resp = await http_client.get(f"{api_url}/clients/{client_id}/sites/", headers=headers)
+                if sites_resp.status_code == 200:
+                    trmm_sites = sites_resp.json()
+                    
+                    for trmm_site in trmm_sites:
+                        site_trmm_id = trmm_site.get("id")
+                        site_name = trmm_site.get("name", "Default Site")
+                        
+                        existing_site = await db.sites.find_one({"tactical_rmm_site_id": site_trmm_id})
+                        if existing_site:
+                            await db.sites.update_one(
+                                {"tactical_rmm_site_id": site_trmm_id},
+                                {"$set": {"name": site_name, "updated_at": datetime.now(timezone.utc).isoformat()}}
+                            )
+                        else:
+                            local_client = await db.clients.find_one({"tactical_rmm_client_id": client_id})
+                            new_site = {
+                                "id": str(uuid.uuid4()),
+                                "client_id": local_client["id"] if local_client else local_client_id,
+                                "name": site_name,
+                                "tactical_rmm_site_id": site_trmm_id,
+                                "is_active": True,
+                                "created_at": datetime.now(timezone.utc).isoformat()
+                            }
+                            await db.sites.insert_one(new_site)
+                        stats["sites_synced"] += 1
+            
+            # Fetch ALL agents with detail=true for full info
+            agents_resp = await http_client.get(f"{api_url}/agents/?detail=true", headers=headers)
+            if agents_resp.status_code == 200:
+                trmm_agents = agents_resp.json()
+                
+                for agent in trmm_agents:
+                    agent_id = agent.get("agent_id")
+                    hostname = agent.get("hostname", "Unknown")
+                    site_name = agent.get("site_name")
+                    client_name = agent.get("client_name")
+                    monitoring_type = agent.get("monitoring_type", "server")  # server or workstation
+                    
+                    local_client = await db.clients.find_one({"name": client_name})
+                    if not local_client:
+                        continue
+                    
+                    local_site = await db.sites.find_one({"client_id": local_client["id"], "name": site_name})
+                    if not local_site:
+                        local_site = await db.sites.find_one({"client_id": local_client["id"]})
+                    if not local_site:
+                        continue
+                    
+                    # Determine if this is a server or workstation
+                    is_server = monitoring_type == "server"
+                    
+                    # Extract hardware info
+                    local_ips = agent.get("local_ips", [])
+                    ip_address = local_ips[0] if local_ips else agent.get("public_ip")
+                    
+                    # Build comprehensive machine data
+                    machine_data = {
+                        "hostname": hostname,
+                        "ip_address": ip_address,
+                        "public_ip": agent.get("public_ip"),
+                        "operating_system": agent.get("operating_system"),
+                        "os_version": agent.get("version"),
+                        "plat": agent.get("plat"),  # windows, linux, darwin
+                        "status": "online" if agent.get("status") == "online" else "offline",
+                        "last_seen": agent.get("last_seen"),
+                        "boot_time": agent.get("boot_time"),
+                        "logged_in_username": agent.get("logged_in_username"),
+                        "last_logged_in_user": agent.get("last_logged_in_user"),
+                        # Hardware info
+                        "cpu_model": agent.get("cpu_model"),
+                        "cpu_cores": agent.get("cpu_count"),
+                        "total_ram": agent.get("total_ram"),  # in GB
+                        "ram_gb": agent.get("total_ram"),
+                        "used_ram": agent.get("used_ram"),
+                        "physical_disks": agent.get("physical_disks", []),
+                        "disks": agent.get("disks", []),
+                        "graphics": agent.get("graphics"),
+                        "make_model": agent.get("make_model"),
+                        # Network
+                        "local_ips": local_ips,
+                        "mac_addresses": agent.get("mac_addresses", []),
+                        # Agent info
+                        "agent_version": agent.get("agent_version"),
+                        "antivirus": agent.get("antivirus"),
+                        "needs_reboot": agent.get("needs_reboot", False),
+                        "pending_actions_count": agent.get("pending_actions_count", 0),
+                        "has_patches_pending": agent.get("has_patches_pending", False),
+                        "patches_pending_count": agent.get("patches_pending_count", 0),
+                        # Sync metadata
+                        "tactical_rmm_agent_id": agent_id,
+                        "monitoring_type": monitoring_type,
+                        "is_server": is_server,
+                        "synced_at": datetime.now(timezone.utc).isoformat(),
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }
+                    
+                    if is_server:
+                        # Store as server
+                        existing_server = await db.servers.find_one({"tactical_rmm_agent_id": agent_id})
+                        if existing_server:
+                            await db.servers.update_one({"tactical_rmm_agent_id": agent_id}, {"$set": machine_data})
+                        else:
+                            machine_data.update({
+                                "id": str(uuid.uuid4()),
+                                "site_id": local_site["id"],
+                                "server_type": "physical" if agent.get("make_model") else "virtual",
+                                "environment": "production",
+                                "criticality": "medium",
+                                "created_by": user["id"],
+                                "created_at": datetime.now(timezone.utc).isoformat()
+                            })
+                            await db.servers.insert_one(machine_data)
+                        stats["agents_synced"] += 1
+                    else:
+                        # Store as workstation/machine
+                        existing_machine = await db.machines.find_one({"tactical_rmm_agent_id": agent_id})
+                        if existing_machine:
+                            await db.machines.update_one({"tactical_rmm_agent_id": agent_id}, {"$set": machine_data})
+                        else:
+                            machine_data.update({
+                                "id": str(uuid.uuid4()),
+                                "site_id": local_site["id"],
+                                "machine_type": "desktop" if "Desktop" in agent.get("operating_system", "") else "laptop",
+                                "created_by": user["id"],
+                                "created_at": datetime.now(timezone.utc).isoformat()
+                            })
+                            await db.machines.insert_one(machine_data)
+                        stats["workstations_synced"] += 1
+            
+            return {"message": "Full sync completed", "stats": stats}
+    
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
+
+# ==================== MACHINES (WORKSTATIONS) ====================
+
+class MachineResponse(BaseModel):
+    id: str
+    site_id: str
+    site_name: Optional[str] = None
+    client_id: Optional[str] = None
+    client_name: Optional[str] = None
+    hostname: str
+    ip_address: Optional[str]
+    public_ip: Optional[str]
+    operating_system: Optional[str]
+    status: str
+    logged_in_username: Optional[str]
+    last_logged_in_user: Optional[str]
+    cpu_model: Optional[str]
+    cpu_cores: Optional[int]
+    total_ram: Optional[float]
+    make_model: Optional[str]
+    needs_reboot: bool = False
+    has_patches_pending: bool = False
+    patches_pending_count: int = 0
+    tactical_rmm_agent_id: Optional[str]
+    synced_at: Optional[datetime]
+
+@api_router.get("/machines", response_model=List[MachineResponse])
+async def list_machines(client_id: Optional[str] = None, site_id: Optional[str] = None, 
+                       status: Optional[str] = None, user: dict = Depends(get_current_user)):
+    query = {}
+    if site_id:
+        query["site_id"] = site_id
+    if status:
+        query["status"] = status
+    
+    if client_id:
+        sites = await db.sites.find({"client_id": client_id}, {"id": 1}).to_list(1000)
+        site_ids = [s["id"] for s in sites]
+        query["site_id"] = {"$in": site_ids}
+    
+    machines = await db.machines.find(query, {"_id": 0}).to_list(1000)
+    result = []
+    for m in machines:
+        site = await db.sites.find_one({"id": m.get("site_id")}, {"name": 1, "client_id": 1})
+        client_name = None
+        client_id_val = None
+        if site:
+            client = await db.clients.find_one({"id": site.get("client_id")}, {"name": 1})
+            client_name = client["name"] if client else None
+            client_id_val = site.get("client_id")
+        
+        result.append(MachineResponse(
+            id=m["id"],
+            site_id=m.get("site_id", ""),
+            site_name=site["name"] if site else None,
+            client_id=client_id_val,
+            client_name=client_name,
+            hostname=m.get("hostname", "Unknown"),
+            ip_address=m.get("ip_address"),
+            public_ip=m.get("public_ip"),
+            operating_system=m.get("operating_system"),
+            status=m.get("status", "unknown"),
+            logged_in_username=m.get("logged_in_username"),
+            last_logged_in_user=m.get("last_logged_in_user"),
+            cpu_model=m.get("cpu_model"),
+            cpu_cores=m.get("cpu_cores"),
+            total_ram=m.get("total_ram"),
+            make_model=m.get("make_model"),
+            needs_reboot=m.get("needs_reboot", False),
+            has_patches_pending=m.get("has_patches_pending", False),
+            patches_pending_count=m.get("patches_pending_count", 0),
+            tactical_rmm_agent_id=m.get("tactical_rmm_agent_id"),
+            synced_at=datetime.fromisoformat(m["synced_at"]) if m.get("synced_at") else None
+        ))
+    return result
+
+@api_router.get("/machines/{machine_id}")
+async def get_machine(machine_id: str, user: dict = Depends(get_current_user)):
+    m = await db.machines.find_one({"id": machine_id}, {"_id": 0})
+    if not m:
+        raise HTTPException(status_code=404, detail="Machine not found")
+    
+    site = await db.sites.find_one({"id": m.get("site_id")}, {"name": 1, "client_id": 1})
+    client_name = None
+    if site:
+        client = await db.clients.find_one({"id": site.get("client_id")}, {"name": 1})
+        client_name = client["name"] if client else None
+    
+    m["site_name"] = site["name"] if site else None
+    m["client_name"] = client_name
+    return m
+
+# ==================== SERVER LIVE INFO FROM TRMM ====================
+
+@api_router.get("/servers/{server_id}/live")
+async def get_server_live_info(server_id: str, user: dict = Depends(get_current_user)):
+    """Get live info for a server from TRMM"""
+    server = await db.servers.find_one({"id": server_id}, {"_id": 0})
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    
+    agent_id = server.get("tactical_rmm_agent_id")
+    if not agent_id:
+        return {"error": "Server not synced from TRMM", "stored_data": server}
+    
+    api_url = os.environ.get("TACTICAL_RMM_API_URL", "").rstrip("/")
+    api_key = os.environ.get("TACTICAL_RMM_API_KEY", "")
+    
+    if not api_url or not api_key:
+        return {"error": "TRMM not configured", "stored_data": server}
+    
+    headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
+    
+    live_data = {
+        "agent": None,
+        "software": [],
+        "patches": [],
+        "error": None
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as http_client:
+            # Get agent details
+            agent_resp = await http_client.get(f"{api_url}/agents/{agent_id}/", headers=headers)
+            if agent_resp.status_code == 200:
+                live_data["agent"] = agent_resp.json()
+            
+            # Get software
+            software_resp = await http_client.get(f"{api_url}/software/{agent_id}/", headers=headers)
+            if software_resp.status_code == 200:
+                live_data["software"] = software_resp.json()
+            
+            # Get patches/updates
+            patches_resp = await http_client.get(f"{api_url}/winupdate/{agent_id}/", headers=headers)
+            if patches_resp.status_code == 200:
+                live_data["patches"] = patches_resp.json()
+    except Exception as e:
+        live_data["error"] = str(e)
+    
+    return live_data
+
+# ==================== MONTHLY TASK TEMPLATES ====================
+
+MONTHLY_SERVER_TASKS = [
+    {"title": "Monthly Server Health Check", "description": "Complete monthly health check for server", "priority": "medium"},
+    {"title": "Review Event Logs", "description": "Check Windows Event logs for errors and warnings", "priority": "medium"},
+    {"title": "Verify Backup Status", "description": "Confirm backups are running and test restore if needed", "priority": "high"},
+    {"title": "Check Disk Space", "description": "Review disk usage and clean up if necessary", "priority": "medium"},
+    {"title": "Review Pending Updates", "description": "Check for and schedule Windows updates", "priority": "medium"},
+    {"title": "Security Audit", "description": "Review security settings, local admin accounts", "priority": "high"},
+    {"title": "Performance Review", "description": "Check CPU, RAM, and resource usage trends", "priority": "low"},
+]
+
+@api_router.post("/tasks/generate-monthly")
+async def generate_monthly_tasks(client_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Generate monthly server tasks for all servers or specific client"""
+    now = datetime.now(timezone.utc)
+    month = now.month
+    year = now.year
+    
+    query = {}
+    if client_id:
+        sites = await db.sites.find({"client_id": client_id}, {"id": 1}).to_list(1000)
+        site_ids = [s["id"] for s in sites]
+        query["site_id"] = {"$in": site_ids}
+    
+    servers = await db.servers.find(query, {"_id": 0}).to_list(1000)
+    tasks_created = 0
+    
+    for server in servers:
+        # Get client info for task
+        site = await db.sites.find_one({"id": server.get("site_id")}, {"client_id": 1})
+        client_id_for_task = site.get("client_id") if site else None
+        
+        for task_template in MONTHLY_SERVER_TASKS:
+            # Check if task already exists for this server/month
+            existing = await db.tasks.find_one({
+                "server_id": server["id"],
+                "title": f"{task_template['title']} - {server['hostname']}",
+                "created_at": {"$regex": f"^{year}-{month:02d}"}
+            })
+            
+            if not existing:
+                task = {
+                    "id": str(uuid.uuid4()),
+                    "title": f"{task_template['title']} - {server['hostname']}",
+                    "description": encrypt_field(f"{task_template['description']}\n\nServer: {server['hostname']}\nMonth: {now.strftime('%B %Y')}"),
+                    "server_id": server["id"],
+                    "client_id": client_id_for_task,
+                    "priority": task_template["priority"],
+                    "status": "open",
+                    "due_date": (now.replace(day=28)).isoformat(),  # Due end of month
+                    "assigned_to": None,
+                    "created_by": user["id"],
+                    "created_at": now.isoformat(),
+                    "is_monthly_task": True,
+                    "month": month,
+                    "year": year
+                }
+                await db.tasks.insert_one(task)
+                tasks_created += 1
+    
+    return {"message": f"Generated {tasks_created} monthly tasks for {len(servers)} servers"}
 
 @api_router.post("/sophie/chat")
 async def sophie_chat(message: SophieMessage, user: dict = Depends(get_current_user)):
