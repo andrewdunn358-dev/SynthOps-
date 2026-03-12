@@ -19,6 +19,8 @@ import hashlib
 import httpx
 import asyncio
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -3074,7 +3076,58 @@ async def sync_zammad_tickets_to_tasks(user: dict = Depends(get_current_user)):
     except httpx.RequestError as e:
         raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
 
+@api_router.get("/sync/status")
+async def get_sync_status(user: dict = Depends(get_current_user)):
+    """Get sync status and recent sync logs"""
+    sync_interval = int(os.environ.get("SYNC_INTERVAL_MINUTES", "15"))
+    
+    # Get recent sync logs
+    trmm_logs = await db.sync_logs.find({"sync_type": "trmm"}, {"_id": 0}).sort("created_at", -1).to_list(5)
+    zammad_logs = await db.sync_logs.find({"sync_type": "zammad"}, {"_id": 0}).sort("created_at", -1).to_list(5)
+    
+    # Get next scheduled run times
+    trmm_job = scheduler.get_job("trmm_sync")
+    zammad_job = scheduler.get_job("zammad_sync")
+    
+    return {
+        "sync_interval_minutes": sync_interval,
+        "trmm": {
+            "configured": bool(os.environ.get("TACTICAL_RMM_API_KEY")),
+            "next_run": trmm_job.next_run_time.isoformat() if trmm_job and trmm_job.next_run_time else None,
+            "recent_logs": trmm_logs
+        },
+        "zammad": {
+            "configured": bool(os.environ.get("ZAMMAD_API_TOKEN")),
+            "next_run": zammad_job.next_run_time.isoformat() if zammad_job and zammad_job.next_run_time else None,
+            "recent_logs": zammad_logs
+        }
+    }
 
+@api_router.post("/sync/trigger/{sync_type}")
+async def trigger_manual_sync(sync_type: str, user: dict = Depends(get_current_user)):
+    """Manually trigger a sync"""
+    if sync_type == "trmm":
+        asyncio.create_task(scheduled_trmm_sync())
+        return {"message": "TRMM sync triggered"}
+    elif sync_type == "zammad":
+        asyncio.create_task(scheduled_zammad_sync())
+        return {"message": "Zammad sync triggered"}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid sync type. Use 'trmm' or 'zammad'")
+
+@api_router.get("/activity-log")
+async def get_activity_log(
+    entity_type: Optional[str] = None,
+    limit: int = 50,
+    user: dict = Depends(get_current_user)
+):
+    """Get activity log entries"""
+    query = {}
+    if entity_type:
+        query["entity_type"] = entity_type
+    
+    logs = await db.activity_log.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    return logs
 
 
 # Include the router
@@ -3088,6 +3141,281 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ==================== SCHEDULED SYNC ====================
+
+scheduler = AsyncIOScheduler()
+
+async def scheduled_trmm_sync():
+    """Background task to sync TRMM data"""
+    api_url = os.environ.get("TACTICAL_RMM_API_URL", "").rstrip("/")
+    api_key = os.environ.get("TACTICAL_RMM_API_KEY", "")
+    
+    if not api_url or not api_key:
+        return
+    
+    logger.info("Starting scheduled TRMM sync...")
+    headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
+    stats = {"clients_synced": 0, "sites_synced": 0, "agents_synced": 0, "status_changes": 0}
+    
+    try:
+        async with httpx.AsyncClient() as http_client:
+            # Fetch clients with embedded sites
+            clients_resp = await http_client.get(f"{api_url}/clients/", headers=headers, timeout=30.0)
+            if clients_resp.status_code != 200:
+                logger.error("Failed to fetch clients from TRMM")
+                return
+            
+            trmm_clients = clients_resp.json()
+            
+            # Get or create system user for automated tasks
+            system_user = await db.users.find_one({"username": "system"})
+            if not system_user:
+                system_user = {"id": "system", "username": "system"}
+            
+            for trmm_client in trmm_clients:
+                client_trmm_id = trmm_client.get("id")
+                client_name = trmm_client.get("name", "Unknown")
+                
+                existing = await db.clients.find_one({"tactical_rmm_client_id": client_trmm_id})
+                if existing:
+                    await db.clients.update_one(
+                        {"tactical_rmm_client_id": client_trmm_id},
+                        {"$set": {"name": client_name, "updated_at": datetime.now(timezone.utc).isoformat()}}
+                    )
+                    local_client_id = existing["id"]
+                else:
+                    code = client_name[:10].upper().replace(" ", "")
+                    existing_code = await db.clients.find_one({"code": code})
+                    if existing_code:
+                        code = f"{code}{client_trmm_id}"
+                    
+                    local_client_id = str(uuid.uuid4())
+                    new_client = {
+                        "id": local_client_id,
+                        "name": client_name,
+                        "code": code,
+                        "tactical_rmm_client_id": client_trmm_id,
+                        "is_active": True,
+                        "created_by": system_user["id"],
+                        "created_at": datetime.now(timezone.utc).isoformat()
+                    }
+                    await db.clients.insert_one(new_client)
+                stats["clients_synced"] += 1
+                
+                # Sync sites
+                for trmm_site in trmm_client.get("sites", []):
+                    site_trmm_id = trmm_site.get("id")
+                    site_name = trmm_site.get("name", "Default Site")
+                    
+                    existing_site = await db.sites.find_one({"tactical_rmm_site_id": site_trmm_id})
+                    if not existing_site:
+                        new_site = {
+                            "id": str(uuid.uuid4()),
+                            "client_id": local_client_id,
+                            "name": site_name,
+                            "tactical_rmm_site_id": site_trmm_id,
+                            "is_active": True,
+                            "created_at": datetime.now(timezone.utc).isoformat()
+                        }
+                        await db.sites.insert_one(new_site)
+                        stats["sites_synced"] += 1
+            
+            # Fetch agents and update status
+            agents_resp = await http_client.get(f"{api_url}/agents/", headers=headers, timeout=60.0)
+            if agents_resp.status_code == 200:
+                trmm_agents = agents_resp.json()
+                
+                for agent in trmm_agents:
+                    agent_id = agent.get("agent_id")
+                    hostname = agent.get("hostname", "Unknown")
+                    new_status = "online" if agent.get("status") == "online" else "offline"
+                    
+                    existing_server = await db.servers.find_one({"tactical_rmm_agent_id": agent_id})
+                    
+                    if existing_server:
+                        # Track status changes
+                        old_status = existing_server.get("status")
+                        if old_status != new_status:
+                            stats["status_changes"] += 1
+                            # Log the status change
+                            await db.activity_log.insert_one({
+                                "id": str(uuid.uuid4()),
+                                "type": "status_change",
+                                "entity_type": "server",
+                                "entity_id": existing_server["id"],
+                                "message": f"Server {hostname} changed from {old_status} to {new_status}",
+                                "old_value": old_status,
+                                "new_value": new_status,
+                                "created_at": datetime.now(timezone.utc).isoformat()
+                            })
+                        
+                        # Update server
+                        await db.servers.update_one(
+                            {"tactical_rmm_agent_id": agent_id},
+                            {"$set": {
+                                "status": new_status,
+                                "hostname": hostname,
+                                "operating_system": agent.get("operating_system"),
+                                "updated_at": datetime.now(timezone.utc).isoformat()
+                            }}
+                        )
+                    else:
+                        # Find client and site
+                        local_client = await db.clients.find_one({"name": agent.get("client_name")})
+                        if not local_client:
+                            continue
+                        
+                        local_site = await db.sites.find_one({"client_id": local_client["id"], "name": agent.get("site_name")})
+                        if not local_site:
+                            local_site = {"id": str(uuid.uuid4()), "client_id": local_client["id"], "name": agent.get("site_name") or "Default", "is_active": True, "created_at": datetime.now(timezone.utc).isoformat()}
+                            await db.sites.insert_one(local_site)
+                        
+                        # Get IP
+                        local_ips = agent.get("local_ips", "")
+                        ip_address = local_ips[0] if isinstance(local_ips, list) and local_ips else local_ips or None
+                        
+                        # Create server
+                        new_server = {
+                            "id": str(uuid.uuid4()),
+                            "site_id": local_site["id"],
+                            "hostname": hostname,
+                            "ip_address": agent.get("public_ip") or ip_address,
+                            "operating_system": agent.get("operating_system"),
+                            "status": new_status,
+                            "server_type": "workstation" if agent.get("monitoring_type") == "workstation" else "server",
+                            "tactical_rmm_agent_id": agent_id,
+                            "environment": "production",
+                            "criticality": "medium",
+                            "created_by": system_user["id"],
+                            "created_at": datetime.now(timezone.utc).isoformat()
+                        }
+                        await db.servers.insert_one(new_server)
+                    stats["agents_synced"] += 1
+        
+        logger.info(f"TRMM sync completed: {stats}")
+        
+        # Store sync log
+        await db.sync_logs.insert_one({
+            "id": str(uuid.uuid4()),
+            "sync_type": "trmm",
+            "stats": stats,
+            "status": "success",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"TRMM sync error: {str(e)}")
+        await db.sync_logs.insert_one({
+            "id": str(uuid.uuid4()),
+            "sync_type": "trmm",
+            "error": str(e),
+            "status": "error",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+
+async def scheduled_zammad_sync():
+    """Background task to sync Zammad tickets to tasks"""
+    api_url = os.environ.get("ZAMMAD_API_URL", "").rstrip("/")
+    api_token = os.environ.get("ZAMMAD_API_TOKEN", "")
+    
+    if not api_url or not api_token:
+        return
+    
+    logger.info("Starting scheduled Zammad sync...")
+    headers = {"Authorization": f"Token token={api_token}"}
+    stats = {"synced": 0, "skipped": 0}
+    
+    try:
+        async with httpx.AsyncClient() as http_client:
+            resp = await http_client.get(f"{api_url}/api/v1/tickets?per_page=100", headers=headers, timeout=30.0)
+            if resp.status_code != 200:
+                logger.error("Failed to fetch tickets from Zammad")
+                return
+            
+            tickets = resp.json()
+            
+            states_resp = await http_client.get(f"{api_url}/api/v1/ticket_states", headers=headers, timeout=10.0)
+            states = {s["id"]: s["name"] for s in states_resp.json()} if states_resp.status_code == 200 else {}
+            
+            orgs_resp = await http_client.get(f"{api_url}/api/v1/organizations", headers=headers, timeout=10.0)
+            orgs = {o["id"]: o["name"] for o in orgs_resp.json()} if orgs_resp.status_code == 200 else {}
+            
+            system_user = await db.users.find_one({"username": "system"})
+            if not system_user:
+                system_user = {"id": "system"}
+            
+            for ticket in tickets:
+                state_name = states.get(ticket.get("state_id"), "unknown")
+                if state_name == "closed":
+                    stats["skipped"] += 1
+                    continue
+                
+                ticket_id = ticket.get("id")
+                existing = await db.tasks.find_one({"zammad_ticket_id": ticket_id})
+                if existing:
+                    stats["skipped"] += 1
+                    continue
+                
+                org_name = orgs.get(ticket.get("organization_id"))
+                client = await db.clients.find_one({"name": org_name}) if org_name else None
+                
+                task = {
+                    "id": str(uuid.uuid4()),
+                    "title": f"[Ticket #{ticket.get('number')}] {ticket.get('title', 'Untitled')}",
+                    "description": f"Auto-synced from Zammad\nOrganization: {org_name or 'Unknown'}\nState: {state_name}",
+                    "status": "open",
+                    "priority": "medium",
+                    "client_id": client["id"] if client else None,
+                    "zammad_ticket_id": ticket_id,
+                    "created_by": system_user["id"],
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+                
+                await db.tasks.insert_one(task)
+                stats["synced"] += 1
+        
+        logger.info(f"Zammad sync completed: {stats}")
+        
+        await db.sync_logs.insert_one({
+            "id": str(uuid.uuid4()),
+            "sync_type": "zammad",
+            "stats": stats,
+            "status": "success",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Zammad sync error: {str(e)}")
+
+@app.on_event("startup")
+async def start_scheduler():
+    """Start the background scheduler on app startup"""
+    sync_interval = int(os.environ.get("SYNC_INTERVAL_MINUTES", "15"))
+    
+    logger.info(f"Starting scheduler with {sync_interval} minute interval")
+    
+    # Add TRMM sync job
+    scheduler.add_job(
+        scheduled_trmm_sync,
+        IntervalTrigger(minutes=sync_interval),
+        id="trmm_sync",
+        replace_existing=True,
+        max_instances=1
+    )
+    
+    # Add Zammad sync job
+    scheduler.add_job(
+        scheduled_zammad_sync,
+        IntervalTrigger(minutes=sync_interval),
+        id="zammad_sync",
+        replace_existing=True,
+        max_instances=1
+    )
+    
+    scheduler.start()
+    logger.info("Scheduler started successfully")
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    scheduler.shutdown()
     client.close()

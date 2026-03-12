@@ -186,7 +186,7 @@ Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - 
 6. ~~MSP Reports Dashboard~~ ✅ DONE
 7. ~~Ticket to Task sync~~ ✅ DONE
 8. ~~DC Health Check templates~~ ✅ DONE
-9. Implement Google OAuth
-10. Add TOTP 2FA functionality
-11. Add Docker Compose for production deployment
-12. Create one-line install script for GitHub
+9. ~~Docker Compose deployment~~ ✅ DONE
+10. ~~Scheduled auto-sync~~ ✅ DONE
+11. Implement Google OAuth
+12. Add TOTP 2FA functionality
