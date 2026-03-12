@@ -41,6 +41,22 @@ Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - 
   - 42 clients, 52 sites, 527 agents synced successfully
 - [x] **Created User Manual**: Comprehensive documentation at `/app/docs/USER_MANUAL.md`
 
+### NOC-Style Server Detail View (NEW)
+- [x] Live TRMM agent status with last seen timestamp
+- [x] Hardware specs: IP Address, CPU model, Graphics, Storage, Uptime
+- [x] OS Information with version badges
+- [x] TRMM Checks summary (Total/Passing/Failing/Warnings/Info)
+- [x] Software tab showing installed applications with search
+- [x] Refresh Live button for manual data refresh
+
+### CSV Export Features (NEW)
+- [x] Timesheet export with hours, billable status, totals
+- [x] Clients export with contact info, sites/servers counts
+- [x] Servers export with full specifications
+- [x] Incidents export with severity and status
+- [x] Health checks export by server/client/month
+- [x] Client report export (comprehensive client overview)
+
 ### Backend (FastAPI)
 - [x] User registration and authentication (JWT + bcrypt)
 - [x] Role-based access control (admin, engineer, viewer)
@@ -163,9 +179,9 @@ Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - 
 
 ## Next Tasks
 1. ~~Fix frontend crash on Clients page~~ ✅ DONE
-2. Complete enhanced Tactical RMM integration (NOC-style live view)
-3. Implement Google OAuth
-4. Add TOTP 2FA functionality
-5. Create export/report features
+2. ~~Complete enhanced Tactical RMM integration (NOC-style live view)~~ ✅ DONE
+3. ~~Create export features~~ ✅ DONE
+4. Implement Google OAuth
+5. Add TOTP 2FA functionality
 6. Add Docker Compose for production deployment
 7. Create one-line install script for GitHub
