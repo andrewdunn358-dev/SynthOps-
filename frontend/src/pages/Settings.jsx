@@ -1,14 +1,14 @@
-import React, { useState } from 'react';
-import { useAuth, useTheme } from '../App';
+import React, { useState, useEffect } from 'react';
+import { useAuth, useTheme, apiClient } from '../App';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
-import { Separator } from '../components/ui/separator';
+import { Badge } from '../components/ui/badge';
 import { 
-  User, Moon, Sun, Shield, Bell, Key
+  User, Moon, Sun, Shield, Bell, Key, CheckCircle, XCircle, Send, Monitor, KeyRound, ExternalLink
 } from 'lucide-react';
 
 export default function Settings() {
@@ -19,6 +19,53 @@ export default function Settings() {
     newPassword: '',
     confirmPassword: ''
   });
+  const [notificationConfig, setNotificationConfig] = useState(null);
+  const [testingTeams, setTestingTeams] = useState(false);
+  const [integrations, setIntegrations] = useState({
+    meshcentral: { configured: false, url: '' },
+    vaultwarden: { configured: false, url: '' }
+  });
+
+  useEffect(() => {
+    fetchNotificationConfig();
+    fetchIntegrationConfigs();
+  }, []);
+
+  const fetchNotificationConfig = async () => {
+    try {
+      const res = await apiClient.get('/notifications/config');
+      setNotificationConfig(res.data);
+    } catch (error) {
+      console.log('Failed to fetch notification config');
+    }
+  };
+
+  const fetchIntegrationConfigs = async () => {
+    try {
+      const [meshRes, vaultRes] = await Promise.all([
+        apiClient.get('/config/meshcentral').catch(() => ({ data: { configured: false } })),
+        apiClient.get('/config/vaultwarden').catch(() => ({ data: { configured: false } }))
+      ]);
+      setIntegrations({
+        meshcentral: meshRes.data,
+        vaultwarden: vaultRes.data
+      });
+    } catch (error) {
+      console.log('Failed to fetch integration configs');
+    }
+  };
+
+  const testTeamsWebhook = async () => {
+    setTestingTeams(true);
+    try {
+      await apiClient.post('/notifications/teams/test');
+      toast.success('Test notification sent to Teams!');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to send test notification');
+    } finally {
+      setTestingTeams(false);
+    }
+  };
 
   const handlePasswordChange = async (e) => {
     e.preventDefault();
@@ -42,7 +89,7 @@ export default function Settings() {
         <h1 className="text-3xl font-bold tracking-tight" style={{ fontFamily: 'Barlow Condensed' }}>
           SETTINGS
         </h1>
-        <p className="text-muted-foreground">Manage your account settings</p>
+        <p className="text-muted-foreground">Manage your account settings and integrations</p>
       </div>
 
       {/* Profile */}
@@ -75,6 +122,113 @@ export default function Settings() {
               <p className="font-medium">{user?.totp_enabled ? 'Enabled' : 'Disabled'}</p>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Integrations Status */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ExternalLink className="h-5 w-5" />
+            Integrations
+          </CardTitle>
+          <CardDescription>Connected services and tools</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between p-3 rounded-sm bg-muted/50">
+            <div className="flex items-center gap-3">
+              <Monitor className="h-5 w-5 text-cyan-400" />
+              <div>
+                <p className="font-medium">MeshCentral</p>
+                <p className="text-sm text-muted-foreground">Remote device access</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {integrations.meshcentral?.configured ? (
+                <>
+                  <Badge className="bg-emerald-500/20 text-emerald-400">Connected</Badge>
+                  <Button size="sm" variant="outline" onClick={() => window.open(integrations.meshcentral.url, '_blank')}>
+                    Open
+                  </Button>
+                </>
+              ) : (
+                <Badge variant="outline">Not configured</Badge>
+              )}
+            </div>
+          </div>
+          
+          <div className="flex items-center justify-between p-3 rounded-sm bg-muted/50">
+            <div className="flex items-center gap-3">
+              <KeyRound className="h-5 w-5 text-amber-400" />
+              <div>
+                <p className="font-medium">Vaultwarden</p>
+                <p className="text-sm text-muted-foreground">Password manager</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {integrations.vaultwarden?.configured ? (
+                <>
+                  <Badge className="bg-emerald-500/20 text-emerald-400">Connected</Badge>
+                  <Button size="sm" variant="outline" onClick={() => window.open(integrations.vaultwarden.url, '_blank')}>
+                    Open
+                  </Button>
+                </>
+              ) : (
+                <Badge variant="outline">Not configured</Badge>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Notifications */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bell className="h-5 w-5" />
+            Notifications
+          </CardTitle>
+          <CardDescription>Alert configuration status</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between p-3 rounded-sm bg-muted/50">
+            <div className="flex items-center gap-3">
+              <Send className="h-5 w-5 text-blue-400" />
+              <div>
+                <p className="font-medium">Microsoft Teams</p>
+                <p className="text-sm text-muted-foreground">Webhook notifications for alerts</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {notificationConfig?.teams?.configured ? (
+                <>
+                  <Badge className="bg-emerald-500/20 text-emerald-400">
+                    <CheckCircle className="h-3 w-3 mr-1" />
+                    Configured
+                  </Badge>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={testTeamsWebhook}
+                    disabled={testingTeams}
+                    data-testid="test-teams"
+                  >
+                    {testingTeams ? 'Sending...' : 'Test'}
+                  </Button>
+                </>
+              ) : (
+                <Badge variant="outline">
+                  <XCircle className="h-3 w-3 mr-1" />
+                  Not configured
+                </Badge>
+              )}
+            </div>
+          </div>
+          
+          <p className="text-xs text-muted-foreground">
+            To configure Teams webhooks, add <code className="bg-muted px-1 rounded">TEAMS_WEBHOOK_URL</code> to your environment variables.
+            Alerts will be sent when servers go offline, new tickets arrive, or tasks are assigned.
+          </p>
         </CardContent>
       </Card>
 

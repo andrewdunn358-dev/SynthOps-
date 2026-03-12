@@ -23,6 +23,9 @@ services:
       - ZAMMAD_API_URL=${ZAMMAD_API_URL}
       - ZAMMAD_API_TOKEN=${ZAMMAD_API_TOKEN}
       - EMERGENT_LLM_KEY=${EMERGENT_LLM_KEY:-}
+      - MESHCENTRAL_URL=${MESHCENTRAL_URL:-}
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
+      - VAULTWARDEN_URL=${VAULTWARDEN_URL:-http://localhost:8082}
       - CORS_ORIGINS=*
       - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-15}
     depends_on:
@@ -91,7 +94,7 @@ services:
     profiles:
       - admin
 
-  # Vaultwarden - Password Manager (optional)
+  # Vaultwarden - Password Manager
   vaultwarden:
     image: vaultwarden/server:latest
     container_name: synthops-vaultwarden
@@ -101,13 +104,15 @@ services:
     environment:
       - DOMAIN=${VAULTWARDEN_DOMAIN:-http://localhost:8082}
       - ADMIN_TOKEN=${VAULTWARDEN_ADMIN_TOKEN:-}
-      - SIGNUPS_ALLOWED=true
+      - SIGNUPS_ALLOWED=${VAULTWARDEN_SIGNUPS_ALLOWED:-true}
+      - INVITATIONS_ALLOWED=true
+      - SHOW_PASSWORD_HINT=false
+      - WEBSOCKET_ENABLED=true
+      - LOG_LEVEL=info
     volumes:
       - vaultwarden-data:/data
     networks:
       - synthops-network
-    profiles:
-      - extras
 
 networks:
   synthops-network:

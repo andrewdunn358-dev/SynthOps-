@@ -22,6 +22,7 @@ import Settings from './pages/Settings';
 import Admin from './pages/Admin';
 import Tickets from './pages/Tickets';
 import Reports from './pages/Reports';
+import NOCDisplay from './pages/NOCDisplay';
 
 // Components
 import Layout from './components/Layout';
@@ -179,6 +180,7 @@ function App() {
           <Toaster position="top-right" richColors />
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/display" element={<NOCDisplay />} />
             <Route path="/" element={
               <ProtectedRoute>
                 <Layout />

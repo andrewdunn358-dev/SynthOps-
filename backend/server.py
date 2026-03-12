@@ -1,8 +1,9 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Query, Body
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Query, Body, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
@@ -18,6 +19,8 @@ import base64
 import hashlib
 import httpx
 import asyncio
+from collections import defaultdict
+import time
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -65,6 +68,58 @@ security = HTTPBearer()
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# ==================== RATE LIMITING ====================
+
+class RateLimiter:
+    """Simple in-memory rate limiter"""
+    def __init__(self, requests_per_minute: int = 60):
+        self.requests_per_minute = requests_per_minute
+        self.requests: Dict[str, List[float]] = defaultdict(list)
+    
+    def is_allowed(self, client_ip: str) -> bool:
+        now = time.time()
+        minute_ago = now - 60
+        
+        # Clean old requests
+        self.requests[client_ip] = [t for t in self.requests[client_ip] if t > minute_ago]
+        
+        if len(self.requests[client_ip]) >= self.requests_per_minute:
+            return False
+        
+        self.requests[client_ip].append(now)
+        return True
+
+rate_limiter = RateLimiter(requests_per_minute=120)
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Skip rate limiting for health checks
+        if request.url.path == "/api/" or request.url.path == "/api/health":
+            return await call_next(request)
+        
+        client_ip = request.client.host if request.client else "unknown"
+        
+        if not rate_limiter.is_allowed(client_ip):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many requests. Please try again later."}
+            )
+        
+        return await call_next(request)
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        
+        # Security headers
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        
+        return response
 
 # ==================== MODELS ====================
 
@@ -3115,6 +3170,214 @@ async def trigger_manual_sync(sync_type: str, user: dict = Depends(get_current_u
     else:
         raise HTTPException(status_code=400, detail="Invalid sync type. Use 'trmm' or 'zammad'")
 
+# ==================== MESHCENTRAL INTEGRATION ====================
+
+@api_router.get("/config/meshcentral")
+async def get_meshcentral_config(user: dict = Depends(get_current_user)):
+    """Get MeshCentral configuration for frontend"""
+    mesh_url = os.environ.get("MESHCENTRAL_URL", "").rstrip("/")
+    return {
+        "url": mesh_url,
+        "configured": bool(mesh_url)
+    }
+
+@api_router.get("/servers/{server_id}/mesh-url")
+async def get_server_mesh_url(server_id: str, user: dict = Depends(get_current_user)):
+    """Get MeshCentral connection URL for a specific server"""
+    server = await db.servers.find_one({"id": server_id}, {"_id": 0})
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    
+    mesh_url = os.environ.get("MESHCENTRAL_URL", "").rstrip("/")
+    agent_id = server.get("tactical_rmm_agent_id")
+    
+    if not mesh_url:
+        raise HTTPException(status_code=400, detail="MeshCentral not configured")
+    
+    # The MeshCentral URL - user will navigate to mesh and find the device
+    return {
+        "mesh_url": mesh_url,
+        "hostname": server.get("hostname"),
+        "agent_id": agent_id,
+        "connection_url": f"{mesh_url}/#nodes"
+    }
+
+# ==================== VAULTWARDEN CONFIG ====================
+
+@api_router.get("/config/vaultwarden")
+async def get_vaultwarden_config(user: dict = Depends(get_current_user)):
+    """Get Vaultwarden configuration for frontend"""
+    vault_url = os.environ.get("VAULTWARDEN_URL", "").rstrip("/")
+    return {
+        "url": vault_url,
+        "configured": bool(vault_url)
+    }
+
+# ==================== MICROSOFT TEAMS WEBHOOKS ====================
+
+class TeamsWebhookMessage(BaseModel):
+    title: str
+    message: str
+    color: str = "0076D7"  # Default blue
+    facts: Optional[List[Dict[str, str]]] = None
+
+async def send_teams_notification(title: str, message: str, color: str = "0076D7", facts: List[Dict[str, str]] = None):
+    """Send notification to Microsoft Teams via webhook"""
+    webhook_url = os.environ.get("TEAMS_WEBHOOK_URL", "")
+    
+    if not webhook_url:
+        logger.debug("Teams webhook not configured, skipping notification")
+        return False
+    
+    # Build Teams Adaptive Card / Message Card
+    card = {
+        "@type": "MessageCard",
+        "@context": "http://schema.org/extensions",
+        "themeColor": color,
+        "summary": title,
+        "sections": [{
+            "activityTitle": f"🔔 {title}",
+            "activitySubtitle": f"SynthOps Alert - {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+            "text": message,
+            "markdown": True
+        }]
+    }
+    
+    if facts:
+        card["sections"][0]["facts"] = facts
+    
+    try:
+        async with httpx.AsyncClient() as http_client:
+            resp = await http_client.post(webhook_url, json=card, timeout=10.0)
+            if resp.status_code == 200:
+                logger.info(f"Teams notification sent: {title}")
+                return True
+            else:
+                logger.error(f"Teams webhook failed: {resp.status_code} - {resp.text}")
+                return False
+    except Exception as e:
+        logger.error(f"Teams webhook error: {str(e)}")
+        return False
+
+@api_router.post("/notifications/teams/test")
+async def test_teams_webhook(user: dict = Depends(get_current_user)):
+    """Test Teams webhook configuration"""
+    webhook_url = os.environ.get("TEAMS_WEBHOOK_URL", "")
+    
+    if not webhook_url:
+        raise HTTPException(status_code=400, detail="Teams webhook URL not configured")
+    
+    success = await send_teams_notification(
+        title="SynthOps Test Notification",
+        message="This is a test notification from SynthOps. If you can see this, Teams webhooks are working correctly!",
+        color="00FF00",
+        facts=[
+            {"name": "Environment", "value": "Production"},
+            {"name": "Test Time", "value": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
+        ]
+    )
+    
+    if success:
+        return {"message": "Test notification sent successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to send test notification")
+
+@api_router.get("/notifications/config")
+async def get_notification_config(user: dict = Depends(get_current_user)):
+    """Get notification configuration status"""
+    return {
+        "teams": {
+            "configured": bool(os.environ.get("TEAMS_WEBHOOK_URL")),
+            "webhook_set": bool(os.environ.get("TEAMS_WEBHOOK_URL"))
+        },
+        "email": {
+            "configured": bool(os.environ.get("SENDGRID_API_KEY")),
+            "from_email": os.environ.get("SENDGRID_FROM_EMAIL", "")
+        }
+    }
+
+@api_router.post("/notifications/server-offline")
+async def notify_server_offline(server_id: str = Body(..., embed=True), user: dict = Depends(get_current_user)):
+    """Manually trigger offline notification for a server"""
+    server = await db.servers.find_one({"id": server_id}, {"_id": 0})
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    
+    # Get client info
+    site = await db.sites.find_one({"id": server.get("site_id")}, {"client_id": 1})
+    client = None
+    if site:
+        client = await db.clients.find_one({"id": site.get("client_id")}, {"name": 1})
+    
+    success = await send_teams_notification(
+        title="🚨 Server Offline Alert",
+        message=f"Server **{server.get('hostname')}** is currently offline and requires attention.",
+        color="FF0000",
+        facts=[
+            {"name": "Server", "value": server.get("hostname", "Unknown")},
+            {"name": "Client", "value": client.get("name") if client else "Unknown"},
+            {"name": "IP Address", "value": server.get("ip_address", "Unknown")},
+            {"name": "Last Status", "value": server.get("status", "Unknown")},
+            {"name": "Detected", "value": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
+        ]
+    )
+    
+    # Log the notification
+    await db.notification_log.insert_one({
+        "id": str(uuid.uuid4()),
+        "type": "server_offline",
+        "entity_type": "server",
+        "entity_id": server_id,
+        "title": f"Server Offline: {server.get('hostname')}",
+        "sent_teams": success,
+        "sent_email": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"message": "Notification sent" if success else "Notification failed (check configuration)", "success": success}
+
+# ==================== AUDIT LOGGING ====================
+
+@api_router.get("/audit-log")
+async def get_audit_log(
+    entity_type: Optional[str] = None,
+    action: Optional[str] = None,
+    limit: int = 100,
+    user: dict = Depends(require_admin)
+):
+    """Get audit log entries (admin only)"""
+    query = {}
+    if entity_type:
+        query["entity_type"] = entity_type
+    if action:
+        query["action"] = action
+    
+    logs = await db.audit_log.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    return logs
+
+async def log_audit_event(
+    user_id: str,
+    action: str,
+    entity_type: str,
+    entity_id: str,
+    details: str = None,
+    ip_address: str = None
+):
+    """Log an audit event"""
+    try:
+        await db.audit_log.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "action": action,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "details": details,
+            "ip_address": ip_address,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Failed to log audit event: {str(e)}")
+
 @api_router.get("/activity-log")
 async def get_activity_log(
     entity_type: Optional[str] = None,
@@ -3132,6 +3395,10 @@ async def get_activity_log(
 
 # Include the router
 app.include_router(api_router)
+
+# Add security middlewares
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -3248,6 +3515,27 @@ async def scheduled_trmm_sync():
                                 "new_value": new_status,
                                 "created_at": datetime.now(timezone.utc).isoformat()
                             })
+                            
+                            # Send Teams notification if server went offline
+                            if new_status == "offline" and old_status == "online":
+                                # Get client info for notification
+                                site = await db.sites.find_one({"id": existing_server.get("site_id")}, {"client_id": 1})
+                                client_name = "Unknown"
+                                if site:
+                                    client = await db.clients.find_one({"id": site.get("client_id")}, {"name": 1})
+                                    client_name = client.get("name") if client else "Unknown"
+                                
+                                asyncio.create_task(send_teams_notification(
+                                    title="🚨 Server Offline Alert",
+                                    message=f"Server **{hostname}** has gone offline.",
+                                    color="FF0000",
+                                    facts=[
+                                        {"name": "Server", "value": hostname},
+                                        {"name": "Client", "value": client_name},
+                                        {"name": "IP Address", "value": existing_server.get("ip_address", "Unknown")},
+                                        {"name": "Detected", "value": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
+                                    ]
+                                ))
                         
                         # Update server
                         await db.servers.update_one(

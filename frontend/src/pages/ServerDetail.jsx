@@ -21,7 +21,7 @@ import {
   Server, ArrowLeft, Cpu, HardDrive, Database, Network,
   CheckCircle, AlertTriangle, Clock, RefreshCw, Check, X, AlertCircle,
   Monitor, Package, Shield, Users, Activity, Disc, Wifi,
-  Search, Download, Eye, ExternalLink
+  Search, Download, Eye, ExternalLink, Terminal
 } from 'lucide-react';
 
 export default function ServerDetail() {
@@ -40,10 +40,29 @@ export default function ServerDetail() {
   const [softwareSearch, setSoftwareSearch] = useState('');
   const [loadingTrmm, setLoadingTrmm] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
+  const [meshCentralUrl, setMeshCentralUrl] = useState(null);
 
   useEffect(() => {
     fetchData();
+    fetchMeshCentralConfig();
   }, [id]);
+
+  const fetchMeshCentralConfig = async () => {
+    try {
+      const res = await apiClient.get('/config/meshcentral');
+      if (res.data.configured) {
+        setMeshCentralUrl(res.data.url);
+      }
+    } catch (error) {
+      console.log('MeshCentral not configured');
+    }
+  };
+
+  const openMeshCentral = () => {
+    if (meshCentralUrl) {
+      window.open(meshCentralUrl, '_blank');
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -212,6 +231,18 @@ export default function ServerDetail() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {meshCentralUrl && hasTrmm && (
+            <Button 
+              variant="default"
+              size="sm" 
+              onClick={openMeshCentral}
+              className="bg-cyan-600 hover:bg-cyan-700"
+              data-testid="mesh-connect-btn"
+            >
+              <Terminal className="h-4 w-4 mr-2" />
+              Connect
+            </Button>
+          )}
           {hasTrmm && (
             <Button 
               variant="outline" 

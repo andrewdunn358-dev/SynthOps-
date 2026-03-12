@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { useAuth, useTheme } from '../App';
+import { useAuth, useTheme, apiClient } from '../App';
 import { 
   LayoutDashboard, Building2, Server, ListTodo, FolderKanban, 
   AlertTriangle, Wrench, FileText, Clock, Users, Settings, 
   Shield, LogOut, Menu, X, Sun, Moon, MessageSquare, ChevronLeft,
-  Ticket, BarChart3
+  Ticket, BarChart3, KeyRound, ExternalLink, Monitor
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
@@ -44,6 +44,22 @@ export default function Layout() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sophieOpen, setSophieOpen] = useState(false);
+  const [vaultUrl, setVaultUrl] = useState(null);
+
+  useEffect(() => {
+    // Fetch Vaultwarden URL from backend config
+    const fetchVaultConfig = async () => {
+      try {
+        const res = await apiClient.get('/config/vaultwarden');
+        if (res.data.configured) {
+          setVaultUrl(res.data.url);
+        }
+      } catch (error) {
+        console.log('Vaultwarden not configured');
+      }
+    };
+    fetchVaultConfig();
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -128,7 +144,7 @@ export default function Layout() {
         </nav>
 
         {/* Sophie AI Button */}
-        <div className="p-2 border-t border-border">
+        <div className="p-2 border-t border-border space-y-2">
           <Button
             variant="outline"
             className={`w-full justify-start gap-3 bg-cyan-500/10 border-cyan-500/30 hover:bg-cyan-500/20 text-cyan-400 ${!sidebarOpen && 'justify-center px-0'}`}
@@ -137,6 +153,51 @@ export default function Layout() {
           >
             <MessageSquare className="h-5 w-5" />
             {sidebarOpen && <span>Ask Sophie</span>}
+          </Button>
+          
+          {/* NOC Display Link */}
+          <Button
+            variant="outline"
+            className={`w-full justify-start gap-3 bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20 text-purple-400 ${!sidebarOpen && 'justify-center px-0'}`}
+            onClick={() => window.open('/display', '_blank')}
+            data-testid="noc-display-button"
+          >
+            <Monitor className="h-5 w-5" />
+            {sidebarOpen && (
+              <>
+                <span>NOC Display</span>
+                <ExternalLink className="h-3 w-3 ml-auto" />
+              </>
+            )}
+          </Button>
+          
+          {/* Vaultwarden Link */}
+          {vaultUrl && (
+            <Button
+              variant="outline"
+              className={`w-full justify-start gap-3 bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20 text-amber-400 ${!sidebarOpen && 'justify-center px-0'}`}
+              onClick={() => window.open(vaultUrl, '_blank')}
+              data-testid="vault-button"
+            >
+              <KeyRound className="h-5 w-5" />
+              {sidebarOpen && (
+                <>
+                  <span>Password Vault</span>
+                  <ExternalLink className="h-3 w-3 ml-auto" />
+                </>
+              )}
+            </Button>
+          )}
+          
+          {/* Theme Toggle */}
+          <Button
+            variant="outline"
+            className={`w-full justify-start gap-3 ${!sidebarOpen && 'justify-center px-0'}`}
+            onClick={toggleTheme}
+            data-testid="theme-toggle"
+          >
+            {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            {sidebarOpen && <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>}
           </Button>
         </div>
 

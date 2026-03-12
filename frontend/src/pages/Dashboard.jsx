@@ -8,7 +8,7 @@ import { ScrollArea } from '../components/ui/scroll-area';
 import { 
   Building2, Server, ListTodo, FolderKanban, AlertTriangle, 
   Activity, ArrowRight, CheckCircle, Clock, AlertCircle,
-  RefreshCw, Wrench
+  RefreshCw, Wrench, WifiOff, X, Bell, Ticket
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -16,6 +16,9 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [activity, setActivity] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [offlineDevices, setOfflineDevices] = useState([]);
+  const [dismissedAlerts, setDismissedAlerts] = useState([]);
+  const [ticketStats, setTicketStats] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -23,18 +26,39 @@ export default function Dashboard() {
 
   const fetchData = async () => {
     try {
-      const [statsRes, activityRes] = await Promise.all([
+      const [statsRes, activityRes, serversRes] = await Promise.all([
         apiClient.get('/dashboard/stats'),
-        apiClient.get('/dashboard/activity')
+        apiClient.get('/dashboard/activity'),
+        apiClient.get('/servers')
       ]);
       setStats(statsRes.data);
       setActivity(activityRes.data);
+      
+      // Get offline devices (servers only for critical alerts)
+      const offline = serversRes.data.filter(s => 
+        s.status === 'offline' && s.server_type === 'server'
+      );
+      setOfflineDevices(offline);
+      
+      // Try to get ticket stats
+      try {
+        const ticketRes = await apiClient.get('/zammad/stats');
+        setTicketStats(ticketRes.data);
+      } catch (e) {
+        // Zammad not configured
+      }
     } catch (error) {
       console.error('Dashboard fetch error:', error);
     } finally {
       setLoading(false);
     }
   };
+
+  const dismissAlert = (serverId) => {
+    setDismissedAlerts([...dismissedAlerts, serverId]);
+  };
+
+  const visibleOfflineDevices = offlineDevices.filter(d => !dismissedAlerts.includes(d.id));
 
   const statCards = [
     { 
@@ -136,6 +160,85 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6" data-testid="dashboard">
+      {/* Offline Server Alerts */}
+      {visibleOfflineDevices.length > 0 && (
+        <Card className="border-red-500/50 bg-red-500/5 animate-pulse-slow">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center gap-2 text-red-400">
+              <WifiOff className="h-5 w-5" />
+              <Bell className="h-4 w-4" />
+              {visibleOfflineDevices.length} Server{visibleOfflineDevices.length > 1 ? 's' : ''} Offline
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {visibleOfflineDevices.slice(0, 5).map((device) => (
+                <div 
+                  key={device.id}
+                  className="flex items-center justify-between p-2 bg-red-500/10 rounded"
+                >
+                  <div className="flex items-center gap-3">
+                    <Server className="h-4 w-4 text-red-400" />
+                    <div>
+                      <span className="font-mono font-medium">{device.hostname}</span>
+                      <span className="text-sm text-muted-foreground ml-2">
+                        {device.client_name}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => navigate(`/servers/${device.id}`)}
+                    >
+                      View
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="ghost"
+                      onClick={() => dismissAlert(device.id)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {visibleOfflineDevices.length > 5 && (
+                <Button 
+                  variant="link" 
+                  className="text-red-400"
+                  onClick={() => navigate('/reports')}
+                >
+                  View all {visibleOfflineDevices.length} offline servers
+                  <ArrowRight className="h-4 w-4 ml-1" />
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Open Tickets Alert */}
+      {ticketStats && ticketStats.open > 0 && (
+        <Card className="border-amber-500/50 bg-amber-500/5">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Ticket className="h-5 w-5 text-amber-400" />
+                <span className="font-medium">
+                  {ticketStats.open} open ticket{ticketStats.open > 1 ? 's' : ''} in Zammad
+                </span>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => navigate('/tickets')}>
+                View Tickets
+                <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
