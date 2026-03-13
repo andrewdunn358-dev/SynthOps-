@@ -61,13 +61,16 @@ export default function ServerDetail() {
   };
 
   const openRemoteConnect = () => {
-    // Open TRMM to this agent - user can then connect via TRMM's interface
+    // Open TRMM takecontrol page for this agent
     if (trmmUrl && server?.tactical_rmm_agent_id) {
-      const connectUrl = `${trmmUrl}/#/dashboard/${server.tactical_rmm_agent_id}`;
+      // Format: https://rmm.url/takecontrol/{agent_id}
+      const baseUrl = trmmUrl.replace(/\/api\/?$/, '').replace(/\/$/, '');
+      const connectUrl = `${baseUrl}/takecontrol/${server.tactical_rmm_agent_id}`;
       // Open in new window (not tab) with specific dimensions
       window.open(connectUrl, 'TRMMConnect', 'width=1400,height=900,menubar=no,toolbar=no,location=no,status=no');
     } else if (trmmUrl) {
-      window.open(trmmUrl, 'TRMMConnect', 'width=1400,height=900,menubar=no,toolbar=no,location=no,status=no');
+      const baseUrl = trmmUrl.replace(/\/api\/?$/, '').replace(/\/$/, '');
+      window.open(baseUrl, 'TRMMConnect', 'width=1400,height=900,menubar=no,toolbar=no,location=no,status=no');
     }
   };
 
