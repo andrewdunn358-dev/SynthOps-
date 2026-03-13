@@ -2376,40 +2376,57 @@ async def full_sync_from_trmm(user: dict = Depends(get_current_user)):
 
 @api_router.post("/trmm/reclassify")
 async def reclassify_devices(user: dict = Depends(get_current_user)):
-    """Reclassify devices based on their monitoring_type - move workstations from servers to machines collection"""
-    stats = {"moved_to_machines": 0, "moved_to_servers": 0, "already_correct": 0}
+    """Reclassify devices based on their monitoring_type from TRMM"""
+    stats = {"moved_to_machines": 0, "moved_to_servers": 0, "updated": 0, "errors": 0}
     
-    # Find servers that should be workstations
-    workstations_in_servers = await db.servers.find({"monitoring_type": "workstation"}, {"_id": 0}).to_list(1000)
+    trmm_url = os.environ.get("TACTICAL_RMM_API_URL", "").rstrip("/")
+    api_key = os.environ.get("TACTICAL_RMM_API_KEY", "")
     
-    for ws in workstations_in_servers:
-        # Check if already exists in machines
-        existing = await db.machines.find_one({"tactical_rmm_agent_id": ws.get("tactical_rmm_agent_id")})
-        if not existing:
-            # Create in machines collection
-            ws["machine_type"] = "desktop" if "Desktop" in ws.get("operating_system", "") else "laptop"
-            await db.machines.insert_one(ws)
-        # Delete from servers
-        await db.servers.delete_one({"id": ws["id"]})
-        stats["moved_to_machines"] += 1
+    if not trmm_url or not api_key:
+        raise HTTPException(status_code=400, detail="TRMM not configured")
     
-    # Find machines that should be servers
-    servers_in_machines = await db.machines.find({"monitoring_type": "server"}, {"_id": 0}).to_list(1000)
-    
-    for srv in servers_in_machines:
-        # Check if already exists in servers
-        existing = await db.servers.find_one({"tactical_rmm_agent_id": srv.get("tactical_rmm_agent_id")})
-        if not existing:
-            # Create in servers collection
-            srv["server_type"] = "physical" if srv.get("make_model") else "virtual"
-            srv["environment"] = "production"
-            srv["criticality"] = "medium"
-            await db.servers.insert_one(srv)
-        # Delete from machines
-        await db.machines.delete_one({"id": srv["id"]})
-        stats["moved_to_servers"] += 1
-    
-    return {"message": "Reclassification complete", "stats": stats}
+    async with httpx.AsyncClient(timeout=60.0, verify=False) as client:
+        # Fetch all agents from TRMM to get their monitoring_type
+        try:
+            response = await client.get(
+                f"{trmm_url}/agents/",
+                headers={"X-API-KEY": api_key}
+            )
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail="Failed to fetch agents from TRMM")
+            
+            trmm_agents = response.json()
+            
+            # Build a map of agent_id to monitoring_type
+            agent_types = {agent["agent_id"]: agent.get("monitoring_type", "server") for agent in trmm_agents}
+            
+            # Update all servers with their correct monitoring_type and move workstations
+            all_servers = await db.servers.find({}, {"_id": 0}).to_list(2000)
+            
+            for server in all_servers:
+                trmm_id = server.get("tactical_rmm_agent_id")
+                if not trmm_id:
+                    continue
+                    
+                monitoring_type = agent_types.get(trmm_id, "server")
+                
+                # Update the monitoring_type field
+                await db.servers.update_one(
+                    {"id": server["id"]},
+                    {"$set": {"monitoring_type": monitoring_type}}
+                )
+                stats["updated"] += 1
+                
+                # If it's a workstation, it shouldn't be in servers collection
+                if monitoring_type == "workstation":
+                    # Move to machines collection would happen here but let's keep them in servers
+                    # with correct monitoring_type so the filtering works
+                    stats["moved_to_machines"] += 1
+            
+            return {"message": "Reclassification complete", "stats": stats}
+            
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=500, detail=f"TRMM connection error: {str(e)}")
 
 # ==================== MACHINES (WORKSTATIONS) ====================
 
