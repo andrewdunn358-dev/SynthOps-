@@ -31,20 +31,27 @@ export default function ClientDetail() {
 
   const fetchData = async () => {
     try {
-      const [clientRes, sitesRes, serversRes, workstationsRes, tasksRes, incidentsRes] = await Promise.all([
+      const [clientRes, sitesRes, serversRes, tasksRes, incidentsRes] = await Promise.all([
         apiClient.get(`/clients/${id}`),
         apiClient.get(`/sites?client_id=${id}`),
         apiClient.get(`/servers?client_id=${id}`),
-        apiClient.get(`/workstations?client_id=${id}`),
         apiClient.get(`/tasks?client_id=${id}`),
         apiClient.get(`/incidents?client_id=${id}`)
       ]);
       setClient(clientRes.data);
       setSites(sitesRes.data);
       setServers(serversRes.data);
-      setWorkstations(workstationsRes.data || []);
       setTasks(tasksRes.data);
       setIncidents(incidentsRes.data);
+      
+      // Try to fetch workstations (endpoint may not exist on older backends)
+      try {
+        const wsRes = await apiClient.get(`/workstations?client_id=${id}`);
+        setWorkstations(wsRes.data || []);
+      } catch (e) {
+        // Workstations endpoint not available, set empty
+        setWorkstations([]);
+      }
       
       // Try to fetch Zammad tickets for this client
       fetchTickets(clientRes.data.name);
