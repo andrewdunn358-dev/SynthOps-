@@ -1954,8 +1954,9 @@ async def get_trmm_status(user: dict = Depends(get_current_user)):
                 timeout=5.0
             )
             if response.status_code == 200:
-                # Return base URL without /api suffix for web interface
-                base_url = api_url.replace("/api", "").rstrip("/")
+                # Convert API URL to web interface URL
+                # api.synthesis-it.co.uk -> rmm.synthesis-it.co.uk
+                base_url = api_url.replace("://api.", "://rmm.").replace("/api", "").rstrip("/")
                 return {"status": "connected", "url": base_url}
             else:
                 return {"status": "error", "url": None}
