@@ -76,13 +76,15 @@ mkdir -p $INSTALL_DIR
 cd $INSTALL_DIR
 
 echo -e "${GREEN}[5/7] Downloading SynthOps...${NC}"
-# If git repo exists, pull latest. Otherwise clone.
+# Clone the repository
 if [ -d "$INSTALL_DIR/.git" ]; then
+    cd $INSTALL_DIR
     git pull origin main
 else
-    # For now, create the docker-compose and config files directly
-    # In production, replace with: git clone https://github.com/YOUR_REPO/synthops.git .
-    echo "Creating configuration files..."
+    # Clone fresh
+    rm -rf $INSTALL_DIR/*
+    git clone https://github.com/andrewdunn358-dev/SynthOps-.git $INSTALL_DIR
+    cd $INSTALL_DIR
 fi
 
 echo -e "${GREEN}[6/7] Configuring environment...${NC}"
@@ -133,76 +135,11 @@ EOF
     echo -e "${GREEN}Environment file created at $INSTALL_DIR/.env${NC}"
 fi
 
-# Create docker-compose file if not exists
-if [ ! -f "$INSTALL_DIR/docker-compose.yml" ]; then
-    cat > $INSTALL_DIR/docker-compose.yml << 'DOCKER_EOF'
-version: '3.8'
+# docker-compose.yml comes from GitHub repo, no need to create
 
-services:
-  backend:
-    image: ghcr.io/synthesis-it/synthops-backend:latest
-    container_name: synthops-backend
-    restart: unless-stopped
-    ports:
-      - "8001:8001"
-    env_file:
-      - .env
-    environment:
-      - MONGO_URL=mongodb://mongo:27017
-      - DB_NAME=synthops
-    depends_on:
-      - mongo
-    networks:
-      - synthops-network
-
-  frontend:
-    image: ghcr.io/synthesis-it/synthops-frontend:latest
-    container_name: synthops-frontend
-    restart: unless-stopped
-    ports:
-      - "80:80"
-    depends_on:
-      - backend
-    networks:
-      - synthops-network
-
-  mongo:
-    image: mongo:7
-    container_name: synthops-mongo
-    restart: unless-stopped
-    volumes:
-      - mongo-data:/data/db
-    networks:
-      - synthops-network
-
-  vaultwarden:
-    image: vaultwarden/server:latest
-    container_name: synthops-vaultwarden
-    restart: unless-stopped
-    ports:
-      - "8082:80"
-    environment:
-      - DOMAIN=${VAULTWARDEN_URL:-http://localhost:8082}
-      - ADMIN_TOKEN=${VAULTWARDEN_ADMIN_TOKEN:-}
-      - SIGNUPS_ALLOWED=true
-    volumes:
-      - vaultwarden-data:/data
-    networks:
-      - synthops-network
-
-networks:
-  synthops-network:
-    driver: bridge
-
-volumes:
-  mongo-data:
-  vaultwarden-data:
-DOCKER_EOF
-fi
-
-echo -e "${GREEN}[7/7] Starting SynthOps...${NC}"
+echo -e "${GREEN}[7/7] Building and starting SynthOps...${NC}"
 cd $INSTALL_DIR
-docker compose pull
+docker compose build --no-cache
 docker compose up -d
 
 # Wait for services to start
