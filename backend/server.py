@@ -130,7 +130,7 @@ class UserCreate(BaseModel):
     role: str = "engineer"
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: str  # Can be email or username
     password: str
 
 class UserResponse(BaseModel):
@@ -497,8 +497,11 @@ async def register(user_data: UserCreate):
 
 @api_router.post("/auth/login", response_model=TokenResponse)
 async def login(credentials: UserLogin):
-    # Case-insensitive email lookup
-    user = await db.users.find_one({"email": credentials.email.lower()}, {"_id": 0})
+    # Case-insensitive lookup - allow login with email or username
+    identifier = credentials.email.lower()
+    user = await db.users.find_one({
+        "$or": [{"email": identifier}, {"username": identifier}]
+    }, {"_id": 0})
     if not user or not verify_password(credentials.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.get("is_active", True):
