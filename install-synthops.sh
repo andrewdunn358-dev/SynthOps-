@@ -139,7 +139,7 @@ fi
 
 echo -e "${GREEN}[7/9] Generating SSL certificates...${NC}"
 SSL_DIR="$INSTALL_DIR/ssl"
-DOMAIN="synthops.synthesis-it.co.uk"
+DOMAIN="synthops.synthesis-it.local"
 mkdir -p $SSL_DIR
 
 # Generate self-signed certificate valid for 10 years
@@ -196,8 +196,8 @@ if docker compose ps | grep -q "running"; then
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${CYAN}Access your SynthOps portal (HTTPS):${NC}"
-    echo -e "  ${GREEN}SynthOps:${NC}     https://synthops.synthesis-it.co.uk"
-    echo -e "  ${GREEN}Vaultwarden:${NC}  https://synthops.synthesis-it.co.uk/vault"
+    echo -e "  ${GREEN}SynthOps:${NC}     https://synthops.synthesis-it.local"
+    echo -e "  ${GREEN}Vaultwarden:${NC}  https://synthops.synthesis-it.local/vault"
     echo ""
     echo -e "${YELLOW}NOTE: Self-signed SSL certificate - accept the browser warning${NC}"
     echo ""
@@ -210,7 +210,7 @@ if docker compose ps | grep -q "running"; then
     echo -e "  ${CYAN}nano /opt/synthops/.env${NC}  # Add TEAMS_WEBHOOK_URL"
     echo -e "  ${CYAN}cd /opt/synthops && docker compose restart${NC}"
     echo ""
-    echo -e "  Create your admin account at https://synthops.synthesis-it.co.uk"
+    echo -e "  Create your admin account at https://synthops.synthesis-it.local"
     echo ""
     echo -e "${GREEN}Management Commands:${NC}"
     echo -e "  Start:   ${CYAN}sudo systemctl start synthops${NC}"

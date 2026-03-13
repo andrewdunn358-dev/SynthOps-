@@ -21,7 +21,7 @@ services:
       - EMERGENT_LLM_KEY=${EMERGENT_LLM_KEY:-}
       - MESHCENTRAL_URL=${MESHCENTRAL_URL:-}
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
-      - VAULTWARDEN_URL=https://synthops.synthesis-it.co.uk/vault
+      - VAULTWARDEN_URL=https://synthops.synthesis-it.local/vault
       - CORS_ORIGINS=*
       - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-15}
     depends_on:
@@ -40,7 +40,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - REACT_APP_BACKEND_URL=https://synthops.synthesis-it.co.uk
+        - REACT_APP_BACKEND_URL=https://synthops.synthesis-it.local
     container_name: synthops-frontend
     restart: unless-stopped
     ports:
@@ -75,7 +75,7 @@ services:
     container_name: synthops-vaultwarden
     restart: unless-stopped
     environment:
-      - DOMAIN=https://synthops.synthesis-it.co.uk/vault
+      - DOMAIN=https://synthops.synthesis-it.local/vault
       - ADMIN_TOKEN=${VAULTWARDEN_ADMIN_TOKEN:-}
       - SIGNUPS_ALLOWED=true
       - INVITATIONS_ALLOWED=true
