@@ -147,7 +147,7 @@ openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
     -keyout $SSL_DIR/synthops.key \
     -out $SSL_DIR/synthops.crt \
     -subj "/C=GB/ST=England/L=London/O=Synthesis IT Ltd/CN=$DOMAIN" \
-    -addext "subjectAltName=DNS:$DOMAIN,DNS:localhost" 2>/dev/null
+    -addext "subjectAltName=DNS:synthops.synthesis-it.local,DNS:vault.synthesis-it.local,DNS:localhost" 2>/dev/null
 
 chmod 600 $SSL_DIR/synthops.key
 chmod 644 $SSL_DIR/synthops.crt
@@ -197,7 +197,7 @@ if docker compose ps | grep -q "running"; then
     echo ""
     echo -e "${CYAN}Access your SynthOps portal (HTTPS):${NC}"
     echo -e "  ${GREEN}SynthOps:${NC}     https://synthops.synthesis-it.local"
-    echo -e "  ${GREEN}Vaultwarden:${NC}  https://synthops.synthesis-it.local/vault"
+    echo -e "  ${GREEN}Vaultwarden:${NC}  https://vault.synthesis-it.local"
     echo ""
     echo -e "${YELLOW}NOTE: Self-signed SSL certificate - accept the browser warning${NC}"
     echo ""
