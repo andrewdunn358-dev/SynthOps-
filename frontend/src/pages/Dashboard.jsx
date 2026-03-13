@@ -44,9 +44,10 @@ export default function Dashboard() {
       // Try to get ticket stats
       try {
         const ticketRes = await apiClient.get('/zammad/stats');
+        console.log('Zammad stats:', ticketRes.data);
         setTicketStats(ticketRes.data);
       } catch (e) {
-        // Zammad not configured
+        console.log('Zammad not configured or error:', e.message);
       }
       
       // Try to get Bitdefender security alerts

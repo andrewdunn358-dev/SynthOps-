@@ -3471,17 +3471,36 @@ async def get_zammad_tickets(
     headers = {"Authorization": f"Token token={api_token}"}
     
     try:
-        async with httpx.AsyncClient() as http_client:
-            # Get tickets
-            resp = await http_client.get(
-                f"{api_url}/api/v1/tickets?per_page={limit}&expand=true",
+        async with httpx.AsyncClient(verify=False) as http_client:
+            # Try search API first to get ALL tickets
+            search_resp = await http_client.get(
+                f"{api_url}/api/v1/tickets/search?query=*&limit={limit}&expand=true",
                 headers=headers,
                 timeout=30.0
             )
-            if resp.status_code != 200:
-                raise HTTPException(status_code=500, detail="Failed to fetch tickets")
             
-            tickets = resp.json()
+            if search_resp.status_code == 200:
+                search_data = search_resp.json()
+                if isinstance(search_data, dict) and "assets" in search_data:
+                    # New Zammad format with assets
+                    tickets = list(search_data.get("assets", {}).get("Ticket", {}).values())
+                elif isinstance(search_data, list):
+                    tickets = search_data
+                else:
+                    tickets = []
+            else:
+                # Fallback to regular endpoint
+                resp = await http_client.get(
+                    f"{api_url}/api/v1/tickets?per_page={limit}&expand=true",
+                    headers=headers,
+                    timeout=30.0
+                )
+                if resp.status_code != 200:
+                    logger.error(f"Zammad tickets fetch failed: {resp.status_code}")
+                    raise HTTPException(status_code=500, detail="Failed to fetch tickets")
+                tickets = resp.json()
+            
+            logger.info(f"Zammad returned {len(tickets)} tickets")
             
             # Get states for mapping
             states_resp = await http_client.get(f"{api_url}/api/v1/ticket_states", headers=headers, timeout=10.0)
@@ -3502,13 +3521,16 @@ async def get_zammad_tickets(
             # Enrich tickets
             result = []
             for t in tickets:
+                if not isinstance(t, dict):
+                    continue
+                    
                 org_name = orgs.get(t.get("organization_id"), "")
                 
                 # Filter by organization if specified
                 if organization and org_name.lower() != organization.lower():
                     continue
                 
-                # Filter by state if specified
+                # Filter by state if specified (case-insensitive)
                 state_name = states.get(t.get("state_id"), "unknown")
                 if state and state_name.lower() != state.lower():
                     continue
@@ -3533,6 +3555,7 @@ async def get_zammad_tickets(
             
             return result
     except httpx.RequestError as e:
+        logger.error(f"Zammad connection error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
 
 @api_router.get("/zammad/tickets/{ticket_id}")
@@ -3621,32 +3644,77 @@ async def get_zammad_stats(user: dict = Depends(get_current_user)):
     headers = {"Authorization": f"Token token={api_token}"}
     
     try:
-        async with httpx.AsyncClient() as http_client:
-            # Get tickets
-            resp = await http_client.get(f"{api_url}/api/v1/tickets?per_page=500", headers=headers, timeout=30.0)
-            if resp.status_code != 200:
-                raise HTTPException(status_code=500, detail="Failed to fetch tickets")
-            
-            tickets = resp.json()
-            
-            # Get states for mapping
+        async with httpx.AsyncClient(verify=False) as http_client:
+            # Get states for mapping first
             states_resp = await http_client.get(f"{api_url}/api/v1/ticket_states", headers=headers, timeout=10.0)
-            states = {s["id"]: s["name"] for s in states_resp.json()} if states_resp.status_code == 200 else {}
+            states = {}
+            closed_state_ids = set()
+            if states_resp.status_code == 200:
+                for s in states_resp.json():
+                    states[s["id"]] = s["name"].lower()
+                    # Track which states are considered "closed"
+                    if s.get("state_type_id") == 5 or "closed" in s["name"].lower():
+                        closed_state_ids.add(s["id"])
             
-            # Count by state
+            # Use search API to get ALL tickets (not just those accessible to current user)
+            # First try search API for open tickets
+            search_resp = await http_client.get(
+                f"{api_url}/api/v1/tickets/search?query=*&limit=500&expand=true",
+                headers=headers, 
+                timeout=30.0
+            )
+            
+            if search_resp.status_code == 200:
+                search_data = search_resp.json()
+                # Search API returns {"tickets": [...], "tickets_count": N, ...}
+                if isinstance(search_data, dict) and "tickets" in search_data:
+                    tickets = search_data.get("assets", {}).get("Ticket", {}).values() if "assets" in search_data else []
+                    if not tickets:
+                        # Fallback: tickets might be in a different format
+                        tickets = search_data.get("tickets", [])
+                else:
+                    tickets = search_data if isinstance(search_data, list) else []
+            else:
+                # Fallback to regular tickets endpoint
+                resp = await http_client.get(f"{api_url}/api/v1/tickets?per_page=500&expand=true", headers=headers, timeout=30.0)
+                if resp.status_code != 200:
+                    logger.error(f"Zammad tickets fetch failed: {resp.status_code} - {resp.text}")
+                    raise HTTPException(status_code=500, detail="Failed to fetch tickets")
+                tickets = resp.json()
+            
+            # Ensure tickets is a list
+            if isinstance(tickets, dict):
+                tickets = list(tickets.values())
+            
+            # Count by state (case-insensitive)
             state_counts = {}
+            open_count = 0
+            closed_count = 0
+            
             for t in tickets:
-                state_name = states.get(t.get("state_id"), "unknown")
-                state_counts[state_name] = state_counts.get(state_name, 0) + 1
+                if isinstance(t, dict):
+                    state_id = t.get("state_id")
+                    state_name = states.get(state_id, "unknown").lower()
+                    state_counts[state_name] = state_counts.get(state_name, 0) + 1
+                    
+                    # Count open vs closed
+                    if state_id in closed_state_ids or "closed" in state_name:
+                        closed_count += 1
+                    elif state_name not in ["merged", "removed"]:
+                        # Everything not closed/merged/removed is considered "open"
+                        open_count += 1
+            
+            logger.info(f"Zammad stats: total={len(tickets)}, open={open_count}, closed={closed_count}, states={state_counts}")
             
             return {
                 "total": len(tickets),
                 "by_state": state_counts,
-                "open": state_counts.get("open", 0) + state_counts.get("new", 0),
-                "pending": state_counts.get("pending reminder", 0) + state_counts.get("pending close", 0),
-                "closed": state_counts.get("closed", 0)
+                "open": open_count,
+                "pending": state_counts.get("pending reminder", 0) + state_counts.get("pending close", 0) + state_counts.get("pending", 0),
+                "closed": closed_count
             }
     except httpx.RequestError as e:
+        logger.error(f"Zammad connection error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Connection error: {str(e)}")
 
 
