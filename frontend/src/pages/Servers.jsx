@@ -513,7 +513,12 @@ export default function Servers() {
                     <TableCell className="font-mono font-medium">{server.hostname}</TableCell>
                     <TableCell>{server.client_name || '-'}</TableCell>
                     <TableCell>{server.role || '-'}</TableCell>
-                    <TableCell className="font-mono text-muted-foreground">{server.ip_address || '-'}</TableCell>
+                    <TableCell className="font-mono text-muted-foreground">
+                      <div>{Array.isArray(server.local_ips) ? server.local_ips[0] : server.ip_address || '-'}</div>
+                      {server.public_ip && (
+                        <div className="text-xs opacity-60">Ext: {server.public_ip}</div>
+                      )}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">{server.operating_system || '-'}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className="capitalize">{server.environment}</Badge>

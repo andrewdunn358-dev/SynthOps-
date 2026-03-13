@@ -151,10 +151,23 @@ export default function Admin() {
     setSyncing(true);
     try {
       const response = await apiClient.post('/integrations/trmm/sync');
-      toast.success(`Synced: ${response.data.stats.clients_synced} clients, ${response.data.stats.sites_synced} sites, ${response.data.stats.agents_synced} agents`);
+      toast.success(`Synced: ${response.data.stats.clients_synced} clients, ${response.data.stats.sites_synced} sites, ${response.data.stats.agents_synced} servers, ${response.data.stats.workstations_synced} workstations`);
       fetchData();
     } catch (error) {
       toast.error(getErrorMessage(error, 'Sync failed'));
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const reclassifyDevices = async () => {
+    setSyncing(true);
+    try {
+      const response = await apiClient.post('/trmm/reclassify');
+      toast.success(`Reclassified: ${response.data.stats.moved_to_machines} moved to workstations, ${response.data.stats.moved_to_servers} moved to servers`);
+      fetchData();
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Reclassification failed'));
     } finally {
       setSyncing(false);
     }
@@ -363,7 +376,7 @@ export default function Admin() {
                 Next sync: {new Date(syncStatus.trmm.next_run).toLocaleString()}
               </p>
             )}
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button variant="outline" size="sm" onClick={testTrmmConnection} disabled={testingTrmm}>
                 <RefreshCw className={`h-4 w-4 mr-2 ${testingTrmm ? 'animate-spin' : ''}`} />
                 Test
@@ -371,6 +384,9 @@ export default function Admin() {
               <Button size="sm" onClick={syncFromTrmm} disabled={syncing || trmmStatus?.status !== 'connected'}>
                 <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
                 Sync Now
+              </Button>
+              <Button variant="secondary" size="sm" onClick={reclassifyDevices} disabled={syncing}>
+                Reclassify Devices
               </Button>
             </div>
           </CardContent>

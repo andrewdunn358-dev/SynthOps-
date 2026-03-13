@@ -320,9 +320,14 @@ export default function ServerDetail() {
               <Network className="h-4 w-4" />
               <span className="text-xs">IP Address</span>
             </div>
-            <p className="font-mono text-sm">{trmmData?.local_ips || server.ip_address || '-'}</p>
-            {trmmData?.public_ip && (
-              <p className="font-mono text-xs text-muted-foreground">Public: {trmmData.public_ip}</p>
+            <p className="font-mono text-sm">
+              {(Array.isArray(server.local_ips) ? server.local_ips.join(', ') : server.local_ips) || 
+               trmmData?.local_ips || server.ip_address || '-'}
+            </p>
+            {(server.public_ip || trmmData?.public_ip) && (
+              <p className="font-mono text-xs text-muted-foreground">
+                Public: {server.public_ip || trmmData?.public_ip}
+              </p>
             )}
           </CardContent>
         </Card>
