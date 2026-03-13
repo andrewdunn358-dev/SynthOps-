@@ -223,6 +223,8 @@ class ServerResponse(BaseModel):
     role: Optional[str]
     server_type: str
     ip_address: Optional[str]
+    public_ip: Optional[str] = None
+    local_ips: Optional[list] = None
     operating_system: Optional[str]
     os_version: Optional[str]
     cpu_cores: Optional[int]
@@ -234,6 +236,8 @@ class ServerResponse(BaseModel):
     status: str
     last_health_check: Optional[datetime]
     tactical_rmm_agent_id: Optional[str]
+    mesh_node_id: Optional[str] = None
+    monitoring_type: Optional[str] = None
     created_at: datetime
 
 class TaskCreate(BaseModel):
@@ -603,8 +607,14 @@ async def list_clients(user: dict = Depends(get_current_user)):
         workstation_count = 0
         sites = await db.sites.find({"client_id": c["id"]}, {"id": 1}).to_list(1000)
         for site in sites:
-            server_count += await db.servers.count_documents({"site_id": site["id"]})
+            # Count only actual servers
+            server_count += await db.servers.count_documents({
+                "site_id": site["id"],
+                "$or": [{"monitoring_type": "server"}, {"monitoring_type": {"$exists": False}}]
+            })
+            # Count workstations from both machines collection AND servers with workstation monitoring_type
             workstation_count += await db.machines.count_documents({"site_id": site["id"]})
+            workstation_count += await db.servers.count_documents({"site_id": site["id"], "monitoring_type": "workstation"})
         
         result.append(ClientResponse(
             id=c["id"], name=c["name"], code=c["code"],
@@ -630,8 +640,14 @@ async def get_client(client_id: str, user: dict = Depends(get_current_user)):
     workstation_count = 0
     sites = await db.sites.find({"client_id": client_id}, {"id": 1}).to_list(1000)
     for site in sites:
-        server_count += await db.servers.count_documents({"site_id": site["id"]})
+        # Count only actual servers
+        server_count += await db.servers.count_documents({
+            "site_id": site["id"],
+            "$or": [{"monitoring_type": "server"}, {"monitoring_type": {"$exists": False}}]
+        })
+        # Count workstations from both machines collection AND servers with workstation monitoring_type
         workstation_count += await db.machines.count_documents({"site_id": site["id"]})
+        workstation_count += await db.servers.count_documents({"site_id": site["id"], "monitoring_type": "workstation"})
     return ClientResponse(
         id=c["id"], name=c["name"], code=c["code"],
         contact_name=c.get("contact_name"), contact_email=c.get("contact_email"),
@@ -766,8 +782,17 @@ async def delete_site(site_id: str, user: dict = Depends(get_current_user)):
 
 @api_router.get("/servers", response_model=List[ServerResponse])
 async def list_servers(client_id: Optional[str] = None, site_id: Optional[str] = None, 
-                       status: Optional[str] = None, user: dict = Depends(get_current_user)):
+                       status: Optional[str] = None, include_workstations: bool = False,
+                       user: dict = Depends(get_current_user)):
     query = {}
+    
+    # By default, only return actual servers (not workstations that may be in the collection)
+    if not include_workstations:
+        query["$or"] = [
+            {"monitoring_type": "server"},
+            {"monitoring_type": {"$exists": False}}  # Include manually added servers without monitoring_type
+        ]
+    
     if site_id:
         query["site_id"] = site_id
     if status:
@@ -793,7 +818,10 @@ async def list_servers(client_id: Optional[str] = None, site_id: Optional[str] =
             id=s["id"], site_id=s["site_id"], site_name=site["name"] if site else None,
             client_id=client_id_val, client_name=client_name,
             hostname=s["hostname"], role=s.get("role"), server_type=s.get("server_type", "virtual"),
-            ip_address=s.get("ip_address"), operating_system=s.get("operating_system"),
+            ip_address=s.get("ip_address"), 
+            public_ip=s.get("public_ip"),
+            local_ips=s.get("local_ips"),
+            operating_system=s.get("operating_system"),
             os_version=s.get("os_version"), cpu_cores=s.get("cpu_cores"),
             ram_gb=s.get("ram_gb"), storage_gb=s.get("storage_gb"),
             environment=s.get("environment", "production"),
@@ -802,6 +830,8 @@ async def list_servers(client_id: Optional[str] = None, site_id: Optional[str] =
             status=s.get("status", "online"),
             last_health_check=datetime.fromisoformat(s["last_health_check"]) if s.get("last_health_check") else None,
             tactical_rmm_agent_id=s.get("tactical_rmm_agent_id"),
+            mesh_node_id=s.get("mesh_node_id"),
+            monitoring_type=s.get("monitoring_type"),
             created_at=datetime.fromisoformat(s["created_at"])
         ))
     return result
@@ -824,7 +854,10 @@ async def get_server(server_id: str, user: dict = Depends(get_current_user)):
         id=s["id"], site_id=s["site_id"], site_name=site["name"] if site else None,
         client_id=client_id_val, client_name=client_name,
         hostname=s["hostname"], role=s.get("role"), server_type=s.get("server_type", "virtual"),
-        ip_address=s.get("ip_address"), operating_system=s.get("operating_system"),
+        ip_address=s.get("ip_address"),
+        public_ip=s.get("public_ip"),
+        local_ips=s.get("local_ips"),
+        operating_system=s.get("operating_system"),
         os_version=s.get("os_version"), cpu_cores=s.get("cpu_cores"),
         ram_gb=s.get("ram_gb"), storage_gb=s.get("storage_gb"),
         environment=s.get("environment", "production"),
@@ -833,8 +866,59 @@ async def get_server(server_id: str, user: dict = Depends(get_current_user)):
         status=s.get("status", "online"),
         last_health_check=datetime.fromisoformat(s["last_health_check"]) if s.get("last_health_check") else None,
         tactical_rmm_agent_id=s.get("tactical_rmm_agent_id"),
+        mesh_node_id=s.get("mesh_node_id"),
+        monitoring_type=s.get("monitoring_type"),
         created_at=datetime.fromisoformat(s["created_at"])
     )
+
+# Workstations endpoint - returns items from servers collection with monitoring_type=workstation
+@api_router.get("/workstations")
+async def list_workstations(client_id: Optional[str] = None, site_id: Optional[str] = None, 
+                           status: Optional[str] = None, user: dict = Depends(get_current_user)):
+    query = {"monitoring_type": "workstation"}
+    
+    if site_id:
+        query["site_id"] = site_id
+    if status:
+        query["status"] = status
+    
+    if client_id:
+        sites = await db.sites.find({"client_id": client_id}, {"id": 1}).to_list(1000)
+        site_ids = [s["id"] for s in sites]
+        query["site_id"] = {"$in": site_ids}
+    
+    workstations = await db.servers.find(query, {"_id": 0}).sort("hostname", 1).to_list(1000)
+    
+    result = []
+    for w in workstations:
+        site = await db.sites.find_one({"id": w.get("site_id")}, {"name": 1, "client_id": 1})
+        client_name = None
+        if site:
+            client = await db.clients.find_one({"id": site["client_id"]}, {"name": 1})
+            client_name = client["name"] if client else None
+        
+        result.append({
+            "id": w["id"],
+            "hostname": w["hostname"],
+            "site_id": w.get("site_id"),
+            "site_name": site["name"] if site else None,
+            "client_name": client_name,
+            "ip_address": w.get("ip_address"),
+            "public_ip": w.get("public_ip"),
+            "local_ips": w.get("local_ips"),
+            "operating_system": w.get("operating_system"),
+            "status": w.get("status", "online"),
+            "last_seen": w.get("last_seen"),
+            "logged_in_username": w.get("logged_in_username"),
+            "mesh_node_id": w.get("mesh_node_id"),
+            "monitoring_type": w.get("monitoring_type"),
+            "make_model": w.get("make_model"),
+            "cpu_model": w.get("cpu_model"),
+            "total_ram": w.get("total_ram"),
+            "tactical_rmm_agent_id": w.get("tactical_rmm_agent_id"),
+            "created_at": w.get("created_at")
+        })
+    return result
 
 @api_router.post("/servers", response_model=ServerResponse)
 async def create_server(server_data: ServerCreate, user: dict = Depends(get_current_user)):
@@ -2603,9 +2687,11 @@ async def get_sophie_history(session_id: Optional[str] = None, user: dict = Depe
 @api_router.get("/dashboard/stats", response_model=DashboardStats)
 async def get_dashboard_stats(user: dict = Depends(get_current_user)):
     total_clients = await db.clients.count_documents({"is_active": True})
-    total_servers = await db.servers.count_documents({})
-    servers_online = await db.servers.count_documents({"status": "online"})
-    servers_offline = await db.servers.count_documents({"status": "offline"})
+    # Only count actual servers (not workstations that may be in the collection)
+    server_filter = {"$or": [{"monitoring_type": "server"}, {"monitoring_type": {"$exists": False}}]}
+    total_servers = await db.servers.count_documents(server_filter)
+    servers_online = await db.servers.count_documents({**server_filter, "status": "online"})
+    servers_offline = await db.servers.count_documents({**server_filter, "status": "offline"})
     open_incidents = await db.incidents.count_documents({"status": {"$in": ["open", "investigating"]}})
     open_tasks = await db.tasks.count_documents({"status": {"$in": ["open", "in_progress"]}})
     active_projects = await db.projects.count_documents({"status": {"$in": ["planning", "active"]}})

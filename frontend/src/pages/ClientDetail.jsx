@@ -18,6 +18,7 @@ export default function ClientDetail() {
   const [client, setClient] = useState(null);
   const [sites, setSites] = useState([]);
   const [servers, setServers] = useState([]);
+  const [workstations, setWorkstations] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [incidents, setIncidents] = useState([]);
   const [tickets, setTickets] = useState([]);
@@ -30,16 +31,18 @@ export default function ClientDetail() {
 
   const fetchData = async () => {
     try {
-      const [clientRes, sitesRes, serversRes, tasksRes, incidentsRes] = await Promise.all([
+      const [clientRes, sitesRes, serversRes, workstationsRes, tasksRes, incidentsRes] = await Promise.all([
         apiClient.get(`/clients/${id}`),
         apiClient.get(`/sites?client_id=${id}`),
         apiClient.get(`/servers?client_id=${id}`),
+        apiClient.get(`/workstations?client_id=${id}`),
         apiClient.get(`/tasks?client_id=${id}`),
         apiClient.get(`/incidents?client_id=${id}`)
       ]);
       setClient(clientRes.data);
       setSites(sitesRes.data);
       setServers(serversRes.data);
+      setWorkstations(workstationsRes.data || []);
       setTasks(tasksRes.data);
       setIncidents(incidentsRes.data);
       
@@ -65,9 +68,9 @@ export default function ClientDetail() {
     }
   };
 
-  // Separate servers and workstations
-  const actualServers = servers.filter(s => s.server_type === 'server');
-  const workstations = servers.filter(s => s.server_type === 'workstation' || s.server_type !== 'server');
+  // Servers from the API are now filtered by the backend (only actual servers)
+  // Workstations come from the separate /workstations endpoint
+  const actualServers = servers;
 
   const getStatusClass = (status) => {
     switch (status) {
