@@ -124,6 +124,10 @@ VAULTWARDEN_ADMIN_TOKEN=$JWT_SECRET
 # Microsoft Teams Webhook (add your webhook URL)
 TEAMS_WEBHOOK_URL=
 
+# Bitdefender GravityZone Integration
+BITDEFENDER_API_URL=https://cloudgz.gravityzone.bitdefender.com/api
+BITDEFENDER_API_KEY=7510095d090dfbf4d478b759d80219c5789f59bd8e2f84d14db6fdde62b9c98a
+
 # Sync interval in minutes
 SYNC_INTERVAL_MINUTES=15
 

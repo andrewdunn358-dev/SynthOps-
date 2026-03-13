@@ -8,7 +8,7 @@ import { ScrollArea } from '../components/ui/scroll-area';
 import { 
   Building2, Server, ListTodo, FolderKanban, AlertTriangle, 
   Activity, ArrowRight, CheckCircle, Clock, AlertCircle,
-  RefreshCw, Wrench, WifiOff, X, Bell, Ticket
+  RefreshCw, Wrench, WifiOff, X, Bell, Ticket, Shield, ShieldAlert
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -19,6 +19,7 @@ export default function Dashboard() {
   const [offlineDevices, setOfflineDevices] = useState([]);
   const [dismissedAlerts, setDismissedAlerts] = useState([]);
   const [ticketStats, setTicketStats] = useState(null);
+  const [securityAlerts, setSecurityAlerts] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -46,6 +47,14 @@ export default function Dashboard() {
         setTicketStats(ticketRes.data);
       } catch (e) {
         // Zammad not configured
+      }
+      
+      // Try to get Bitdefender security alerts
+      try {
+        const securityRes = await apiClient.get('/bitdefender/alerts');
+        setSecurityAlerts(securityRes.data);
+      } catch (e) {
+        // Bitdefender not configured
       }
     } catch (error) {
       console.error('Dashboard fetch error:', error);
@@ -235,6 +244,54 @@ export default function Dashboard() {
                 <ArrowRight className="h-4 w-4 ml-1" />
               </Button>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Security Alerts from Bitdefender */}
+      {securityAlerts && securityAlerts.alerts && securityAlerts.alerts.length > 0 && (
+        <Card className={`border-${securityAlerts.has_critical ? 'red' : securityAlerts.has_high ? 'orange' : 'yellow'}-500/50 bg-${securityAlerts.has_critical ? 'red' : securityAlerts.has_high ? 'orange' : 'yellow'}-500/5`}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center gap-2 text-red-400">
+              <ShieldAlert className="h-5 w-5" />
+              {securityAlerts.total} Security Alert{securityAlerts.total > 1 ? 's' : ''}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {securityAlerts.alerts.slice(0, 5).map((alert, idx) => (
+                <div key={alert.id || idx} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+                  <div className="flex items-center gap-3">
+                    <Shield className={`h-4 w-4 ${
+                      alert.severity === 'critical' ? 'text-red-500' :
+                      alert.severity === 'high' ? 'text-orange-500' :
+                      'text-yellow-500'
+                    }`} />
+                    <div>
+                      <p className="font-medium text-sm">{alert.title}</p>
+                      <p className="text-xs text-muted-foreground">{alert.endpoint}</p>
+                    </div>
+                  </div>
+                  <Badge className={
+                    alert.severity === 'critical' ? 'bg-red-500/20 text-red-400' :
+                    alert.severity === 'high' ? 'bg-orange-500/20 text-orange-400' :
+                    'bg-yellow-500/20 text-yellow-400'
+                  }>
+                    {alert.type}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+            {securityAlerts.total > 5 && (
+              <Button 
+                variant="link" 
+                className="text-red-400 mt-2 p-0"
+                onClick={() => window.open('https://cloudgz.gravityzone.bitdefender.com/', '_blank')}
+              >
+                View all in GravityZone
+                <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}

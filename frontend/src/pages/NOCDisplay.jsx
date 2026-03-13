@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '../App';
-import { Server, Ticket, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw } from 'lucide-react';
+import { Server, Ticket, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield } from 'lucide-react';
 
 export default function NOCDisplay() {
   const [stats, setStats] = useState(null);
   const [servers, setServers] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [incidents, setIncidents] = useState([]);
+  const [securityAlerts, setSecurityAlerts] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [error, setError] = useState(null);
@@ -37,6 +38,14 @@ export default function NOCDisplay() {
         setTickets(ticketsRes.data?.filter(t => t.state !== 'closed') || []);
       } catch (e) {
         // Zammad not configured, ignore
+      }
+      
+      // Try to get Bitdefender security alerts
+      try {
+        const securityRes = await apiClient.get('/bitdefender/alerts');
+        setSecurityAlerts(securityRes.data);
+      } catch (e) {
+        // Bitdefender not configured, ignore
       }
     } catch (err) {
       console.error('NOC fetch error:', err);
@@ -169,6 +178,16 @@ export default function NOCDisplay() {
           </div>
         </div>
         
+        <div className={`noc-stat ${securityAlerts?.has_critical ? 'offline' : securityAlerts?.has_high ? 'warning' : 'ok'}`}>
+          <div className="noc-stat-icon">
+            <ShieldAlert className="h-12 w-12" />
+          </div>
+          <div className="noc-stat-content">
+            <span className="noc-stat-number">{securityAlerts?.total || 0}</span>
+            <span className="noc-stat-label">Security Alerts</span>
+          </div>
+        </div>
+        
         <div className="noc-stat clients">
           <div className="noc-stat-icon">
             <Users className="h-12 w-12" />
@@ -179,6 +198,25 @@ export default function NOCDisplay() {
           </div>
         </div>
       </div>
+
+      {/* Security Alerts Panel */}
+      {securityAlerts && securityAlerts.alerts && securityAlerts.alerts.length > 0 && (
+        <div className={`noc-alert-panel ${securityAlerts.has_critical ? 'critical' : securityAlerts.has_high ? 'high' : 'warning'}`}>
+          <h3 className="noc-alert-title">
+            <Shield className="h-6 w-6" />
+            Security Alerts - Bitdefender
+          </h3>
+          <div className="noc-alert-list">
+            {securityAlerts.alerts.slice(0, 8).map((alert, idx) => (
+              <div key={alert.id || idx} className={`noc-alert-item ${alert.severity}`}>
+                <span className="noc-alert-type">{alert.type}</span>
+                <span className="noc-alert-title-text">{alert.title}</span>
+                <span className="noc-alert-endpoint">{alert.endpoint}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Server Grid */}
       <div className="noc-grid-container">
@@ -667,6 +705,92 @@ export default function NOCDisplay() {
           border-top: 1px solid #222;
           font-size: 0.875rem;
           color: #555;
+        }
+
+        /* Security Alerts Panel */
+        .noc-alert-panel {
+          background: #0d0d12;
+          border: 2px solid #333;
+          border-radius: 8px;
+          padding: 15px;
+          margin-bottom: 20px;
+        }
+
+        .noc-alert-panel.critical {
+          border-color: #dc2626;
+          background: linear-gradient(180deg, #1a0505 0%, #0d0d12 100%);
+        }
+
+        .noc-alert-panel.high {
+          border-color: #ea580c;
+          background: linear-gradient(180deg, #1a0f05 0%, #0d0d12 100%);
+        }
+
+        .noc-alert-panel.warning {
+          border-color: #ca8a04;
+          background: linear-gradient(180deg, #1a1505 0%, #0d0d12 100%);
+        }
+
+        .noc-alert-title {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          font-size: 1.1rem;
+          font-weight: 600;
+          margin-bottom: 15px;
+          color: #f87171;
+        }
+
+        .noc-alert-list {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+          gap: 10px;
+        }
+
+        .noc-alert-item {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 10px 15px;
+          background: #0a0a0f;
+          border-radius: 6px;
+          border-left: 3px solid #666;
+        }
+
+        .noc-alert-item.critical {
+          border-left-color: #dc2626;
+        }
+
+        .noc-alert-item.high {
+          border-left-color: #ea580c;
+        }
+
+        .noc-alert-item.medium {
+          border-left-color: #ca8a04;
+        }
+
+        .noc-alert-type {
+          font-size: 0.7rem;
+          font-weight: 600;
+          padding: 2px 6px;
+          border-radius: 3px;
+          background: #333;
+          color: #999;
+          text-transform: uppercase;
+        }
+
+        .noc-alert-title-text {
+          flex: 1;
+          font-size: 0.9rem;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .noc-alert-endpoint {
+          font-size: 0.8rem;
+          color: #666;
+          font-family: 'JetBrains Mono', monospace;
         }
       `}</style>
     </div>

@@ -3237,6 +3237,174 @@ async def export_client_report(client_id: str, user: dict = Depends(get_current_
     )
 
 
+# ==================== BITDEFENDER GRAVITYZONE INTEGRATION ====================
+
+async def bitdefender_api_call(method: str, endpoint: str, params: dict = None):
+    """Make a JSON-RPC call to Bitdefender GravityZone API"""
+    api_url = os.environ.get("BITDEFENDER_API_URL", "").rstrip("/")
+    api_key = os.environ.get("BITDEFENDER_API_KEY", "")
+    
+    if not api_url or not api_key:
+        return None
+    
+    auth = base64.b64encode(f"{api_key}:".encode()).decode()
+    
+    payload = {
+        "jsonrpc": "2.0",
+        "method": method,
+        "params": params or {},
+        "id": str(uuid.uuid4())
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{api_url}/v1.0/jsonrpc/{endpoint}",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Basic {auth}"
+                },
+                json=payload
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if "result" in data:
+                    return data["result"]
+                elif "error" in data:
+                    logging.error(f"Bitdefender API error: {data['error']}")
+                    return None
+            return None
+    except Exception as e:
+        logging.error(f"Bitdefender API call failed: {str(e)}")
+        return None
+
+@api_router.get("/bitdefender/test")
+async def test_bitdefender_connection(user: dict = Depends(get_current_user)):
+    """Test Bitdefender GravityZone API connection"""
+    api_url = os.environ.get("BITDEFENDER_API_URL", "")
+    api_key = os.environ.get("BITDEFENDER_API_KEY", "")
+    
+    if not api_url or not api_key:
+        return {"status": "not_configured", "message": "Bitdefender not configured"}
+    
+    # Test with reports endpoint (usually available)
+    result = await bitdefender_api_call("getReportsList", "reports", {})
+    
+    if result is not None:
+        return {"status": "connected", "message": "Successfully connected to Bitdefender GravityZone"}
+    else:
+        return {"status": "error", "message": "Failed to connect to Bitdefender API"}
+
+@api_router.get("/bitdefender/status")
+async def get_bitdefender_status(user: dict = Depends(get_current_user)):
+    """Get Bitdefender connection status"""
+    api_url = os.environ.get("BITDEFENDER_API_URL", "")
+    api_key = os.environ.get("BITDEFENDER_API_KEY", "")
+    
+    if not api_url or not api_key:
+        return {"configured": False}
+    
+    result = await bitdefender_api_call("getReportsList", "reports", {})
+    return {
+        "configured": True,
+        "connected": result is not None,
+        "url": "https://cloudgz.gravityzone.bitdefender.com"
+    }
+
+@api_router.get("/bitdefender/incidents")
+async def get_bitdefender_incidents(
+    page: int = 1,
+    per_page: int = 50,
+    user: dict = Depends(get_current_user)
+):
+    """Get security incidents from Bitdefender"""
+    # Try to get incidents - requires Network permission on API key
+    result = await bitdefender_api_call("getIncidentsList", "incidents", {
+        "page": page,
+        "perPage": per_page
+    })
+    
+    if result:
+        return {
+            "total": result.get("total", 0),
+            "items": result.get("items", [])
+        }
+    
+    # Fallback: return cached/stored incidents
+    incidents = await db.bitdefender_incidents.find({}, {"_id": 0}).sort("created_at", -1).limit(per_page).to_list(per_page)
+    return {"total": len(incidents), "items": incidents, "cached": True}
+
+@api_router.get("/bitdefender/quarantine")
+async def get_bitdefender_quarantine(
+    page: int = 1,
+    per_page: int = 50,
+    user: dict = Depends(get_current_user)
+):
+    """Get quarantined items from Bitdefender"""
+    result = await bitdefender_api_call("getQuarantineItemsList", "quarantine", {
+        "page": page,
+        "perPage": per_page
+    })
+    
+    if result:
+        return {
+            "total": result.get("total", 0),
+            "items": result.get("items", [])
+        }
+    return {"total": 0, "items": []}
+
+@api_router.get("/bitdefender/alerts")
+async def get_bitdefender_alerts(user: dict = Depends(get_current_user)):
+    """Get recent security alerts for dashboard/NOC display"""
+    alerts = []
+    
+    # Try incidents API
+    incidents = await bitdefender_api_call("getIncidentsList", "incidents", {
+        "page": 1,
+        "perPage": 20
+    })
+    if incidents and incidents.get("items"):
+        for item in incidents["items"]:
+            alerts.append({
+                "id": item.get("id"),
+                "type": "incident",
+                "severity": item.get("severity", "medium"),
+                "title": item.get("name", "Security Incident"),
+                "description": item.get("description", ""),
+                "endpoint": item.get("endpointName", "Unknown"),
+                "created_at": item.get("createdAt"),
+                "source": "bitdefender"
+            })
+    
+    # Try quarantine API
+    quarantine = await bitdefender_api_call("getQuarantineItemsList", "quarantine", {
+        "page": 1,
+        "perPage": 20
+    })
+    if quarantine and quarantine.get("items"):
+        for item in quarantine["items"]:
+            alerts.append({
+                "id": item.get("quarantineItemId"),
+                "type": "quarantine",
+                "severity": "high",
+                "title": f"Malware Quarantined: {item.get('threatName', 'Unknown Threat')}",
+                "description": item.get("filePath", ""),
+                "endpoint": item.get("endpointName", "Unknown"),
+                "created_at": item.get("quarantinedOn"),
+                "source": "bitdefender"
+            })
+    
+    # Sort by date, newest first
+    alerts.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    
+    return {
+        "total": len(alerts),
+        "alerts": alerts[:20],
+        "has_critical": any(a.get("severity") == "critical" for a in alerts),
+        "has_high": any(a.get("severity") == "high" for a in alerts)
+    }
+
+
 # ==================== ZAMMAD INTEGRATION ====================
 
 @api_router.get("/zammad/test")
