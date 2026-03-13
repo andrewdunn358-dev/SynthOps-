@@ -59,7 +59,12 @@ export default function ServerDetail() {
   };
 
   const openMeshCentral = () => {
-    if (meshCentralUrl) {
+    if (meshCentralUrl && server?.mesh_node_id) {
+      // Use direct connection URL with mesh node ID for auto-connect
+      const connectUrl = `${meshCentralUrl}/?viewmode=11&gotonode=${server.mesh_node_id}`;
+      window.open(connectUrl, '_blank');
+    } else if (meshCentralUrl) {
+      // Fallback to just opening MeshCentral
       window.open(meshCentralUrl, '_blank');
     }
   };

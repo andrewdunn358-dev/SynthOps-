@@ -2177,8 +2177,10 @@ async def full_sync_from_trmm(user: dict = Depends(get_current_user)):
                     # Determine if this is a server or workstation
                     is_server = monitoring_type == "server"
                     
-                    # Extract hardware info
-                    local_ips = agent.get("local_ips", [])
+                    # Extract hardware info - local_ips can be string or list
+                    local_ips = agent.get("local_ips", "")
+                    if isinstance(local_ips, str):
+                        local_ips = [local_ips] if local_ips else []
                     ip_address = local_ips[0] if local_ips else agent.get("public_ip")
                     
                     # Build comprehensive machine data
@@ -2192,8 +2194,8 @@ async def full_sync_from_trmm(user: dict = Depends(get_current_user)):
                         "status": "online" if agent.get("status") == "online" else "offline",
                         "last_seen": agent.get("last_seen"),
                         "boot_time": agent.get("boot_time"),
-                        "logged_in_username": agent.get("logged_in_username"),
-                        "last_logged_in_user": agent.get("last_logged_in_user"),
+                        "logged_in_username": agent.get("logged_username"),
+                        "last_logged_in_user": agent.get("logged_username"),
                         # Hardware info
                         "cpu_model": agent.get("cpu_model"),
                         "cpu_cores": agent.get("cpu_count"),
@@ -2208,7 +2210,7 @@ async def full_sync_from_trmm(user: dict = Depends(get_current_user)):
                         "local_ips": local_ips,
                         "mac_addresses": agent.get("mac_addresses", []),
                         # Agent info
-                        "agent_version": agent.get("agent_version"),
+                        "agent_version": agent.get("version"),
                         "antivirus": agent.get("antivirus"),
                         "needs_reboot": agent.get("needs_reboot", False),
                         "pending_actions_count": agent.get("pending_actions_count", 0),
@@ -2218,11 +2220,29 @@ async def full_sync_from_trmm(user: dict = Depends(get_current_user)):
                         "tactical_rmm_agent_id": agent_id,
                         "monitoring_type": monitoring_type,
                         "is_server": is_server,
+                        "mesh_node_id": None,  # Will be fetched in detailed sync
                         "synced_at": datetime.now(timezone.utc).isoformat(),
                         "updated_at": datetime.now(timezone.utc).isoformat()
                     }
                     
+                    # Fetch detailed agent info to get mesh_node_id for remote connect
+                    try:
+                        detail_response = await client.get(
+                            f"{trmm_url.rstrip('/')}/agents/{agent_id}/",
+                            headers={"X-API-KEY": api_key}
+                        )
+                        if detail_response.status_code == 200:
+                            detail_data = detail_response.json()
+                            machine_data["mesh_node_id"] = detail_data.get("mesh_node_id")
+                    except:
+                        pass  # Continue without mesh_node_id if detail fetch fails
+                    
                     if is_server:
+                        # Check if wrongly stored as workstation, move it
+                        existing_as_machine = await db.machines.find_one({"tactical_rmm_agent_id": agent_id})
+                        if existing_as_machine:
+                            await db.machines.delete_one({"tactical_rmm_agent_id": agent_id})
+                        
                         # Store as server
                         existing_server = await db.servers.find_one({"tactical_rmm_agent_id": agent_id})
                         if existing_server:
@@ -2240,6 +2260,11 @@ async def full_sync_from_trmm(user: dict = Depends(get_current_user)):
                             await db.servers.insert_one(machine_data)
                         stats["agents_synced"] += 1
                     else:
+                        # Check if wrongly stored as server, move it
+                        existing_as_server = await db.servers.find_one({"tactical_rmm_agent_id": agent_id})
+                        if existing_as_server:
+                            await db.servers.delete_one({"tactical_rmm_agent_id": agent_id})
+                        
                         # Store as workstation/machine
                         existing_machine = await db.machines.find_one({"tactical_rmm_agent_id": agent_id})
                         if existing_machine:
