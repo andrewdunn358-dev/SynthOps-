@@ -44,7 +44,7 @@ A comprehensive, self-hosted IT Operations Portal designed for MSPs and IT teams
 ### One-Line Installation (Ubuntu)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/synthesis-it/synthops/main/install-synthops.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/andrewdunn358-dev/SynthOps-/main/install-synthops.sh | sudo bash
 ```
 
 This will:

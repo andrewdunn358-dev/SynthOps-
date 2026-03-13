@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # SynthOps One-Line Installer for Ubuntu
-# Usage: curl -fsSL https://raw.githubusercontent.com/YOUR_REPO/main/install-synthops.sh | sudo bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/andrewdunn358-dev/SynthOps-/main/install-synthops.sh | sudo bash
 #
 # This script installs Docker, Docker Compose, and deploys SynthOps
 #

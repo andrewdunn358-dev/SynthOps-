@@ -84,15 +84,14 @@ Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - 
 
 ### One-Line Ubuntu Install
 ```bash
-curl -fsSL https://raw.githubusercontent.com/synthesis-it/synthops/main/install-synthops.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/andrewdunn358-dev/SynthOps-/main/install-synthops.sh | sudo bash
 ```
 
 ### Docker Compose
 ```bash
-git clone https://github.com/synthesis-it/synthops.git
-cd synthops
+git clone https://github.com/andrewdunn358-dev/SynthOps-.git
+cd SynthOps-
 cp .env.example .env
-# Edit .env with your API keys
 docker compose up -d
 ```
 
