@@ -4,7 +4,7 @@ import { useAuth, useTheme, apiClient } from '../App';
 import { 
   LayoutDashboard, Building2, Server, ListTodo, FolderKanban, 
   AlertTriangle, Wrench, FileText, Clock, Users, Settings, 
-  Shield, LogOut, Menu, X, Sun, Moon, MessageSquare, ChevronLeft,
+  Shield, LogOut, Menu, X, Sun, Moon, ChevronLeft,
   Ticket, BarChart3, KeyRound, ExternalLink, Monitor, ShieldCheck
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
@@ -16,7 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
-import Sophie from './Sophie';
+import SophieFloating from './SophieFloating';
 
 const navItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard', exact: true },
@@ -44,7 +44,6 @@ export default function Layout() {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sophieOpen, setSophieOpen] = useState(false);
   const [vaultUrl, setVaultUrl] = useState(null);
 
   useEffect(() => {
@@ -143,18 +142,8 @@ export default function Layout() {
           )}
         </nav>
 
-        {/* Sophie AI Button */}
-        <div className="p-2 border-t border-border space-y-2">
-          <Button
-            variant="outline"
-            className={`w-full justify-start gap-3 bg-cyan-500/10 border-cyan-500/30 hover:bg-cyan-500/20 text-cyan-400 ${!sidebarOpen && 'justify-center px-0'}`}
-            onClick={() => setSophieOpen(true)}
-            data-testid="sophie-button"
-          >
-            <MessageSquare className="h-5 w-5" />
-            {sidebarOpen && <span>Ask Sophie</span>}
-          </Button>
-          
+        {/* Sophie AI Button - Removed, now floating */}
+        <div className="p-2 border-t border-border space-y-2">          
           {/* NOC Display Link */}
           <Button
             variant="outline"
@@ -245,8 +234,8 @@ export default function Layout() {
         </div>
       </main>
 
-      {/* Sophie AI Chat */}
-      <Sophie open={sophieOpen} onClose={() => setSophieOpen(false)} />
+      {/* Sophie AI Floating Chat */}
+      <SophieFloating />
     </div>
   );
 }

@@ -568,6 +568,20 @@ async def toggle_user_status(user_id: str, is_active: bool = Body(..., embed=Tru
         raise HTTPException(status_code=404, detail="User not found")
     return {"message": "Status updated"}
 
+@api_router.put("/users/{user_id}/reset-password")
+async def reset_user_password(user_id: str, password: str = Body(..., embed=True), admin: dict = Depends(require_admin)):
+    """Reset a user's password (admin only)"""
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    
+    password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    result = await db.users.update_one({"id": user_id}, {"$set": {"password_hash": password_hash}})
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {"message": "Password reset successfully"}
+
 # ==================== CLIENTS ====================
 
 @api_router.get("/clients", response_model=List[ClientResponse])

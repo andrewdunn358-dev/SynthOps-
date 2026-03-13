@@ -41,7 +41,7 @@ export default function Tickets() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState('');
-  const [stateFilter, setStateFilter] = useState('all');
+  const [stateFilter, setStateFilter] = useState('open'); // Default to open tickets only
   const [stats, setStats] = useState(null);
   
   // Ticket detail dialog

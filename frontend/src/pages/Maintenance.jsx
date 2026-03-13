@@ -51,7 +51,7 @@ export default function Maintenance() {
   const [servers, setServers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('upcoming'); // Default to show upcoming/overdue
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const [form, setForm] = useState({
@@ -116,15 +116,86 @@ export default function Maintenance() {
     });
   };
 
+  // Calculate overdue and upcoming maintenance
+  const now = new Date();
+  const overdueItems = maintenance.filter(m => {
+    if (m.status === 'completed') return false;
+    if (!m.scheduled_date) return false;
+    return new Date(m.scheduled_date) < now;
+  });
+  
+  const upcomingItems = maintenance.filter(m => {
+    if (m.status === 'completed') return false;
+    if (!m.scheduled_date) return false;
+    const scheduledDate = new Date(m.scheduled_date);
+    const nextWeek = new Date();
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    return scheduledDate >= now && scheduledDate <= nextWeek;
+  });
+
   const filteredMaintenance = maintenance.filter(m => {
     const matchesSearch = m.maintenance_type.toLowerCase().includes(search.toLowerCase()) ||
                           m.server_name?.toLowerCase().includes(search.toLowerCase());
+    
+    if (statusFilter === 'upcoming') {
+      // Show overdue and upcoming (next 7 days)
+      if (m.status === 'completed') return false;
+      if (!m.scheduled_date) return matchesSearch; // Show unscheduled too
+      const scheduledDate = new Date(m.scheduled_date);
+      const nextWeek = new Date();
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      return matchesSearch && scheduledDate <= nextWeek;
+    }
+    
     const matchesStatus = statusFilter === 'all' || m.status === statusFilter;
     return matchesSearch && matchesStatus;
+  }).sort((a, b) => {
+    // Sort overdue first, then by date
+    const aDate = new Date(a.scheduled_date || '9999');
+    const bDate = new Date(b.scheduled_date || '9999');
+    const aOverdue = aDate < now && a.status !== 'completed';
+    const bOverdue = bDate < now && b.status !== 'completed';
+    if (aOverdue && !bOverdue) return -1;
+    if (!aOverdue && bOverdue) return 1;
+    return aDate - bDate;
   });
 
   return (
     <div className="space-y-6" data-testid="maintenance-page">
+      {/* Overdue Alert */}
+      {overdueItems.length > 0 && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <Clock className="h-5 w-5 text-red-400" />
+            <div>
+              <p className="font-semibold text-red-400">
+                {overdueItems.length} Overdue Maintenance Task{overdueItems.length > 1 ? 's' : ''}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                These tasks were scheduled but not completed. Please review and complete them.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upcoming Alert */}
+      {upcomingItems.length > 0 && overdueItems.length === 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <Calendar className="h-5 w-5 text-amber-400" />
+            <div>
+              <p className="font-semibold text-amber-400">
+                {upcomingItems.length} Maintenance Task{upcomingItems.length > 1 ? 's' : ''} Due This Week
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Review upcoming maintenance and schedule appropriately.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -222,10 +293,11 @@ export default function Maintenance() {
           />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40" data-testid="filter-status">
+          <SelectTrigger className="w-48" data-testid="filter-status">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="upcoming">Upcoming & Overdue</SelectItem>
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="scheduled">Scheduled</SelectItem>
             <SelectItem value="in_progress">In Progress</SelectItem>
