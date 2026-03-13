@@ -1,112 +1,124 @@
 # SynthOps - IT Operations Portal
 ## Product Requirements Document
 
-### Original Problem Statement
-Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - an MSP managing multiple clients. The portal centralizes infrastructure management, tasks, incidents, projects, documentation, and includes an AI assistant called "Sophie" for IT troubleshooting advice.
-
-### User Personas
-1. **Admin** - Full system access, user management, TRMM configuration
-2. **Engineer** - Day-to-day operations, task management, health checks
-3. **Viewer** - Read-only access to dashboards and reports
+**Company:** Synthesis IT Ltd  
+**Last Updated:** December 2025
 
 ---
 
-## What's Been Implemented (March 13, 2026)
-
-### Latest Session - Complete Overhaul
-- [x] **Synthesis IT Logo** - Company branding throughout app
-- [x] **Floating Sophie AI** - Chat button in bottom-right corner
-- [x] **Reports Builder** - Custom report generation with:
-  - Client filter, Date range, Group by options
-  - Include checkboxes (Servers, Tickets, Incidents, Maintenance, Time)
-  - Export to CSV
-  - Visual breakdown by client, OS distribution
-- [x] **Incidents + TRMM Alerts** - Offline servers auto-shown as incidents
-  - Alert banner showing count of offline servers
-  - Source filter (All/Manual/TRMM)
-  - TRMM badge on each incident row
-- [x] **Admin Panel Overhaul**
-  - User Management with Create User button
-  - Role dropdown (Admin/Engineer/Viewer)
-  - Password reset functionality
-  - Status toggle (Active/Inactive)
-  - Role permissions reference
-  - Removed phpMyAdmin (MongoDB incompatible)
-- [x] **Tickets** - Defaults to Open tickets only
-- [x] **Maintenance** - Defaults to Upcoming & Overdue
-  - Alert banners for overdue/upcoming items
-- [x] **Documentation** - Seeded with actual runbook content
-  - AD Health Check Guide
-  - Backup Best Practices
-  - New Server Setup Checklist
-- [x] **DC Health Check** - Fixed category filtering
-- [x] **One-Line Ubuntu Installer** - `/app/install-synthops.sh`
-
-### Previous Sessions
-- [x] Full Project Tracking with Jobs & Worksheets
-- [x] NOC Display Dashboard (`/display`)
-- [x] MeshCentral Remote Access (Connect button)
-- [x] Vaultwarden Password Manager integration
-- [x] Microsoft Teams Webhook notifications
-- [x] Security Hardening (rate limiting, headers, audit)
-- [x] Zammad Ticket Response feature
-- [x] Tactical RMM full sync
-- [x] APScheduler background sync
-- [x] Docker Compose deployment
-- [x] CSV Export features
-- [x] MSP Reports Dashboard
+## Original Problem Statement
+Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to centralize infrastructure information (from Tactical RMM), ticketing system (Zammad), tasks, incidents, projects, and documentation to reduce operational stress and improve oversight for their Managed Service Provider (MSP) business.
 
 ---
 
-## Prioritized Backlog
+## Core Requirements
+
+### Dashboard
+- [x] Overview showing servers, tasks, incidents, and projects
+- [x] Quick stats and system health indicators
+
+### Infrastructure Management
+- [x] Server/Infrastructure Inventory synced from Tactical RMM
+- [x] NOC-style server view with real-time status
+- [x] Client and Site management
+- [x] Workstation vs Server classification
+- [ ] Client Detail Page showing 0 assets (needs re-verification)
+
+### Task & Ticket Management
+- [x] Task/Job Tracking system
+- [x] Zammad ticket integration (view/reply)
+- [x] Default to "Open" tickets filter
+
+### Project Management
+- [x] Project tracking with jobs and tasks
+- [x] Time entries tracking
+- [x] Detailed project view with tabs
+
+### Incidents
+- [x] Incident logging
+- [x] Auto-populate from TRMM alerts
+
+### Documentation
+- [x] Documentation/Runbook area
+- [x] Content seeding from backend
+
+### Integrations
+- [x] Tactical RMM (sync clients, sites, agents)
+- [x] Zammad (tickets)
+- [x] MeshCentral (Connect button on server pages)
+- [x] Vaultwarden (Docker integration)
+- [x] Microsoft Teams (webhook alerts)
+- [x] Sophie AI Assistant (Claude via Emergent)
+- [ ] SendGrid (email summary reports - planned)
+
+### Management Features
+- [x] User Management with role-based access (Admin, Engineer, Viewer)
+- [x] Password reset functionality
+- [x] Custom Report Builder
+- [ ] Monthly Health Checks (partial)
+
+### UI/UX
+- [x] Dark/light mode
+- [x] Floating AI assistant (Sophie)
+- [x] Company logo throughout
+
+### Security
+- [x] JWT-based authentication
+- [x] Rate limiting
+- [x] Secure headers
+
+### Deployment
+- [x] Docker-based deployment
+- [x] One-line installer script (install-synthops.sh)
+- [x] docker-compose.yml with all services
+- [ ] Let's Encrypt SSL (planned)
+
+---
+
+## Completed Work (December 2025)
+
+### Deployment Fix (Latest)
+- Fixed `emergentintegrations` package installation in Dockerfile
+- Reordered pip install commands to use special index URL
+
+### Infrastructure
+- Created Dockerfiles for frontend and backend
+- Comprehensive docker-compose.yml with Vaultwarden
+- One-line install-synthops.sh script
+
+### Features Implemented
+- User Management (Admin page)
+- Report Builder page
+- Incidents page with TRMM alerts
+- Floating Sophie AI widget
+- DC Health Check page
+- Project Management with jobs/tasks/time entries
+- MS Teams webhook notifications
+
+### Bug Fixes
+- Documentation page "headings only" issue
+- DC Health Check template filter
+- Tickets page default filter
+
+---
+
+## Pending Tasks (Priority Order)
 
 ### P0 - Critical
-- [x] All core features implemented
+- [ ] User verification of recent features after VPS deployment
 
-### P1 - High Priority
-- [ ] SSL with Let's Encrypt for production
-- [ ] SendGrid Email Notifications (waiting for API key)
+### P1 - High
+- [ ] Let's Encrypt SSL in docker-compose.yml
+- [ ] Re-verify Client Detail page 0 assets issue
 
-### P2 - Medium Priority
-- [ ] Scheduled Maintenance Windows (suppress alerts)
-- [ ] Client Portal (read-only customer view)
-- [ ] Google OAuth login option
+### P2 - Medium
+- [ ] SendGrid email summary reports
+- [ ] Refactor monolithic server.py
 
-### P3 - Future Enhancements
-- [ ] Mobile-friendly responsive design
-- [ ] Slack/Discord webhooks
-- [ ] PDF Report Generation
-- [ ] In-app help documentation viewer
-
----
-
-## Installation
-
-### One-Line Ubuntu Install
-```bash
-curl -fsSL https://raw.githubusercontent.com/andrewdunn358-dev/SynthOps-/main/install-synthops.sh | sudo bash
-```
-
-### Docker Compose
-```bash
-git clone https://github.com/andrewdunn358-dev/SynthOps-.git
-cd SynthOps-
-cp .env.example .env
-docker compose up -d
-```
-
-### Environment Variables
-```
-# Required
-TACTICAL_RMM_API_URL=https://api.your-trmm.com/
-TACTICAL_RMM_API_KEY=your-key
-
-# Optional
-ZAMMAD_API_URL=https://help.yourcompany.com
-ZAMMAD_API_TOKEN=your-token
-MESHCENTRAL_URL=https://mesh.yourcompany.com
-TEAMS_WEBHOOK_URL=your-webhook-url
-```
+### P3 - Low/Future
+- [ ] Mobile application
+- [ ] Consolidate Staff/Admin pages
+- [ ] In-app Help page from USER_MANUAL.md
 
 ---
 
@@ -115,55 +127,35 @@ TEAMS_WEBHOOK_URL=your-webhook-url
 ```
 /app/
 ├── backend/
-│   ├── server.py          # FastAPI application
 │   ├── Dockerfile
-│   └── requirements.txt
+│   ├── requirements.txt
+│   ├── server.py (monolithic - needs refactoring)
+│   └── .env
 ├── frontend/
-│   ├── src/
-│   │   ├── App.js
-│   │   ├── pages/         # All UI pages
-│   │   └── components/    # Layout, SophieFloating, UI
 │   ├── Dockerfile
-│   └── package.json
+│   ├── nginx.conf
+│   ├── package.json
+│   └── src/
+│       ├── components/common/FloatingSophie.jsx
+│       └── pages/
+│           ├── Admin.jsx
+│           ├── DCHealthCheck.jsx
+│           ├── ProjectDetail.jsx
+│           └── ReportsBuilder.jsx
 ├── docker-compose.yml
-├── install-synthops.sh    # One-line installer
-├── install.sh             # Full installer script
-├── uninstall.sh
+├── install-synthops.sh
 ├── README.md
-├── USER_MANUAL.md
-└── .env.example
+└── USER_MANUAL.md
 ```
 
 ---
 
-## User Roles
-
-| Role | Permissions |
-|------|-------------|
-| Admin | Full access, user management, system settings |
-| Engineer | Manage servers/clients, create tasks/incidents, time tracking |
-| Viewer | View dashboards and reports only |
+## Credentials (Private Repo)
+- Tactical RMM: https://api.synthesis-it.co.uk/
+- Zammad: https://help.synthesis-it.co.uk
+- MeshCentral: https://mesh.synthesis-it.co.uk
 
 ---
 
-## Test Credentials
-- **Email:** admin@synthesis-it.co.uk
-- **Password:** admin123
-
----
-
-## Integration Status
-
-| Integration | Status | Notes |
-|-------------|--------|-------|
-| Tactical RMM | ✅ Active | Full sync working |
-| Zammad | ✅ Active | Tickets + Reply |
-| MeshCentral | ✅ Active | Connect button |
-| Vaultwarden | ✅ Active | Docker container |
-| Teams Webhook | ✅ Ready | Add URL to .env |
-| SendGrid | ⏳ Pending | Needs API key |
-| Sophie AI | ✅ Active | Claude Sonnet 4.5 |
-
----
-
-Built with ❤️ for MSPs by Synthesis IT Ltd
+## Known Issues
+1. Client Detail Page may show 0 assets - needs verification with actual data
