@@ -239,58 +239,6 @@ export default function Dashboard() {
                   {ticketStats.open} open ticket{ticketStats.open > 1 ? 's' : ''} in Zammad
                 </span>
               </div>
-              <Button size="sm" variant="outline" onClick={() => navigate('/tickets')}>
-                View Tickets
-                <ArrowRight className="h-4 w-4 ml-1" />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Security Alerts from Bitdefender */}
-      {securityAlerts && securityAlerts.alerts && securityAlerts.alerts.length > 0 && (
-        <Card className={`border-${securityAlerts.has_critical ? 'red' : securityAlerts.has_high ? 'orange' : 'yellow'}-500/50 bg-${securityAlerts.has_critical ? 'red' : securityAlerts.has_high ? 'orange' : 'yellow'}-500/5`}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg flex items-center gap-2 text-red-400">
-              <ShieldAlert className="h-5 w-5" />
-              {securityAlerts.total} Security Alert{securityAlerts.total > 1 ? 's' : ''}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {securityAlerts.alerts.slice(0, 5).map((alert, idx) => (
-                <div key={alert.id || idx} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                  <div className="flex items-center gap-3">
-                    <Shield className={`h-4 w-4 ${
-                      alert.severity === 'critical' ? 'text-red-500' :
-                      alert.severity === 'high' ? 'text-orange-500' :
-                      'text-yellow-500'
-                    }`} />
-                    <div>
-                      <p className="font-medium text-sm">{alert.title}</p>
-                      <p className="text-xs text-muted-foreground">{alert.endpoint}</p>
-                    </div>
-                  </div>
-                  <Badge className={
-                    alert.severity === 'critical' ? 'bg-red-500/20 text-red-400' :
-                    alert.severity === 'high' ? 'bg-orange-500/20 text-orange-400' :
-                    'bg-yellow-500/20 text-yellow-400'
-                  }>
-                    {alert.type}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-            {securityAlerts.total > 5 && (
-              <Button 
-                variant="link" 
-                className="text-red-400 mt-2 p-0"
-                onClick={() => window.open('https://cloudgz.gravityzone.bitdefender.com/', '_blank')}
-              >
-                View all in GravityZone
-                <ArrowRight className="h-4 w-4 ml-1" />
-              </Button>
             )}
           </CardContent>
         </Card>
@@ -308,6 +256,110 @@ export default function Dashboard() {
           <RefreshCw className="h-4 w-4 mr-2" />
           Refresh
         </Button>
+      </div>
+
+      {/* Security Status Row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Bitdefender Status - Always visible */}
+        <Card className={`border-l-4 ${
+          securityAlerts?.has_critical ? 'border-l-red-500 bg-red-500/5' :
+          securityAlerts?.has_high ? 'border-l-orange-500 bg-orange-500/5' :
+          securityAlerts?.total > 0 ? 'border-l-yellow-500 bg-yellow-500/5' :
+          'border-l-emerald-500 bg-emerald-500/5'
+        }`}>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-full ${
+                  securityAlerts?.total > 0 ? 'bg-red-500/20' : 'bg-emerald-500/20'
+                }`}>
+                  <Shield className={`h-6 w-6 ${
+                    securityAlerts?.total > 0 ? 'text-red-400' : 'text-emerald-400'
+                  }`} />
+                </div>
+                <div>
+                  <h3 className="font-semibold">Bitdefender Security</h3>
+                  <p className={`text-sm ${
+                    securityAlerts?.total > 0 ? 'text-red-400' : 'text-emerald-400'
+                  }`}>
+                    {securityAlerts?.total > 0 
+                      ? `${securityAlerts.total} Active Alert${securityAlerts.total > 1 ? 's' : ''}`
+                      : 'All Systems Protected'
+                    }
+                  </p>
+                </div>
+              </div>
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => window.open('https://cloudgz.gravityzone.bitdefender.com/', '_blank')}
+              >
+                Open Console
+                <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+            {securityAlerts?.alerts && securityAlerts.alerts.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-border space-y-2">
+                {securityAlerts.alerts.slice(0, 3).map((alert, idx) => (
+                  <div key={alert.id || idx} className="flex items-center gap-2 text-sm">
+                    <ShieldAlert className="h-4 w-4 text-red-400" />
+                    <span className="truncate">{alert.title}</span>
+                    <Badge variant="outline" className="ml-auto text-xs">{alert.endpoint}</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Server Health Summary */}
+        <Card className={`border-l-4 ${
+          offlineDevices.length > 0 ? 'border-l-red-500 bg-red-500/5' : 'border-l-emerald-500 bg-emerald-500/5'
+        }`}>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-full ${
+                  offlineDevices.length > 0 ? 'bg-red-500/20' : 'bg-emerald-500/20'
+                }`}>
+                  <Server className={`h-6 w-6 ${
+                    offlineDevices.length > 0 ? 'text-red-400' : 'text-emerald-400'
+                  }`} />
+                </div>
+                <div>
+                  <h3 className="font-semibold">Server Health</h3>
+                  <p className={`text-sm ${
+                    offlineDevices.length > 0 ? 'text-red-400' : 'text-emerald-400'
+                  }`}>
+                    {offlineDevices.length > 0 
+                      ? `${offlineDevices.length} Server${offlineDevices.length > 1 ? 's' : ''} Offline`
+                      : `${stats?.servers_online || 0} Servers Online`
+                    }
+                  </p>
+                </div>
+              </div>
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => navigate('/servers')}
+              >
+                View All
+                <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+            {offlineDevices.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-border space-y-2">
+                {offlineDevices.slice(0, 3).map((server) => (
+                  <div key={server.id} className="flex items-center gap-2 text-sm">
+                    <WifiOff className="h-4 w-4 text-red-400" />
+                    <span className="truncate">{server.hostname}</span>
+                    <Badge variant="outline" className="ml-auto text-xs">{server.client_name}</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Stats Grid */}

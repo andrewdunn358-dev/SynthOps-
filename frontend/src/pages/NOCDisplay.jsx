@@ -199,13 +199,25 @@ export default function NOCDisplay() {
         </div>
       </div>
 
-      {/* Security Alerts Panel */}
-      {securityAlerts && securityAlerts.alerts && securityAlerts.alerts.length > 0 && (
-        <div className={`noc-alert-panel ${securityAlerts.has_critical ? 'critical' : securityAlerts.has_high ? 'high' : 'warning'}`}>
-          <h3 className="noc-alert-title">
-            <Shield className="h-6 w-6" />
-            Security Alerts - Bitdefender
-          </h3>
+      {/* Security Status Panel - Always visible */}
+      <div className={`noc-alert-panel ${
+        securityAlerts?.has_critical ? 'critical' : 
+        securityAlerts?.has_high ? 'high' : 
+        securityAlerts?.total > 0 ? 'warning' : 'ok'
+      }`}>
+        <h3 className="noc-alert-title">
+          <Shield className="h-6 w-6" />
+          Bitdefender Security Status
+          <span className={`ml-auto text-sm font-normal ${
+            securityAlerts?.total > 0 ? '' : 'text-emerald-400'
+          }`}>
+            {securityAlerts?.total > 0 
+              ? `${securityAlerts.total} Alert${securityAlerts.total > 1 ? 's' : ''}`
+              : '✓ All Systems Protected'
+            }
+          </span>
+        </h3>
+        {securityAlerts?.alerts && securityAlerts.alerts.length > 0 ? (
           <div className="noc-alert-list">
             {securityAlerts.alerts.slice(0, 8).map((alert, idx) => (
               <div key={alert.id || idx} className={`noc-alert-item ${alert.severity}`}>
@@ -215,8 +227,13 @@ export default function NOCDisplay() {
               </div>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="noc-status-ok">
+            <CheckCircle className="h-8 w-8 text-emerald-400" />
+            <span>No active threats detected</span>
+          </div>
+        )}
+      </div>
 
       {/* Server Grid */}
       <div className="noc-grid-container">
@@ -791,6 +808,25 @@ export default function NOCDisplay() {
           font-size: 0.8rem;
           color: #666;
           font-family: 'JetBrains Mono', monospace;
+        }
+
+        .noc-alert-panel.ok {
+          border-color: #10b981;
+          background: linear-gradient(180deg, #051a10 0%, #0d0d12 100%);
+        }
+
+        .noc-alert-panel.ok .noc-alert-title {
+          color: #10b981;
+        }
+
+        .noc-status-ok {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+          padding: 20px;
+          color: #10b981;
+          font-size: 1.1rem;
         }
       `}</style>
     </div>
