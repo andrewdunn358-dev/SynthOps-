@@ -1931,11 +1931,36 @@ async def test_trmm_connection(user: dict = Depends(get_current_user)):
                 timeout=10.0
             )
             if response.status_code == 200:
-                return {"status": "connected", "message": "Successfully connected to Tactical RMM"}
+                return {"status": "connected", "message": "Successfully connected to Tactical RMM", "url": api_url}
             else:
                 return {"status": "error", "message": f"API returned status {response.status_code}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+@api_router.get("/integrations/trmm/status")
+async def get_trmm_status(user: dict = Depends(get_current_user)):
+    """Get TRMM connection status and URL for frontend"""
+    api_url = os.environ.get("TACTICAL_RMM_API_URL", "").rstrip("/")
+    api_key = os.environ.get("TACTICAL_RMM_API_KEY", "")
+    
+    if not api_url or not api_key:
+        return {"status": "not_configured", "url": None}
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{api_url}/clients/",
+                headers={"X-API-KEY": api_key},
+                timeout=5.0
+            )
+            if response.status_code == 200:
+                # Return base URL without /api suffix for web interface
+                base_url = api_url.replace("/api", "").rstrip("/")
+                return {"status": "connected", "url": base_url}
+            else:
+                return {"status": "error", "url": None}
+    except:
+        return {"status": "error", "url": None}
 
 @api_router.post("/integrations/trmm/sync")
 async def sync_from_trmm(user: dict = Depends(get_current_user)):

@@ -40,32 +40,34 @@ export default function ServerDetail() {
   const [softwareSearch, setSoftwareSearch] = useState('');
   const [loadingTrmm, setLoadingTrmm] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
-  const [meshCentralUrl, setMeshCentralUrl] = useState(null);
+  const [trmmUrl, setTrmmUrl] = useState(null);
 
   useEffect(() => {
     fetchData();
-    fetchMeshCentralConfig();
+    fetchTrmmConfig();
   }, [id]);
 
-  const fetchMeshCentralConfig = async () => {
+  const fetchTrmmConfig = async () => {
     try {
-      const res = await apiClient.get('/config/meshcentral');
-      if (res.data.configured) {
-        setMeshCentralUrl(res.data.url);
+      const res = await apiClient.get('/integrations/trmm/status');
+      if (res.data.status === 'connected' && res.data.url) {
+        // Get base TRMM URL (remove /api if present)
+        const baseUrl = res.data.url.replace(/\/api\/?$/, '').replace(/\/$/, '');
+        setTrmmUrl(baseUrl);
       }
     } catch (error) {
-      console.log('MeshCentral not configured');
+      console.log('TRMM not configured');
     }
   };
 
-  const openMeshCentral = () => {
-    if (meshCentralUrl && server?.mesh_node_id) {
-      // Use direct connection URL with mesh node ID for auto-connect
-      const connectUrl = `${meshCentralUrl}/?viewmode=11&gotonode=${server.mesh_node_id}`;
-      window.open(connectUrl, '_blank');
-    } else if (meshCentralUrl) {
-      // Fallback to just opening MeshCentral
-      window.open(meshCentralUrl, '_blank');
+  const openRemoteConnect = () => {
+    // Open TRMM to this agent - user can then connect via TRMM's interface
+    if (trmmUrl && server?.tactical_rmm_agent_id) {
+      const connectUrl = `${trmmUrl}/#/dashboard/${server.tactical_rmm_agent_id}`;
+      // Open in new window (not tab) with specific dimensions
+      window.open(connectUrl, 'TRMMConnect', 'width=1400,height=900,menubar=no,toolbar=no,location=no,status=no');
+    } else if (trmmUrl) {
+      window.open(trmmUrl, 'TRMMConnect', 'width=1400,height=900,menubar=no,toolbar=no,location=no,status=no');
     }
   };
 
@@ -236,16 +238,16 @@ export default function ServerDetail() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {meshCentralUrl && hasTrmm && (
+          {trmmUrl && hasTrmm && (
             <Button 
               variant="default"
               size="sm" 
-              onClick={openMeshCentral}
+              onClick={openRemoteConnect}
               className="bg-cyan-600 hover:bg-cyan-700"
-              data-testid="mesh-connect-btn"
+              data-testid="trmm-connect-btn"
             >
               <Terminal className="h-4 w-4 mr-2" />
-              Connect
+              Connect via TRMM
             </Button>
           )}
           {hasTrmm && (
