@@ -27,7 +27,7 @@ const navItems = [
   { path: '/incidents', icon: AlertTriangle, label: 'Incidents' },
   { path: '/tickets', icon: Ticket, label: 'Tickets' },
   { path: '/maintenance', icon: Wrench, label: 'Maintenance' },
-  { path: '/dc-health-check', icon: ShieldCheck, label: 'DC Health Check' },
+  { path: '/dc-health-check', icon: ShieldCheck, label: 'Monthly Health Check' },
   { path: '/docs', icon: FileText, label: 'Documentation' },
   { path: '/time', icon: Clock, label: 'Time Tracking' },
   { path: '/staff', icon: Users, label: 'Staff' },

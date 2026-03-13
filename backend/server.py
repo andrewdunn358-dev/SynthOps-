@@ -1664,48 +1664,63 @@ HEALTH_CHECK_TEMPLATES = [
 async def get_health_check_templates(user: dict = Depends(get_current_user)):
     return [HealthCheckTemplateResponse(**t) for t in HEALTH_CHECK_TEMPLATES]
 
-@api_router.get("/health-checks", response_model=List[HealthCheckResponse])
-async def get_all_health_checks(client_id: Optional[str] = None, month: Optional[int] = None, 
-                                year: Optional[int] = None, user: dict = Depends(get_current_user)):
-    """Get all health checks, optionally filtered by client and time period"""
-    query = {}
-    
-    if month and year:
-        query["period_month"] = month
-        query["period_year"] = year
-    
-    checks = await db.health_checks.find(query, {"_id": 0}).sort("check_date", -1).to_list(500)
-    
-    result = []
-    for c in checks:
-        server = await db.servers.find_one({"id": c["server_id"]}, {"hostname": 1, "client_id": 1})
-        
-        # Filter by client if specified
-        if client_id and client_id != "all" and server and server.get("client_id") != client_id:
-            continue
-            
-        template = next((t for t in HEALTH_CHECK_TEMPLATES if t["id"] == c["template_id"]), None)
-        performer_name = None
-        if c.get("performed_by"):
-            performer = await db.users.find_one({"id": c["performed_by"]}, {"username": 1})
-            performer_name = performer["username"] if performer else None
-        
-        result.append(HealthCheckResponse(
-            id=c["id"], server_id=c["server_id"],
-            server_name=server["hostname"] if server else None,
-            template_id=c["template_id"],
-            template_name=template["name"] if template else None,
-            category=template["category"] if template else None,
-            check_date=datetime.fromisoformat(c["check_date"]),
-            period_month=c["period_month"], period_year=c["period_year"],
-            performed_by=c.get("performed_by"), performer_name=performer_name,
-            status=c["status"],
-            notes=decrypt_field(c.get("notes")) if c.get("notes") else None,
-            value_recorded=c.get("value_recorded")
-        ))
-    return result
+# New health check system - monthly server health checks
+class HealthCheckItemCreate(BaseModel):
+    id: str
+    category: str
+    name: str
+    description: str
+    status: str  # pass, fail, na
+    notes: Optional[str] = ""
 
-@api_router.get("/health-checks/server/{server_id}", response_model=List[HealthCheckResponse])
+class MonthlyHealthCheckCreate(BaseModel):
+    server_id: str
+    server_name: str
+    check_date: str
+    signed_off_by: str
+    is_ad_server: bool
+    checks: List[HealthCheckItemCreate]
+
+@api_router.get("/health-checks")
+async def get_all_health_checks(user: dict = Depends(get_current_user)):
+    """Get all monthly health check records"""
+    checks = await db.monthly_health_checks.find({}, {"_id": 0}).sort("check_date", -1).to_list(500)
+    return checks
+
+@api_router.post("/health-checks")
+async def create_monthly_health_check(data: MonthlyHealthCheckCreate, user: dict = Depends(get_current_user)):
+    """Save a complete monthly health check"""
+    record = {
+        "id": str(uuid.uuid4()),
+        "server_id": data.server_id,
+        "server_name": data.server_name,
+        "check_date": data.check_date,
+        "signed_off_by": data.signed_off_by,
+        "is_ad_server": data.is_ad_server,
+        "checks": [c.dict() for c in data.checks],
+        "created_by": user["id"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.monthly_health_checks.insert_one(record)
+    return {"message": "Health check saved", "id": record["id"]}
+
+@api_router.get("/health-checks/{check_id}")
+async def get_health_check(check_id: str, user: dict = Depends(get_current_user)):
+    """Get a specific health check record"""
+    check = await db.monthly_health_checks.find_one({"id": check_id}, {"_id": 0})
+    if not check:
+        raise HTTPException(status_code=404, detail="Health check not found")
+    return check
+
+@api_router.delete("/health-checks/{check_id}")
+async def delete_health_check(check_id: str, user: dict = Depends(get_current_user)):
+    """Delete a health check record"""
+    result = await db.monthly_health_checks.delete_one({"id": check_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Health check not found")
+    return {"message": "Health check deleted"}
+
+@api_router.get("/health-checks/server/{server_id}")
 async def get_server_health_checks(server_id: str, month: Optional[int] = None, year: Optional[int] = None,
                                    user: dict = Depends(get_current_user)):
     now = datetime.now(timezone.utc)

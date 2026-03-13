@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { apiClient } from '../App';
 import { toast } from 'sonner';
 import { getErrorMessage } from '../lib/errorHandler';
@@ -8,7 +8,6 @@ import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
-import { Checkbox } from '../components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -21,35 +20,95 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from '../components/ui/dialog';
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from '../components/ui/accordion';
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { 
-  Shield, Server, CheckCircle, XCircle, Clock, Play, 
-  FileText, Download, Search, RefreshCw, AlertTriangle
+  Shield, Server, CheckCircle, XCircle, Clock, 
+  FileText, Download, Printer, Calendar, User,
+  ChevronDown, ChevronUp, AlertTriangle, History
 } from 'lucide-react';
+
+// Health check templates - Standard Server Checks
+const STANDARD_SERVER_CHECKS = [
+  { id: 'std-1', category: 'Storage', name: 'Disk Space Usage', description: 'Check disk space on all drives. Alert if >80% used.\nRun: Get-PSDrive -PSProvider FileSystem' },
+  { id: 'std-2', category: 'Storage', name: 'RAID Health Status', description: 'Verify RAID array health and check for degraded disks' },
+  { id: 'std-3', category: 'Backup', name: 'Backup Job Status', description: 'Verify all backup jobs completing successfully' },
+  { id: 'std-4', category: 'Backup', name: 'Test Restore Verification', description: 'Perform test restore to verify backup integrity (if scheduled this month)' },
+  { id: 'std-5', category: 'Security', name: 'Windows Updates Status', description: 'Check for pending Windows updates and review installed updates' },
+  { id: 'std-6', category: 'Security', name: 'Antivirus Status', description: 'Verify AV definitions are current and no threats detected' },
+  { id: 'std-7', category: 'Security', name: 'Certificate Expiry Check', description: 'Check SSL/TLS certificate expiry dates' },
+  { id: 'std-8', category: 'Performance', name: 'CPU Usage Review', description: 'Review CPU usage patterns for anomalies' },
+  { id: 'std-9', category: 'Performance', name: 'Memory Usage Review', description: 'Review memory usage patterns and available RAM' },
+  { id: 'std-10', category: 'Event Logs', name: 'System Event Log Review', description: 'Review System event log for critical errors and warnings' },
+  { id: 'std-11', category: 'Event Logs', name: 'Application Event Log Review', description: 'Review Application event log for errors' },
+  { id: 'std-12', category: 'Services', name: 'Critical Services Status', description: 'Verify all critical services are running' },
+  { id: 'std-13', category: 'Hardware', name: 'Hardware Health', description: 'Check hardware health via iLO/iDRAC/vendor tools if available' },
+  { id: 'std-14', category: 'Network', name: 'Network Connectivity', description: 'Verify network connectivity and DNS resolution' },
+];
+
+// Health check templates - Active Directory Checks
+const AD_SERVER_CHECKS = [
+  // Replication
+  { id: 'ad-1', category: 'AD Replication', name: 'Replication Summary', description: 'Run: repadmin /replsummary\nConfirm no replication failures between DCs' },
+  { id: 'ad-2', category: 'AD Replication', name: 'Replication Status Detail', description: 'Run: repadmin /showrepl\nCheck largest delta times are reasonable (<24 hours)' },
+  // DC Diagnostics
+  { id: 'ad-3', category: 'AD Diagnostics', name: 'DC Diagnostics Full', description: 'Run: dcdiag /v\nConfirm all tests pass: Advertising, Replications, NetLogons, Services, DFSREvent, SysVolCheck' },
+  { id: 'ad-4', category: 'AD Diagnostics', name: 'FSMO Roles Verification', description: 'Run: netdom query fsmo\nConfirm FSMO role holders are online and healthy' },
+  // SYSVOL/NETLOGON
+  { id: 'ad-5', category: 'AD SYSVOL', name: 'SYSVOL Check', description: 'Run: dcdiag /test:sysvolcheck\nConfirm SYSVOL share exists and is accessible' },
+  { id: 'ad-6', category: 'AD SYSVOL', name: 'DFS Replication Status', description: 'Run: dcdiag /test:dfsrevent\nCheck for DFS replication issues' },
+  { id: 'ad-7', category: 'AD SYSVOL', name: 'Network Shares Verification', description: 'Run: net share\nConfirm SYSVOL and NETLOGON shares exist' },
+  // DNS
+  { id: 'ad-8', category: 'AD DNS', name: 'DNS Health Check', description: 'Run: dcdiag /test:dns\nConfirm DNS zones replicate correctly' },
+  { id: 'ad-9', category: 'AD DNS', name: 'DNS Forwarders Check', description: 'Verify DNS forwarders are configured and responding' },
+  { id: 'ad-10', category: 'AD DNS', name: 'DNS Event Log Review', description: 'Check DNS Server event log for errors' },
+  // Time Sync
+  { id: 'ad-11', category: 'AD Time Sync', name: 'NTP Source Check', description: 'Run: w32tm /query /source\nVerify time source is correct' },
+  { id: 'ad-12', category: 'AD Time Sync', name: 'Time Sync Status', description: 'Run: w32tm /query /status\nPDC should use external NTP, other DCs sync from domain' },
+  // Event Logs
+  { id: 'ad-13', category: 'AD Events', name: 'Directory Service Log', description: 'Check Directory Service event log for NTDS errors, replication failures' },
+  { id: 'ad-14', category: 'AD Events', name: 'Kerberos Issues Check', description: 'Check event logs for Kerberos authentication issues' },
+  // Services
+  { id: 'ad-15', category: 'AD Services', name: 'AD Critical Services', description: 'Run: Get-Service NTDS,DNS,DFSR,NetLogon,KDC\nConfirm all AD services are running' },
+  // Accounts
+  { id: 'ad-16', category: 'AD Accounts', name: 'Stale Computer Accounts', description: 'Run: Get-ADComputer -Filter * -Properties LastLogonDate | Where {$_.LastLogonDate -lt (Get-Date).AddDays(-90)}\nReview old computer objects' },
+  { id: 'ad-17', category: 'AD Accounts', name: 'Locked Accounts Check', description: 'Run: Search-ADAccount -LockedOut\nInvestigate unusual lockouts' },
+  // GPO
+  { id: 'ad-18', category: 'AD GPO', name: 'Group Policy Processing', description: 'Run: gpresult /r\nConfirm GPO processing works correctly' },
+  // Backup
+  { id: 'ad-19', category: 'AD Backup', name: 'System State Backup', description: 'Confirm System State backup is current and successful' },
+];
 
 export default function DCHealthCheck() {
   const [servers, setServers] = useState([]);
   const [clients, setClients] = useState([]);
-  const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  
-  // Run check dialog
-  const [runDialogOpen, setRunDialogOpen] = useState(false);
+  const [selectedServerId, setSelectedServerId] = useState('');
   const [selectedServer, setSelectedServer] = useState(null);
+  const [isADServer, setIsADServer] = useState(false);
+  
+  // Current check form
   const [checkResults, setCheckResults] = useState({});
   const [checkNotes, setCheckNotes] = useState({});
+  const [signOffName, setSignOffName] = useState('');
+  const [checkDate, setCheckDate] = useState(new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
   
   // History
   const [history, setHistory] = useState([]);
-  const [historyFilter, setHistoryFilter] = useState({ client: 'all', month: 'all' });
+  const [historyFilter, setHistoryFilter] = useState({ server: 'all', year: new Date().getFullYear().toString() });
+  const [viewingRecord, setViewingRecord] = useState(null);
+  
+  const printRef = useRef();
 
   useEffect(() => {
     fetchData();
@@ -57,15 +116,13 @@ export default function DCHealthCheck() {
 
   const fetchData = async () => {
     try {
-      const [serversRes, clientsRes, templatesRes, historyRes] = await Promise.all([
+      const [serversRes, clientsRes, historyRes] = await Promise.all([
         apiClient.get('/servers'),
         apiClient.get('/clients'),
-        apiClient.get('/health-checks/templates'),
         apiClient.get('/health-checks')
       ]);
       setServers(serversRes.data || []);
       setClients(clientsRes.data || []);
-      setTemplates(templatesRes.data || []);
       setHistory(historyRes.data || []);
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to load data'));
@@ -74,61 +131,97 @@ export default function DCHealthCheck() {
     }
   };
 
-  // Get DC templates (Active Directory checks)
-  const dcTemplates = templates.filter(t => 
-    t.category?.toLowerCase().startsWith('active directory') || 
-    t.server_roles?.includes('domain controller')
-  );
-
-  // Group templates by category
-  const templatesByCategory = dcTemplates.reduce((acc, t) => {
-    const cat = t.category || 'Other';
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(t);
-    return acc;
-  }, {});
-
-  const openRunDialog = (server) => {
+  const handleServerSelect = (serverId) => {
+    setSelectedServerId(serverId);
+    const server = servers.find(s => s.id === serverId);
     setSelectedServer(server);
+    
+    // Check if it's an AD server (you can customize this logic)
+    const isAD = server?.role?.toLowerCase().includes('domain controller') ||
+                 server?.role?.toLowerCase().includes('dc') ||
+                 server?.role?.toLowerCase().includes('active directory') ||
+                 server?.hostname?.toLowerCase().includes('dc');
+    setIsADServer(isAD);
+    
+    // Reset form
     setCheckResults({});
     setCheckNotes({});
-    setRunDialogOpen(true);
+    setSignOffName('');
+    setCheckDate(new Date().toISOString().split('T')[0]);
   };
 
-  const toggleCheckResult = (templateId, result) => {
-    setCheckResults(prev => ({
-      ...prev,
-      [templateId]: prev[templateId] === result ? null : result
-    }));
+  const getChecksForServer = () => {
+    if (isADServer) {
+      return [...STANDARD_SERVER_CHECKS, ...AD_SERVER_CHECKS];
+    }
+    return STANDARD_SERVER_CHECKS;
   };
 
-  const saveHealthCheck = async () => {
-    if (!selectedServer) return;
-    
+  const groupChecksByCategory = (checks) => {
+    return checks.reduce((acc, check) => {
+      if (!acc[check.category]) acc[check.category] = [];
+      acc[check.category].push(check);
+      return acc;
+    }, {});
+  };
+
+  const handleCheckStatusChange = (checkId, status) => {
+    setCheckResults(prev => ({ ...prev, [checkId]: status }));
+  };
+
+  const handleNoteChange = (checkId, note) => {
+    setCheckNotes(prev => ({ ...prev, [checkId]: note }));
+  };
+
+  const handleSaveHealthCheck = async () => {
+    if (!selectedServer) {
+      toast.error('Please select a server');
+      return;
+    }
+    if (!signOffName.trim()) {
+      toast.error('Please enter your name to sign off');
+      return;
+    }
+
+    const checks = getChecksForServer();
+    const allChecked = checks.every(c => checkResults[c.id]);
+    if (!allChecked) {
+      toast.error('Please complete all checks before signing off');
+      return;
+    }
+
     setSaving(true);
     try {
-      const results = dcTemplates.map(t => ({
-        template_id: t.id,
-        template_name: t.name,
-        category: t.category,
-        result: checkResults[t.id] || 'not_checked',
-        notes: checkNotes[t.id] || ''
-      }));
-
-      await apiClient.post('/health-checks', {
+      const checkData = {
         server_id: selectedServer.id,
-        check_type: 'dc_health_check',
-        results: results,
-        summary: {
-          passed: Object.values(checkResults).filter(r => r === 'pass').length,
-          failed: Object.values(checkResults).filter(r => r === 'fail').length,
-          not_checked: dcTemplates.length - Object.values(checkResults).filter(r => r).length
-        }
-      });
+        server_name: selectedServer.hostname,
+        check_date: checkDate,
+        signed_off_by: signOffName,
+        is_ad_server: isADServer,
+        checks: checks.map(c => ({
+          id: c.id,
+          category: c.category,
+          name: c.name,
+          description: c.description,
+          status: checkResults[c.id],
+          notes: checkNotes[c.id] || ''
+        })),
+        created_at: new Date().toISOString()
+      };
 
-      toast.success('Health check saved');
-      setRunDialogOpen(false);
-      fetchData();
+      await apiClient.post('/health-checks', checkData);
+      toast.success('Health check saved successfully');
+      
+      // Refresh history
+      const historyRes = await apiClient.get('/health-checks');
+      setHistory(historyRes.data || []);
+      
+      // Reset form
+      setSelectedServerId('');
+      setSelectedServer(null);
+      setCheckResults({});
+      setCheckNotes({});
+      setSignOffName('');
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to save health check'));
     } finally {
@@ -136,344 +229,457 @@ export default function DCHealthCheck() {
     }
   };
 
-  const exportToCSV = async () => {
-    try {
-      const res = await apiClient.get('/health-checks/export', { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `health_checks_${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (error) {
-      toast.error('Export failed');
-    }
+  const handlePrint = () => {
+    const printContent = printRef.current;
+    if (!printContent) return;
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Server Health Check - ${viewingRecord?.server_name || selectedServer?.hostname}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; }
+            h1 { color: #333; border-bottom: 2px solid #333; padding-bottom: 10px; }
+            h2 { color: #666; margin-top: 30px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background-color: #f4f4f4; }
+            .pass { color: green; font-weight: bold; }
+            .fail { color: red; font-weight: bold; }
+            .na { color: gray; }
+            .header-info { display: flex; justify-content: space-between; margin-bottom: 20px; }
+            .signature-line { margin-top: 40px; border-top: 1px solid #333; padding-top: 10px; }
+            @media print { body { -webkit-print-color-adjust: exact; } }
+          </style>
+        </head>
+        <body>
+          ${printContent.innerHTML}
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
   };
 
-  // Filter servers (only show potential DCs - Windows servers)
-  const dcServers = servers.filter(s => 
-    s.os_name?.toLowerCase().includes('windows') && 
-    s.os_name?.toLowerCase().includes('server')
-  );
-
-  const filteredServers = dcServers.filter(s =>
-    s.hostname?.toLowerCase().includes(search.toLowerCase()) ||
-    s.client_name?.toLowerCase().includes(search.toLowerCase())
-  );
+  const getClientName = (serverId) => {
+    const server = servers.find(s => s.id === serverId);
+    if (!server) return 'Unknown';
+    const client = clients.find(c => c.id === server.client_id);
+    return client?.name || 'Unknown';
+  };
 
   const filteredHistory = history.filter(h => {
-    const matchesClient = historyFilter.client === 'all' || h.client_id === historyFilter.client;
-    const matchesMonth = historyFilter.month === 'all' || 
-      new Date(h.created_at).toISOString().slice(0,7) === historyFilter.month;
-    return matchesClient && matchesMonth;
+    if (historyFilter.server !== 'all' && h.server_id !== historyFilter.server) return false;
+    if (historyFilter.year !== 'all') {
+      const year = new Date(h.check_date).getFullYear().toString();
+      if (year !== historyFilter.year) return false;
+    }
+    return true;
   });
 
-  // Get unique months from history
-  const months = [...new Set(history.map(h => new Date(h.created_at).toISOString().slice(0,7)))].sort().reverse();
+  const years = [...new Set(history.map(h => new Date(h.check_date).getFullYear()))].sort((a, b) => b - a);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6" data-testid="dc-health-check-page">
+    <div className="space-y-6" data-testid="health-check-page">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight" style={{ fontFamily: 'Barlow Condensed' }}>
-            DC HEALTH CHECK
+          <h1 className="text-3xl font-bold flex items-center gap-2">
+            <Shield className="h-8 w-8 text-primary" />
+            Monthly Server Health Check
           </h1>
-          <p className="text-muted-foreground">
-            Run Domain Controller health checks against your servers
+          <p className="text-muted-foreground mt-1">
+            Document monthly health checks for your servers
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={fetchData}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
-          <Button variant="outline" onClick={exportToCSV}>
-            <Download className="h-4 w-4 mr-2" />
-            Export
-          </Button>
-        </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-3xl font-bold">{dcServers.length}</p>
-            <p className="text-sm text-muted-foreground">Windows Servers</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-3xl font-bold text-blue-400">{dcTemplates.length}</p>
-            <p className="text-sm text-muted-foreground">DC Checks</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-3xl font-bold text-emerald-400">
-              {history.filter(h => h.check_type === 'dc_health_check').length}
-            </p>
-            <p className="text-sm text-muted-foreground">Checks Run</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-3xl font-bold text-amber-400">
-              {Object.keys(templatesByCategory).length}
-            </p>
-            <p className="text-sm text-muted-foreground">Categories</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Server Selection */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Server className="h-5 w-5" />
-            Select Server to Check
-          </CardTitle>
-          <CardDescription>
-            Choose a Windows Server to run the DC health check against
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4">
-            <div className="relative max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search servers..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </div>
-
-          {loading ? (
-            <div className="p-8 text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
-            </div>
-          ) : filteredServers.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Server className="h-12 w-12 mx-auto mb-2 opacity-50" />
-              <p>No Windows Servers found</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {filteredServers.slice(0, 12).map(server => (
-                <div
-                  key={server.id}
-                  className="p-4 border rounded-lg hover:border-primary/50 hover:bg-muted/50 transition-colors cursor-pointer"
-                  onClick={() => openRunDialog(server)}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-mono font-medium">{server.hostname}</span>
-                    <Badge variant="outline" className={
-                      server.status === 'online' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-                    }>
-                      {server.status}
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{server.client_name}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{server.os_name}</p>
-                  <Button 
-                    size="sm" 
-                    className="mt-3 w-full"
-                    onClick={(e) => { e.stopPropagation(); openRunDialog(server); }}
-                    data-testid={`run-check-${server.id}`}
-                  >
-                    <Play className="h-4 w-4 mr-2" />
-                    Run DC Check
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Recent History */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
+      <Tabs defaultValue="new-check" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="new-check" className="flex items-center gap-2">
+            <FileText className="h-4 w-4" />
+            New Health Check
+          </TabsTrigger>
+          <TabsTrigger value="history" className="flex items-center gap-2">
+            <History className="h-4 w-4" />
             Check History
-          </CardTitle>
-          <div className="flex gap-2 mt-2">
-            <Select value={historyFilter.client} onValueChange={(v) => setHistoryFilter(prev => ({ ...prev, client: v }))}>
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="Client" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Clients</SelectItem>
-                {clients.map(c => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={historyFilter.month} onValueChange={(v) => setHistoryFilter(prev => ({ ...prev, month: v }))}>
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="Month" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Time</SelectItem>
-                {months.map(m => (
-                  <SelectItem key={m} value={m}>{m}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {filteredHistory.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Clock className="h-12 w-12 mx-auto mb-2 opacity-50" />
-              <p>No health checks recorded yet</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {filteredHistory.slice(0, 10).map(check => (
-                <div key={check.id} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <Shield className="h-5 w-5 text-blue-400" />
+          </TabsTrigger>
+        </TabsList>
+
+        {/* New Health Check Tab */}
+        <TabsContent value="new-check" className="space-y-4">
+          {/* Server Selection */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Server className="h-5 w-5" />
+                Select Server
+              </CardTitle>
+              <CardDescription>
+                Choose the server to perform the monthly health check on
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <Label>Server</Label>
+                  <Select value={selectedServerId} onValueChange={handleServerSelect}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a server..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {servers.map(server => (
+                        <SelectItem key={server.id} value={server.id}>
+                          {server.hostname} ({getClientName(server.id)})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                {selectedServer && (
+                  <>
                     <div>
-                      <p className="font-medium">{check.server_name}</p>
-                      <p className="text-sm text-muted-foreground">{check.client_name}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <div className="flex items-center gap-2">
-                        <Badge className="bg-emerald-500/20 text-emerald-400">
-                          <CheckCircle className="h-3 w-3 mr-1" />
-                          {check.summary?.passed || 0}
-                        </Badge>
-                        <Badge className="bg-red-500/20 text-red-400">
-                          <XCircle className="h-3 w-3 mr-1" />
-                          {check.summary?.failed || 0}
+                      <Label>Server Type</Label>
+                      <div className="mt-2">
+                        <Badge variant={isADServer ? 'default' : 'secondary'}>
+                          {isADServer ? 'Domain Controller / AD Server' : 'Standard Server'}
                         </Badge>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {new Date(check.created_at).toLocaleDateString()}
-                      </p>
+                    </div>
+                    <div>
+                      <Label>Check Date</Label>
+                      <Input 
+                        type="date" 
+                        value={checkDate}
+                        onChange={(e) => setCheckDate(e.target.value)}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+              
+              {selectedServer && (
+                <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                  <input
+                    type="checkbox"
+                    id="isADServer"
+                    checked={isADServer}
+                    onChange={(e) => setIsADServer(e.target.checked)}
+                    className="rounded"
+                  />
+                  <Label htmlFor="isADServer" className="cursor-pointer">
+                    This is a Domain Controller / Active Directory server (include AD-specific checks)
+                  </Label>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Health Check Form */}
+          {selectedServer && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Health Check Items</CardTitle>
+                <CardDescription>
+                  Complete all checks and mark as Pass, Fail, or N/A
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div ref={printRef}>
+                  {/* Print Header (hidden on screen) */}
+                  <div className="hidden print:block mb-6">
+                    <h1>Monthly Server Health Check</h1>
+                    <div className="header-info">
+                      <div>
+                        <strong>Server:</strong> {selectedServer.hostname}<br />
+                        <strong>Client:</strong> {getClientName(selectedServer.id)}<br />
+                        <strong>Type:</strong> {isADServer ? 'Domain Controller' : 'Standard Server'}
+                      </div>
+                      <div>
+                        <strong>Date:</strong> {checkDate}<br />
+                        <strong>Performed By:</strong> {signOffName}
+                      </div>
                     </div>
                   </div>
+
+                  {Object.entries(groupChecksByCategory(getChecksForServer())).map(([category, checks]) => (
+                    <div key={category} className="mb-6">
+                      <h3 className="font-semibold text-lg mb-3 flex items-center gap-2 border-b pb-2">
+                        {category.startsWith('AD') ? (
+                          <Shield className="h-4 w-4 text-blue-500" />
+                        ) : (
+                          <Server className="h-4 w-4 text-gray-500" />
+                        )}
+                        {category}
+                      </h3>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[200px]">Check</TableHead>
+                            <TableHead>Description</TableHead>
+                            <TableHead className="w-[150px]">Status</TableHead>
+                            <TableHead className="w-[200px]">Notes</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {checks.map(check => (
+                            <TableRow key={check.id}>
+                              <TableCell className="font-medium">{check.name}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground whitespace-pre-line">
+                                {check.description}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-1">
+                                  <Button
+                                    size="sm"
+                                    variant={checkResults[check.id] === 'pass' ? 'default' : 'outline'}
+                                    className={checkResults[check.id] === 'pass' ? 'bg-green-600 hover:bg-green-700' : ''}
+                                    onClick={() => handleCheckStatusChange(check.id, 'pass')}
+                                  >
+                                    <CheckCircle className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant={checkResults[check.id] === 'fail' ? 'default' : 'outline'}
+                                    className={checkResults[check.id] === 'fail' ? 'bg-red-600 hover:bg-red-700' : ''}
+                                    onClick={() => handleCheckStatusChange(check.id, 'fail')}
+                                  >
+                                    <XCircle className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant={checkResults[check.id] === 'na' ? 'default' : 'outline'}
+                                    className={checkResults[check.id] === 'na' ? 'bg-gray-600 hover:bg-gray-700' : ''}
+                                    onClick={() => handleCheckStatusChange(check.id, 'na')}
+                                  >
+                                    N/A
+                                  </Button>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Input
+                                  placeholder="Notes..."
+                                  value={checkNotes[check.id] || ''}
+                                  onChange={(e) => handleNoteChange(check.id, e.target.value)}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ))}
+
+                  {/* Sign Off Section */}
+                  <div className="signature-line mt-8 pt-4 border-t">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label>Signed Off By</Label>
+                        <Input
+                          placeholder="Your name..."
+                          value={signOffName}
+                          onChange={(e) => setSignOffName(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <Label>Date</Label>
+                        <Input type="date" value={checkDate} disabled />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-2 mt-6">
+                  <Button onClick={handleSaveHealthCheck} disabled={saving}>
+                    {saving ? 'Saving...' : 'Save & Sign Off'}
+                  </Button>
+                  <Button variant="outline" onClick={handlePrint}>
+                    <Printer className="h-4 w-4 mr-2" />
+                    Print
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* History Tab */}
+        <TabsContent value="history" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <History className="h-5 w-5" />
+                Health Check History
+              </CardTitle>
+              <CardDescription>
+                View and print previous health check records
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {/* Filters */}
+              <div className="flex gap-4 mb-4">
+                <div>
+                  <Label>Filter by Server</Label>
+                  <Select value={historyFilter.server} onValueChange={(v) => setHistoryFilter(prev => ({ ...prev, server: v }))}>
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Servers</SelectItem>
+                      {servers.map(s => (
+                        <SelectItem key={s.id} value={s.id}>{s.hostname}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Filter by Year</Label>
+                  <Select value={historyFilter.year} onValueChange={(v) => setHistoryFilter(prev => ({ ...prev, year: v }))}>
+                    <SelectTrigger className="w-[150px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Years</SelectItem>
+                      {years.map(y => (
+                        <SelectItem key={y} value={y.toString()}>{y}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* History Table */}
+              {filteredHistory.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Clock className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>No health checks recorded yet</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Server</TableHead>
+                      <TableHead>Client</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Signed Off By</TableHead>
+                      <TableHead>Result</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredHistory.map(record => {
+                      const passCount = record.checks?.filter(c => c.status === 'pass').length || 0;
+                      const failCount = record.checks?.filter(c => c.status === 'fail').length || 0;
+                      const totalChecks = record.checks?.length || 0;
+                      
+                      return (
+                        <TableRow key={record.id}>
+                          <TableCell>{new Date(record.check_date).toLocaleDateString()}</TableCell>
+                          <TableCell className="font-medium">{record.server_name}</TableCell>
+                          <TableCell>{getClientName(record.server_id)}</TableCell>
+                          <TableCell>
+                            <Badge variant={record.is_ad_server ? 'default' : 'secondary'}>
+                              {record.is_ad_server ? 'AD Server' : 'Standard'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{record.signed_off_by}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <span className="text-green-600">{passCount} pass</span>
+                              {failCount > 0 && (
+                                <span className="text-red-600">{failCount} fail</span>
+                              )}
+                              <span className="text-muted-foreground">/ {totalChecks}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Button size="sm" variant="outline" onClick={() => setViewingRecord(record)}>
+                              View
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* View Record Dialog */}
+      <Dialog open={!!viewingRecord} onOpenChange={() => setViewingRecord(null)}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Health Check Record - {viewingRecord?.server_name}</DialogTitle>
+          </DialogHeader>
+          
+          {viewingRecord && (
+            <div ref={printRef}>
+              <div className="grid grid-cols-2 gap-4 mb-6 p-4 bg-muted rounded-lg">
+                <div>
+                  <strong>Server:</strong> {viewingRecord.server_name}<br />
+                  <strong>Type:</strong> {viewingRecord.is_ad_server ? 'Domain Controller' : 'Standard Server'}
+                </div>
+                <div>
+                  <strong>Date:</strong> {new Date(viewingRecord.check_date).toLocaleDateString()}<br />
+                  <strong>Signed Off By:</strong> {viewingRecord.signed_off_by}
+                </div>
+              </div>
+
+              {Object.entries(groupChecksByCategory(viewingRecord.checks || [])).map(([category, checks]) => (
+                <div key={category} className="mb-4">
+                  <h3 className="font-semibold mb-2">{category}</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Check</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Notes</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {checks.map(check => (
+                        <TableRow key={check.id}>
+                          <TableCell>{check.name}</TableCell>
+                          <TableCell>
+                            <Badge variant={
+                              check.status === 'pass' ? 'default' :
+                              check.status === 'fail' ? 'destructive' : 'secondary'
+                            } className={check.status === 'pass' ? 'bg-green-600' : ''}>
+                              {check.status?.toUpperCase()}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{check.notes || '-'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               ))}
             </div>
           )}
-        </CardContent>
-      </Card>
 
-      {/* Run Check Dialog */}
-      <Dialog open={runDialogOpen} onOpenChange={setRunDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Shield className="h-5 w-5 text-blue-400" />
-              DC Health Check - {selectedServer?.hostname}
-            </DialogTitle>
-          </DialogHeader>
-          
-          <div className="flex-1 overflow-auto py-4">
-            <div className="mb-4 p-3 bg-muted/50 rounded-lg">
-              <p className="text-sm text-muted-foreground">
-                <strong>Server:</strong> {selectedServer?.hostname} | 
-                <strong> Client:</strong> {selectedServer?.client_name} | 
-                <strong> OS:</strong> {selectedServer?.os_name}
-              </p>
-            </div>
-
-            <Accordion type="multiple" defaultValue={Object.keys(templatesByCategory)} className="space-y-2">
-              {Object.entries(templatesByCategory).map(([category, checks]) => (
-                <AccordionItem key={category} value={category} className="border rounded-lg px-4">
-                  <AccordionTrigger className="text-sm font-medium">
-                    <div className="flex items-center gap-2">
-                      <Shield className="h-4 w-4 text-blue-400" />
-                      {category}
-                      <Badge variant="outline" className="ml-2">
-                        {checks.length} checks
-                      </Badge>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <div className="space-y-3 py-2">
-                      {checks.map(check => (
-                        <div key={check.id} className="p-3 border rounded-lg bg-card">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <p className="font-medium text-sm">{check.name}</p>
-                              <p className="text-xs text-muted-foreground mt-1">{check.description}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                size="sm"
-                                variant={checkResults[check.id] === 'pass' ? 'default' : 'outline'}
-                                className={checkResults[check.id] === 'pass' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
-                                onClick={() => toggleCheckResult(check.id, 'pass')}
-                              >
-                                <CheckCircle className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant={checkResults[check.id] === 'fail' ? 'default' : 'outline'}
-                                className={checkResults[check.id] === 'fail' ? 'bg-red-600 hover:bg-red-700' : ''}
-                                onClick={() => toggleCheckResult(check.id, 'fail')}
-                              >
-                                <XCircle className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                          {checkResults[check.id] === 'fail' && (
-                            <Textarea
-                              placeholder="Add notes about the failure..."
-                              value={checkNotes[check.id] || ''}
-                              onChange={(e) => setCheckNotes(prev => ({ ...prev, [check.id]: e.target.value }))}
-                              className="mt-2"
-                              rows={2}
-                            />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              ))}
-            </Accordion>
-          </div>
-
-          <div className="border-t pt-4 flex items-center justify-between">
-            <div className="flex items-center gap-4 text-sm">
-              <span className="flex items-center gap-1 text-emerald-400">
-                <CheckCircle className="h-4 w-4" />
-                {Object.values(checkResults).filter(r => r === 'pass').length} Passed
-              </span>
-              <span className="flex items-center gap-1 text-red-400">
-                <XCircle className="h-4 w-4" />
-                {Object.values(checkResults).filter(r => r === 'fail').length} Failed
-              </span>
-              <span className="flex items-center gap-1 text-muted-foreground">
-                <Clock className="h-4 w-4" />
-                {dcTemplates.length - Object.values(checkResults).filter(r => r).length} Not Checked
-              </span>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setRunDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={saveHealthCheck} disabled={saving} data-testid="save-health-check">
-                {saving ? (
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                )}
-                Save Health Check
-              </Button>
-            </div>
-          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewingRecord(null)}>Close</Button>
+            <Button onClick={handlePrint}>
+              <Printer className="h-4 w-4 mr-2" />
+              Print
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
