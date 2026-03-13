@@ -94,6 +94,7 @@ if [ ! -f "$INSTALL_DIR/.env" ]; then
     
     cat > $INSTALL_DIR/.env << EOF
 # SynthOps Environment Configuration
+# Synthesis IT Ltd
 # Generated on $(date)
 
 # Security
@@ -103,34 +104,33 @@ ENCRYPTION_KEY=$ENCRYPTION_KEY
 # Application
 FRONTEND_URL=http://$(hostname -I | awk '{print $1}')
 
-# Tactical RMM Integration (configure these)
-TACTICAL_RMM_API_URL=
-TACTICAL_RMM_API_KEY=
+# Tactical RMM Integration
+TACTICAL_RMM_API_URL=https://api.synthesis-it.co.uk/
+TACTICAL_RMM_API_KEY=SZRL0SCTYLK6YCL1CP2O4GYXX8ZKNUES
 
-# Zammad Integration (configure these)
-ZAMMAD_API_URL=
-ZAMMAD_API_TOKEN=
+# Zammad Integration
+ZAMMAD_API_URL=https://help.synthesis-it.co.uk
+ZAMMAD_API_TOKEN=nbsIJ4v3bV2hjOdEkdillRU5uWGhFt5B9yK2RHC89pHoE8Z2hsvNv_FxSVz1f2SZ
 
-# MeshCentral (configure this)
-MESHCENTRAL_URL=
+# MeshCentral
+MESHCENTRAL_URL=https://mesh.synthesis-it.co.uk
 
 # Vaultwarden
-VAULTWARDEN_URL=http://localhost:8082
+VAULTWARDEN_URL=http://$(hostname -I | awk '{print $1}'):8082
 VAULTWARDEN_ADMIN_TOKEN=$JWT_SECRET
 
-# Microsoft Teams Webhook (configure this)
+# Microsoft Teams Webhook (add your webhook URL)
 TEAMS_WEBHOOK_URL=
 
 # Sync interval in minutes
 SYNC_INTERVAL_MINUTES=15
 
-# Database admin (optional)
+# Database admin
 MONGO_EXPRESS_USER=admin
 MONGO_EXPRESS_PASSWORD=$(openssl rand -hex 8)
 EOF
     
     echo -e "${GREEN}Environment file created at $INSTALL_DIR/.env${NC}"
-    echo -e "${YELLOW}Please edit this file to add your API keys${NC}"
 fi
 
 # Create docker-compose file if not exists
@@ -222,17 +222,16 @@ if docker compose ps | grep -q "running"; then
     echo -e "  ${GREEN}SynthOps:${NC}     http://$SERVER_IP"
     echo -e "  ${GREEN}Vaultwarden:${NC}  http://$SERVER_IP:8082"
     echo ""
-    echo -e "${YELLOW}Next Steps:${NC}"
-    echo -e "  1. Edit ${CYAN}/opt/synthops/.env${NC} to add your API keys:"
-    echo -e "     - TACTICAL_RMM_API_URL and TACTICAL_RMM_API_KEY"
-    echo -e "     - ZAMMAD_API_URL and ZAMMAD_API_TOKEN"
-    echo -e "     - MESHCENTRAL_URL"
-    echo -e "     - TEAMS_WEBHOOK_URL (optional)"
+    echo -e "${YELLOW}Your integrations are pre-configured:${NC}"
+    echo -e "  - Tactical RMM: https://api.synthesis-it.co.uk/"
+    echo -e "  - Zammad: https://help.synthesis-it.co.uk"
+    echo -e "  - MeshCentral: https://mesh.synthesis-it.co.uk"
     echo ""
-    echo -e "  2. After editing, restart SynthOps:"
-    echo -e "     ${CYAN}cd /opt/synthops && docker compose restart${NC}"
+    echo -e "${YELLOW}Optional: Add Teams webhook for alerts:${NC}"
+    echo -e "  ${CYAN}nano /opt/synthops/.env${NC}  # Add TEAMS_WEBHOOK_URL"
+    echo -e "  ${CYAN}cd /opt/synthops && docker compose restart${NC}"
     echo ""
-    echo -e "  3. Create your admin account at http://$SERVER_IP"
+    echo -e "  Create your admin account at http://$SERVER_IP"
     echo ""
     echo -e "${GREEN}Management Commands:${NC}"
     echo -e "  Start:   ${CYAN}cd /opt/synthops && docker compose up -d${NC}"
