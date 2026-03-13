@@ -137,12 +137,28 @@ fi
 
 # docker-compose.yml comes from GitHub repo, no need to create
 
-echo -e "${GREEN}[7/8] Building and starting SynthOps...${NC}"
+echo -e "${GREEN}[7/9] Generating SSL certificates...${NC}"
+SSL_DIR="$INSTALL_DIR/ssl"
+DOMAIN="synthops.synthesis-it.co.uk"
+mkdir -p $SSL_DIR
+
+# Generate self-signed certificate valid for 10 years
+openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+    -keyout $SSL_DIR/synthops.key \
+    -out $SSL_DIR/synthops.crt \
+    -subj "/C=GB/ST=England/L=London/O=Synthesis IT Ltd/CN=$DOMAIN" \
+    -addext "subjectAltName=DNS:$DOMAIN,DNS:localhost" 2>/dev/null
+
+chmod 600 $SSL_DIR/synthops.key
+chmod 644 $SSL_DIR/synthops.crt
+echo -e "${GREEN}SSL certificates generated${NC}"
+
+echo -e "${GREEN}[8/9] Building and starting SynthOps...${NC}"
 cd $INSTALL_DIR
 docker compose build --no-cache
 docker compose up -d
 
-echo -e "${GREEN}[8/8] Setting up auto-start on boot...${NC}"
+echo -e "${GREEN}[9/9] Setting up auto-start on boot...${NC}"
 # Create systemd service for SynthOps
 cat > /etc/systemd/system/synthops.service << 'SVCEOF'
 [Unit]
@@ -173,16 +189,17 @@ sleep 10
 
 # Check if services are running
 if docker compose ps | grep -q "running"; then
-    SERVER_IP=$(hostname -I | awk '{print $1}')
     
     echo ""
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║              SynthOps Installed Successfully!                 ║${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "${CYAN}Access your SynthOps portal:${NC}"
-    echo -e "  ${GREEN}SynthOps:${NC}     http://$SERVER_IP"
-    echo -e "  ${GREEN}Vaultwarden:${NC}  http://$SERVER_IP:8082"
+    echo -e "${CYAN}Access your SynthOps portal (HTTPS):${NC}"
+    echo -e "  ${GREEN}SynthOps:${NC}     https://synthops.synthesis-it.co.uk"
+    echo -e "  ${GREEN}Vaultwarden:${NC}  https://synthops.synthesis-it.co.uk/vault"
+    echo ""
+    echo -e "${YELLOW}NOTE: Self-signed SSL certificate - accept the browser warning${NC}"
     echo ""
     echo -e "${YELLOW}Your integrations are pre-configured:${NC}"
     echo -e "  - Tactical RMM: https://api.synthesis-it.co.uk/"
@@ -193,7 +210,7 @@ if docker compose ps | grep -q "running"; then
     echo -e "  ${CYAN}nano /opt/synthops/.env${NC}  # Add TEAMS_WEBHOOK_URL"
     echo -e "  ${CYAN}cd /opt/synthops && docker compose restart${NC}"
     echo ""
-    echo -e "  Create your admin account at http://$SERVER_IP"
+    echo -e "  Create your admin account at https://synthops.synthesis-it.co.uk"
     echo ""
     echo -e "${GREEN}Management Commands:${NC}"
     echo -e "  Start:   ${CYAN}sudo systemctl start synthops${NC}"

@@ -6,8 +6,6 @@ services:
       dockerfile: Dockerfile
     container_name: synthops-backend
     restart: unless-stopped
-    ports:
-      - "8001:8001"
     environment:
       - MONGO_URL=mongodb://mongo:27017
       - DB_NAME=synthops
@@ -23,7 +21,7 @@ services:
       - EMERGENT_LLM_KEY=${EMERGENT_LLM_KEY:-}
       - MESHCENTRAL_URL=${MESHCENTRAL_URL:-}
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
-      - VAULTWARDEN_URL=${VAULTWARDEN_URL:-http://localhost:8082}
+      - VAULTWARDEN_URL=https://synthops.synthesis-it.co.uk/vault
       - CORS_ORIGINS=*
       - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-15}
     depends_on:
@@ -36,17 +34,20 @@ services:
       timeout: 10s
       retries: 3
 
-  # SynthOps Frontend
+  # SynthOps Frontend with SSL
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - REACT_APP_BACKEND_URL=${FRONTEND_URL:-http://localhost}
+        - REACT_APP_BACKEND_URL=https://synthops.synthesis-it.co.uk
     container_name: synthops-frontend
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - ./ssl:/etc/nginx/ssl:ro
     depends_on:
       - backend
     networks:
@@ -68,15 +69,13 @@ services:
       timeout: 10s
       retries: 3
 
-  # Vaultwarden - Password Manager
+  # Vaultwarden - Password Manager (accessed via /vault path)
   vaultwarden:
     image: vaultwarden/server:latest
     container_name: synthops-vaultwarden
     restart: unless-stopped
-    ports:
-      - "8082:80"
     environment:
-      - DOMAIN=${VAULTWARDEN_URL:-http://localhost:8082}
+      - DOMAIN=https://synthops.synthesis-it.co.uk/vault
       - ADMIN_TOKEN=${VAULTWARDEN_ADMIN_TOKEN:-}
       - SIGNUPS_ALLOWED=true
       - INVITATIONS_ALLOWED=true
