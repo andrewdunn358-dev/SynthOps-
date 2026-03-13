@@ -174,6 +174,7 @@ class ClientResponse(BaseModel):
     tactical_rmm_client_id: Optional[int]
     created_at: datetime
     server_count: int = 0
+    workstation_count: int = 0
     site_count: int = 0
 
 class SiteCreate(BaseModel):
@@ -599,9 +600,11 @@ async def list_clients(user: dict = Depends(get_current_user)):
     for c in clients:
         site_count = await db.sites.count_documents({"client_id": c["id"], "is_active": True})
         server_count = 0
+        workstation_count = 0
         sites = await db.sites.find({"client_id": c["id"]}, {"id": 1}).to_list(1000)
         for site in sites:
             server_count += await db.servers.count_documents({"site_id": site["id"]})
+            workstation_count += await db.machines.count_documents({"site_id": site["id"]})
         
         result.append(ClientResponse(
             id=c["id"], name=c["name"], code=c["code"],
@@ -613,7 +616,7 @@ async def list_clients(user: dict = Depends(get_current_user)):
             is_active=c.get("is_active", True),
             tactical_rmm_client_id=c.get("tactical_rmm_client_id"),
             created_at=datetime.fromisoformat(c["created_at"]),
-            server_count=server_count, site_count=site_count
+            server_count=server_count, workstation_count=workstation_count, site_count=site_count
         ))
     return result
 
@@ -624,9 +627,11 @@ async def get_client(client_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Client not found")
     site_count = await db.sites.count_documents({"client_id": client_id, "is_active": True})
     server_count = 0
+    workstation_count = 0
     sites = await db.sites.find({"client_id": client_id}, {"id": 1}).to_list(1000)
     for site in sites:
         server_count += await db.servers.count_documents({"site_id": site["id"]})
+        workstation_count += await db.machines.count_documents({"site_id": site["id"]})
     return ClientResponse(
         id=c["id"], name=c["name"], code=c["code"],
         contact_name=c.get("contact_name"), contact_email=c.get("contact_email"),
@@ -637,7 +642,7 @@ async def get_client(client_id: str, user: dict = Depends(get_current_user)):
         is_active=c.get("is_active", True),
         tactical_rmm_client_id=c.get("tactical_rmm_client_id"),
         created_at=datetime.fromisoformat(c["created_at"]),
-        server_count=server_count, site_count=site_count
+        server_count=server_count, workstation_count=workstation_count, site_count=site_count
     )
 
 @api_router.post("/clients", response_model=ClientResponse)

@@ -25,7 +25,7 @@ import {
 } from '../components/ui/select';
 import { 
   Building2, Plus, Search, Server, MapPin, Phone, Mail,
-  MoreVertical, Edit, Trash2, RefreshCw, ArrowRight, Download
+  MoreVertical, Edit, Trash2, RefreshCw, ArrowRight, Download, Monitor
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -409,6 +409,10 @@ export default function Clients() {
                     <div className="flex items-center gap-1">
                       <Server className="h-3 w-3 text-muted-foreground" />
                       <span>{client.server_count} servers</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Monitor className="h-3 w-3 text-muted-foreground" />
+                      <span>{client.workstation_count || 0} workstations</span>
                     </div>
                   </div>
                   <Badge variant="outline" className="capitalize">
