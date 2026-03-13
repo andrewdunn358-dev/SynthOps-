@@ -76,7 +76,7 @@ export default function DCHealthCheck() {
 
   // Get DC templates (Active Directory checks)
   const dcTemplates = templates.filter(t => 
-    t.category?.toLowerCase().includes('active directory') || 
+    t.category?.toLowerCase().startsWith('active directory') || 
     t.server_roles?.includes('domain controller')
   );
 

@@ -5,125 +5,109 @@
 Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - an MSP managing multiple clients. The portal centralizes infrastructure management, tasks, incidents, projects, documentation, and includes an AI assistant called "Sophie" for IT troubleshooting advice.
 
 ### User Personas
-1. **IT Admin** - Full system access, user management, TRMM configuration
-2. **IT Engineer** - Day-to-day operations, task management, health checks
-3. **IT Viewer** - Read-only access to dashboards and reports
-
-### Core Requirements
-- Multi-client management (Clients → Sites → Servers)
-- Tactical RMM integration for client/agent sync
-- Zammad integration for ticket management
-- Monthly health checks with best practices
-- Task/Kanban management with assignments
-- Project tracking with milestones
-- Incident logging and resolution
-- Maintenance scheduling
-- Documentation/Runbooks (markdown)
-- Time tracking with timesheets
-- Staff activity dashboard
-- Sophie AI assistant (Claude Sonnet 4.5)
-- JWT authentication with 2FA support
-- Dark/Light theme toggle
-- NOC Display for TV screens
-- Microsoft Teams webhook notifications
-- MeshCentral remote access integration
-- Vaultwarden password manager integration
-- Docker deployment with Vaultwarden
+1. **Admin** - Full system access, user management, TRMM configuration
+2. **Engineer** - Day-to-day operations, task management, health checks
+3. **Viewer** - Read-only access to dashboards and reports
 
 ---
 
-## What's Been Implemented (March 12, 2026)
+## What's Been Implemented (March 13, 2026)
 
-### Latest Session - P2 Features Complete
-- [x] **Full Project Tracking with Jobs & Worksheets**
-  - Project Detail page with tabs (Jobs, Tasks, Time Entries, Overview)
-  - Create/Edit/Delete jobs with status, priority, assignee
-  - Log work with worksheets (hours, work performed, billable flag)
-  - Progress tracking with stats cards
-  - Click project card to view details
-- [x] **Sophie AI Assistant** - Already working! Chat with Claude for IT troubleshooting advice
-
-### Previous - Logo & P1 Features
-- [x] **Synthesis IT Logo** - Updated sidebar, login, and NOC display with company branding
-- [x] **Zammad Ticket Response** - Full ticket conversation view with reply functionality
-- [x] **DC Health Check Page** (`/dc-health-check`)
-  - 36 Active Directory health check templates
-  - Select server and run manual checks
-  - Mark checks as Pass/Fail with notes
-  - Check history with filtering by client/month
+### Latest Session - Complete Overhaul
+- [x] **Synthesis IT Logo** - Company branding throughout app
+- [x] **Floating Sophie AI** - Chat button in bottom-right corner
+- [x] **Reports Builder** - Custom report generation with:
+  - Client filter, Date range, Group by options
+  - Include checkboxes (Servers, Tickets, Incidents, Maintenance, Time)
   - Export to CSV
-
-### Previous Session - Iteration 4
-- [x] **NOC Display Dashboard** (`/display` route)
-  - Full-screen TV-optimized display
-  - Real-time server status grid (online/offline/maintenance)
-  - Open tickets counter, active incidents
-  - Auto-refresh every 30 seconds
-  - Dark theme optimized for displays
-- [x] **MeshCentral Remote Access Integration**
-  - Connect button on Server Detail page (cyan styled)
-  - Opens MeshCentral in new window
-  - `/api/config/meshcentral` endpoint
-  - `/api/servers/{id}/mesh-url` endpoint
-- [x] **Vaultwarden Integration**
-  - Password Vault button in sidebar (amber styled)
-  - `/api/config/vaultwarden` endpoint
-  - Included in Docker Compose
-- [x] **Microsoft Teams Webhook Notifications**
-  - `/api/notifications/config` endpoint
-  - `/api/notifications/teams/test` endpoint
-  - Auto-alerts when server goes offline during sync
-  - Settings page shows Teams configuration status
-- [x] **Security Hardening**
-  - Rate limiting middleware (120 requests/minute)
-  - Security headers middleware (X-Frame-Options, X-XSS-Protection, etc.)
-  - Audit logging endpoints
-- [x] **Updated Settings Page**
-  - Integrations section (MeshCentral, Vaultwarden status)
-  - Notifications section (Teams webhook status)
-  - Test Teams webhook button
+  - Visual breakdown by client, OS distribution
+- [x] **Incidents + TRMM Alerts** - Offline servers auto-shown as incidents
+  - Alert banner showing count of offline servers
+  - Source filter (All/Manual/TRMM)
+  - TRMM badge on each incident row
+- [x] **Admin Panel Overhaul**
+  - User Management with Create User button
+  - Role dropdown (Admin/Engineer/Viewer)
+  - Password reset functionality
+  - Status toggle (Active/Inactive)
+  - Role permissions reference
+  - Removed phpMyAdmin (MongoDB incompatible)
+- [x] **Tickets** - Defaults to Open tickets only
+- [x] **Maintenance** - Defaults to Upcoming & Overdue
+  - Alert banners for overdue/upcoming items
+- [x] **Documentation** - Seeded with actual runbook content
+  - AD Health Check Guide
+  - Backup Best Practices
+  - New Server Setup Checklist
+- [x] **DC Health Check** - Fixed category filtering
+- [x] **One-Line Ubuntu Installer** - `/app/install-synthops.sh`
 
 ### Previous Sessions
-- [x] Fixed "Objects are not valid as React child" crash
-- [x] Fixed SelectItem empty value crash
-- [x] Tactical RMM full sync (clients, sites, servers, workstations)
-- [x] NOC-style Server Detail view with live TRMM data
-- [x] CSV Export features (Clients, Servers, Incidents, Time Tracking)
-- [x] Zammad ticket integration with auto-task creation
+- [x] Full Project Tracking with Jobs & Worksheets
+- [x] NOC Display Dashboard (`/display`)
+- [x] MeshCentral Remote Access (Connect button)
+- [x] Vaultwarden Password Manager integration
+- [x] Microsoft Teams Webhook notifications
+- [x] Security Hardening (rate limiting, headers, audit)
+- [x] Zammad Ticket Response feature
+- [x] Tactical RMM full sync
+- [x] APScheduler background sync
+- [x] Docker Compose deployment
+- [x] CSV Export features
 - [x] MSP Reports Dashboard
-- [x] Server/Workstation separation
-- [x] Background scheduler (APScheduler) for auto-sync
-- [x] Docker Compose deployment configuration
-- [x] Comprehensive User Manual
 
 ---
 
 ## Prioritized Backlog
 
-### P0 - Critical (Next)
-- [ ] **SendGrid Email Notifications** - BLOCKED: Waiting for user API key
-  - Server offline alerts
-  - New ticket notifications
-  - Task assignment emails
-  - Daily/weekly summary reports
+### P0 - Critical
+- [x] All core features implemented
 
 ### P1 - High Priority
-- [ ] **Full Project Tracking Module** - Job worksheets and tracking
-- [ ] **Sophie AI Assistant** - Frontend chat UI with Claude integration
-- [ ] **SSL with Let's Encrypt** - Production HTTPS setup
+- [ ] SSL with Let's Encrypt for production
+- [ ] SendGrid Email Notifications (waiting for API key)
 
 ### P2 - Medium Priority
-- [ ] **Sophie AI Assistant** - Frontend chat UI with Claude integration
-- [ ] **Scheduled Maintenance Windows** - Suppress alerts during planned downtime
-- [ ] **Client Portal** - Read-only view for customers
-- [ ] **Google OAuth** - Social login option
-- [ ] **TOTP 2FA** - Two-factor authentication setup
+- [ ] Scheduled Maintenance Windows (suppress alerts)
+- [ ] Client Portal (read-only customer view)
+- [ ] Google OAuth login option
 
 ### P3 - Future Enhancements
-- [ ] **Mobile-friendly Dashboard** - Responsive design for phones
-- [ ] **Slack/Discord Webhooks** - Additional notification channels
-- [ ] **In-App Documentation** - View USER_MANUAL.md inside app
-- [ ] **PDF Report Generation** - Exportable reports
+- [ ] Mobile-friendly responsive design
+- [ ] Slack/Discord webhooks
+- [ ] PDF Report Generation
+- [ ] In-app help documentation viewer
+
+---
+
+## Installation
+
+### One-Line Ubuntu Install
+```bash
+curl -fsSL https://raw.githubusercontent.com/synthesis-it/synthops/main/install-synthops.sh | sudo bash
+```
+
+### Docker Compose
+```bash
+git clone https://github.com/synthesis-it/synthops.git
+cd synthops
+cp .env.example .env
+# Edit .env with your API keys
+docker compose up -d
+```
+
+### Environment Variables
+```
+# Required
+TACTICAL_RMM_API_URL=https://api.your-trmm.com/
+TACTICAL_RMM_API_KEY=your-key
+
+# Optional
+ZAMMAD_API_URL=https://help.yourcompany.com
+ZAMMAD_API_TOKEN=your-token
+MESHCENTRAL_URL=https://mesh.yourcompany.com
+TEAMS_WEBHOOK_URL=your-webhook-url
+```
 
 ---
 
@@ -132,59 +116,34 @@ Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - 
 ```
 /app/
 ├── backend/
-│   ├── server.py          # Main FastAPI application
-│   ├── requirements.txt   # Python dependencies
-│   └── .env               # Environment variables
+│   ├── server.py          # FastAPI application
+│   ├── Dockerfile
+│   └── requirements.txt
 ├── frontend/
 │   ├── src/
-│   │   ├── App.js         # Main React app with routing
-│   │   ├── pages/         # All page components
-│   │   │   ├── NOCDisplay.jsx    # TV display dashboard
-│   │   │   ├── Settings.jsx      # Updated with integrations
-│   │   │   └── ...
-│   │   └── components/    # Layout, Sophie, UI
-│   ├── package.json
-│   └── .env
-├── docker-compose.yml     # Production deployment
-├── install.sh             # Installation script
-├── USER_MANUAL.md         # User documentation
-└── memory/
-    └── PRD.md             # This file
+│   │   ├── App.js
+│   │   ├── pages/         # All UI pages
+│   │   └── components/    # Layout, SophieFloating, UI
+│   ├── Dockerfile
+│   └── package.json
+├── docker-compose.yml
+├── install-synthops.sh    # One-line installer
+├── install.sh             # Full installer script
+├── uninstall.sh
+├── README.md
+├── USER_MANUAL.md
+└── .env.example
 ```
-
-### Database Collections (MongoDB)
-- users, clients, sites, servers
-- tasks, projects, incidents, maintenance
-- documentation, time_entries
-- health_checks, health_check_templates
-- sophie_chats, sync_logs
-- notification_log, audit_log
-
-### Key API Endpoints
-- `/api/auth/*` - Authentication
-- `/api/config/meshcentral` - MeshCentral config
-- `/api/config/vaultwarden` - Vaultwarden config
-- `/api/notifications/config` - Notification settings
-- `/api/notifications/teams/test` - Test Teams webhook
-- `/api/sync/status` - Background sync status
-- `/api/sync/trigger/{type}` - Manual sync trigger
-- `/api/zammad/tickets` - Zammad tickets
-- `/api/trmm/agents/{id}/summary` - NOC view data
-- `/api/[entity]/export` - CSV exports
 
 ---
 
-## Integrations
+## User Roles
 
-| Integration | Status | Configuration |
-|-------------|--------|---------------|
-| Tactical RMM | Active | API Key in .env |
-| Zammad | Active | API Token in .env |
-| MeshCentral | Active | URL: https://mesh.synthesis-it.co.uk |
-| Vaultwarden | Active | URL: http://localhost:8082 (Docker) |
-| Teams Webhook | Ready | TEAMS_WEBHOOK_URL in .env |
-| SendGrid | Pending | Waiting for API key |
-| Claude AI | Ready | Emergent LLM Key |
+| Role | Permissions |
+|------|-------------|
+| Admin | Full access, user management, system settings |
+| Engineer | Manage servers/clients, create tasks/incidents, time tracking |
+| Viewer | View dashboards and reports only |
 
 ---
 
@@ -192,24 +151,20 @@ Build a self-hosted IT Operations Portal called SynthOps for Synthesis IT Ltd - 
 - **Email:** admin@synthesis-it.co.uk
 - **Password:** admin123
 
-## Docker Deployment
-```bash
-# Production deployment
-docker-compose up -d
+---
 
-# With admin tools (Mongo Express)
-docker-compose --profile admin up -d
-```
+## Integration Status
 
-## Environment Variables Required
-```
-TACTICAL_RMM_API_URL=
-TACTICAL_RMM_API_KEY=
-ZAMMAD_API_URL=
-ZAMMAD_API_TOKEN=
-MESHCENTRAL_URL=
-VAULTWARDEN_URL=
-TEAMS_WEBHOOK_URL=
-SENDGRID_API_KEY=
-SENDGRID_FROM_EMAIL=
-```
+| Integration | Status | Notes |
+|-------------|--------|-------|
+| Tactical RMM | ✅ Active | Full sync working |
+| Zammad | ✅ Active | Tickets + Reply |
+| MeshCentral | ✅ Active | Connect button |
+| Vaultwarden | ✅ Active | Docker container |
+| Teams Webhook | ✅ Ready | Add URL to .env |
+| SendGrid | ⏳ Pending | Needs API key |
+| Sophie AI | ✅ Active | Claude Sonnet 4.5 |
+
+---
+
+Built with ❤️ for MSPs by Synthesis IT Ltd

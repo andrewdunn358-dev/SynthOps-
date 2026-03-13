@@ -43,11 +43,13 @@ import { Textarea } from '../components/ui/textarea';
 
 export default function Incidents() {
   const [incidents, setIncidents] = useState([]);
+  const [trmmAlerts, setTrmmAlerts] = useState([]);
   const [clients, setClients] = useState([]);
   const [servers, setServers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('open');
+  const [sourceFilter, setSourceFilter] = useState('all');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [resolveDialogOpen, setResolveDialogOpen] = useState(false);
   const [selectedIncident, setSelectedIncident] = useState(null);
@@ -79,6 +81,21 @@ export default function Incidents() {
       setIncidents(incidentsRes.data);
       setClients(clientsRes.data);
       setServers(serversRes.data);
+      
+      // Fetch TRMM alerts - offline servers as incidents
+      const offlineServers = serversRes.data.filter(s => s.status === 'offline');
+      const trmmIncidents = offlineServers.map(s => ({
+        id: `trmm-${s.id}`,
+        title: `Server Offline: ${s.hostname}`,
+        source: 'trmm',
+        severity: 'high',
+        status: 'open',
+        client_name: s.client_name,
+        server_name: s.hostname,
+        description: `Server ${s.hostname} is currently offline. Last seen: ${s.last_seen || 'Unknown'}`,
+        created_at: s.last_seen || new Date().toISOString()
+      }));
+      setTrmmAlerts(trmmIncidents);
     } catch (error) {
       toast.error('Failed to load incidents');
     } finally {
@@ -141,11 +158,32 @@ export default function Incidents() {
     });
   };
 
-  const filteredIncidents = incidents.filter(i => {
-    const matchesSearch = i.title.toLowerCase().includes(search.toLowerCase());
+  // Combine manual incidents with TRMM alerts
+  const allIncidents = [
+    ...incidents.map(i => ({ ...i, source: 'manual' })),
+    ...(sourceFilter !== 'manual' ? trmmAlerts : [])
+  ];
+
+  const filteredIncidents = allIncidents.filter(i => {
+    const matchesSearch = i.title.toLowerCase().includes(search.toLowerCase()) ||
+                          i.server_name?.toLowerCase().includes(search.toLowerCase()) ||
+                          i.client_name?.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === 'all' || i.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesSource = sourceFilter === 'all' || i.source === sourceFilter;
+    return matchesSearch && matchesStatus && matchesSource;
+  }).sort((a, b) => {
+    // Sort by severity (critical > high > medium > low) then by date
+    const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+    if (severityOrder[a.severity] !== severityOrder[b.severity]) {
+      return severityOrder[a.severity] - severityOrder[b.severity];
+    }
+    return new Date(b.created_at) - new Date(a.created_at);
   });
+
+  // Stats
+  const openIncidents = allIncidents.filter(i => i.status === 'open').length;
+  const criticalIncidents = allIncidents.filter(i => i.severity === 'critical' && i.status === 'open').length;
+  const trmmAlertCount = trmmAlerts.length;
 
   const getSeverityClass = (severity) => `severity-${severity}`;
 
@@ -159,13 +197,33 @@ export default function Incidents() {
 
   return (
     <div className="space-y-6" data-testid="incidents-page">
+      {/* TRMM Alert Banner */}
+      {trmmAlertCount > 0 && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="h-5 w-5 text-red-400" />
+            <div>
+              <p className="font-semibold text-red-400">
+                {trmmAlertCount} Server{trmmAlertCount > 1 ? 's' : ''} Offline (TRMM)
+              </p>
+              <p className="text-sm text-muted-foreground">
+                These servers are detected as offline in Tactical RMM and require attention.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight" style={{ fontFamily: 'Barlow Condensed' }}>
             INCIDENTS
           </h1>
-          <p className="text-muted-foreground">Track and manage incidents</p>
+          <p className="text-muted-foreground">
+            Track and manage incidents • {openIncidents} open 
+            {criticalIncidents > 0 && <span className="text-red-400"> • {criticalIncidents} critical</span>}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button 
@@ -292,6 +350,17 @@ export default function Incidents() {
             <SelectItem value="resolved">Resolved</SelectItem>
           </SelectContent>
         </Select>
+        
+        <Select value={sourceFilter} onValueChange={setSourceFilter}>
+          <SelectTrigger className="w-40" data-testid="filter-source">
+            <SelectValue placeholder="Source" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Sources</SelectItem>
+            <SelectItem value="manual">Manual</SelectItem>
+            <SelectItem value="trmm">TRMM Alerts</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Incidents Table */}
@@ -312,11 +381,12 @@ export default function Incidents() {
               <TableHeader>
                 <TableRow className="table-dense">
                   <TableHead>Status</TableHead>
+                  <TableHead>Source</TableHead>
                   <TableHead>Title</TableHead>
                   <TableHead>Client</TableHead>
                   <TableHead>Server</TableHead>
                   <TableHead>Severity</TableHead>
-                  <TableHead>Date Opened</TableHead>
+                  <TableHead>Date</TableHead>
                   <TableHead className="w-[100px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -332,6 +402,11 @@ export default function Incidents() {
                         {getStatusIcon(incident.status)}
                         <span className="capitalize">{incident.status}</span>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={incident.source === 'trmm' ? 'bg-cyan-500/10 text-cyan-400' : ''}>
+                        {incident.source === 'trmm' ? 'TRMM' : 'Manual'}
+                      </Badge>
                     </TableCell>
                     <TableCell className="font-medium">{incident.title}</TableCell>
                     <TableCell>{incident.client_name || '-'}</TableCell>

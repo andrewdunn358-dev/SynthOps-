@@ -41,11 +41,17 @@ A comprehensive, self-hosted IT Operations Portal designed for MSPs and IT teams
 
 ## Quick Start
 
-### One-Line Installation
+### One-Line Installation (Ubuntu)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/your-org/synthops/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/synthesis-it/synthops/main/install-synthops.sh | sudo bash
 ```
+
+This will:
+- Install Docker and Docker Compose
+- Download and configure SynthOps
+- Start all services
+- Set up Vaultwarden password manager
 
 ### Manual Installation
 
