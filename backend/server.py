@@ -468,7 +468,11 @@ async def require_admin(user: dict = Depends(get_current_user)):
 
 @api_router.post("/auth/register", response_model=UserResponse)
 async def register(user_data: UserCreate):
-    existing = await db.users.find_one({"$or": [{"email": user_data.email}, {"username": user_data.username}]})
+    # Normalize email and username to lowercase for case-insensitive matching
+    email_lower = user_data.email.lower()
+    username_lower = user_data.username.lower()
+    
+    existing = await db.users.find_one({"$or": [{"email": email_lower}, {"username": username_lower}]})
     if existing:
         raise HTTPException(status_code=400, detail="Email or username already exists")
     
@@ -477,8 +481,8 @@ async def register(user_data: UserCreate):
     
     user = {
         "id": str(uuid.uuid4()),
-        "email": user_data.email,
-        "username": user_data.username,
+        "email": email_lower,
+        "username": username_lower,
         "password_hash": hash_password(user_data.password),
         "role": role,
         "is_active": True,
@@ -493,7 +497,8 @@ async def register(user_data: UserCreate):
 
 @api_router.post("/auth/login", response_model=TokenResponse)
 async def login(credentials: UserLogin):
-    user = await db.users.find_one({"email": credentials.email}, {"_id": 0})
+    # Case-insensitive email lookup
+    user = await db.users.find_one({"email": credentials.email.lower()}, {"_id": 0})
     if not user or not verify_password(credentials.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.get("is_active", True):
@@ -1655,6 +1660,47 @@ HEALTH_CHECK_TEMPLATES = [
 @api_router.get("/health-checks/templates", response_model=List[HealthCheckTemplateResponse])
 async def get_health_check_templates(user: dict = Depends(get_current_user)):
     return [HealthCheckTemplateResponse(**t) for t in HEALTH_CHECK_TEMPLATES]
+
+@api_router.get("/health-checks", response_model=List[HealthCheckResponse])
+async def get_all_health_checks(client_id: Optional[str] = None, month: Optional[int] = None, 
+                                year: Optional[int] = None, user: dict = Depends(get_current_user)):
+    """Get all health checks, optionally filtered by client and time period"""
+    query = {}
+    
+    if month and year:
+        query["period_month"] = month
+        query["period_year"] = year
+    
+    checks = await db.health_checks.find(query, {"_id": 0}).sort("check_date", -1).to_list(500)
+    
+    result = []
+    for c in checks:
+        server = await db.servers.find_one({"id": c["server_id"]}, {"hostname": 1, "client_id": 1})
+        
+        # Filter by client if specified
+        if client_id and client_id != "all" and server and server.get("client_id") != client_id:
+            continue
+            
+        template = next((t for t in HEALTH_CHECK_TEMPLATES if t["id"] == c["template_id"]), None)
+        performer_name = None
+        if c.get("performed_by"):
+            performer = await db.users.find_one({"id": c["performed_by"]}, {"username": 1})
+            performer_name = performer["username"] if performer else None
+        
+        result.append(HealthCheckResponse(
+            id=c["id"], server_id=c["server_id"],
+            server_name=server["hostname"] if server else None,
+            template_id=c["template_id"],
+            template_name=template["name"] if template else None,
+            category=template["category"] if template else None,
+            check_date=datetime.fromisoformat(c["check_date"]),
+            period_month=c["period_month"], period_year=c["period_year"],
+            performed_by=c.get("performed_by"), performer_name=performer_name,
+            status=c["status"],
+            notes=decrypt_field(c.get("notes")) if c.get("notes") else None,
+            value_recorded=c.get("value_recorded")
+        ))
+    return result
 
 @api_router.get("/health-checks/server/{server_id}", response_model=List[HealthCheckResponse])
 async def get_server_health_checks(server_id: str, month: Optional[int] = None, year: Optional[int] = None,
