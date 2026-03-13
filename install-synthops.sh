@@ -137,10 +137,35 @@ fi
 
 # docker-compose.yml comes from GitHub repo, no need to create
 
-echo -e "${GREEN}[7/7] Building and starting SynthOps...${NC}"
+echo -e "${GREEN}[7/8] Building and starting SynthOps...${NC}"
 cd $INSTALL_DIR
 docker compose build --no-cache
 docker compose up -d
+
+echo -e "${GREEN}[8/8] Setting up auto-start on boot...${NC}"
+# Create systemd service for SynthOps
+cat > /etc/systemd/system/synthops.service << 'SVCEOF'
+[Unit]
+Description=SynthOps IT Operations Portal
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/synthops
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+# Enable the service
+systemctl daemon-reload
+systemctl enable synthops.service
+echo -e "${GREEN}SynthOps will auto-start on boot${NC}"
 
 # Wait for services to start
 echo -e "${YELLOW}Waiting for services to start...${NC}"
@@ -171,10 +196,13 @@ if docker compose ps | grep -q "running"; then
     echo -e "  Create your admin account at http://$SERVER_IP"
     echo ""
     echo -e "${GREEN}Management Commands:${NC}"
-    echo -e "  Start:   ${CYAN}cd /opt/synthops && docker compose up -d${NC}"
-    echo -e "  Stop:    ${CYAN}cd /opt/synthops && docker compose down${NC}"
+    echo -e "  Start:   ${CYAN}sudo systemctl start synthops${NC}"
+    echo -e "  Stop:    ${CYAN}sudo systemctl stop synthops${NC}"
+    echo -e "  Status:  ${CYAN}sudo systemctl status synthops${NC}"
     echo -e "  Logs:    ${CYAN}cd /opt/synthops && docker compose logs -f${NC}"
-    echo -e "  Update:  ${CYAN}cd /opt/synthops && docker compose pull && docker compose up -d${NC}"
+    echo -e "  Rebuild: ${CYAN}cd /opt/synthops && docker compose build --no-cache && docker compose up -d${NC}"
+    echo ""
+    echo -e "${YELLOW}Auto-start is ENABLED - SynthOps will start automatically on reboot${NC}"
     echo ""
 else
     echo -e "${RED}Error: Some services failed to start. Check logs with:${NC}"
