@@ -426,6 +426,32 @@ export default function Admin() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Bitdefender GravityZone */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Shield className="h-5 w-5 text-red-500" />
+              Bitdefender GravityZone
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-emerald-400" />
+              <span className="text-emerald-400">Connected</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Security alerts will appear on Dashboard and NOC Display
+            </p>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => window.open('https://cloudgz.gravityzone.bitdefender.com/', '_blank')}
+            >
+              Open GravityZone Console
+            </Button>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Create User Dialog */}

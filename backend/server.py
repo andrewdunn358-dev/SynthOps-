@@ -3358,50 +3358,39 @@ async def get_bitdefender_alerts(user: dict = Depends(get_current_user)):
     """Get recent security alerts for dashboard/NOC display"""
     alerts = []
     
-    # Try incidents API
-    incidents = await bitdefender_api_call("getIncidentsList", "incidents", {
-        "page": 1,
-        "perPage": 20
-    })
-    if incidents and incidents.get("items"):
-        for item in incidents["items"]:
-            alerts.append({
-                "id": item.get("id"),
-                "type": "incident",
-                "severity": item.get("severity", "medium"),
-                "title": item.get("name", "Security Incident"),
-                "description": item.get("description", ""),
-                "endpoint": item.get("endpointName", "Unknown"),
-                "created_at": item.get("createdAt"),
-                "source": "bitdefender"
-            })
-    
-    # Try quarantine API
+    # Try quarantine API - this works reliably
     quarantine = await bitdefender_api_call("getQuarantineItemsList", "quarantine", {
         "page": 1,
-        "perPage": 20
+        "perPage": 50
     })
     if quarantine and quarantine.get("items"):
         for item in quarantine["items"]:
             alerts.append({
                 "id": item.get("quarantineItemId"),
-                "type": "quarantine",
+                "type": "malware",
                 "severity": "high",
-                "title": f"Malware Quarantined: {item.get('threatName', 'Unknown Threat')}",
+                "title": f"Malware: {item.get('threatName', 'Unknown Threat')}",
                 "description": item.get("filePath", ""),
                 "endpoint": item.get("endpointName", "Unknown"),
                 "created_at": item.get("quarantinedOn"),
                 "source": "bitdefender"
             })
     
+    # Get network inventory to check for issues (offline endpoints, etc)
+    network = await bitdefender_api_call("getNetworkInventoryItems", "network", {
+        "page": 1,
+        "perPage": 100
+    })
+    
     # Sort by date, newest first
-    alerts.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    alerts.sort(key=lambda x: x.get("created_at", "") or "", reverse=True)
     
     return {
         "total": len(alerts),
         "alerts": alerts[:20],
         "has_critical": any(a.get("severity") == "critical" for a in alerts),
-        "has_high": any(a.get("severity") == "high" for a in alerts)
+        "has_high": any(a.get("severity") == "high" for a in alerts),
+        "network_items": network.get("total", 0) if network else 0
     }
 
 
