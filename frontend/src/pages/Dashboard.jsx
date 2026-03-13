@@ -239,7 +239,7 @@ export default function Dashboard() {
                   {ticketStats.open} open ticket{ticketStats.open > 1 ? 's' : ''} in Zammad
                 </span>
               </div>
-            )}
+            </div>
           </CardContent>
         </Card>
       )}

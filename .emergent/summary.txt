@@ -3,8 +3,8 @@ The user wants to build a self-hosted IT Operations Portal named SynthOps for th
 
 **PRODUCT REQUIREMENTS:**
 -   **Core Functionality:** A central dashboard showing an overview of servers, tasks, incidents, and projects. Detailed sections for Server/Infrastructure Inventory, Task/Job Tracking, Project Tracking, Incident Logging, and a Documentation/Runbook area.
--   **Integrations:** Tactical RMM, Zammad, SendGrid, Vaultwarden, MeshCentral, Microsoft Teams (for webhook alerts), and a Sophie AI Assistant (Claude).
--   **Management Features:** Monthly Health Checks, a custom Report Builder, and User Management with role-based access control.
+-   **Integrations:** Tactical RMM, Zammad, SendGrid, Vaultwarden, MeshCentral, Microsoft Teams (for webhook alerts), Bitdefender, Proxmox, and a Sophie AI Assistant (Claude).
+-   **Management Features:** Monthly Health Checks, a custom Report Builder, User Management with role-based access control, and manual device monitoring (SNMP/Ping).
 -   **Authentication:** Local JWT-based login.
 -   **UI:** Dark/light mode, floating AI assistant.
 -   **Deployment:** The entire application must be deployable via a single one-line installer script on an Ubuntu VPS.
@@ -12,72 +12,81 @@ The user wants to build a self-hosted IT Operations Portal named SynthOps for th
 **User's preferred language**: English
 
 **what currently exists?**
-The project is a full-stack application with a FastAPI backend, React frontend, and MongoDB database. A significant number of features have been implemented based on user feedback, including:
--   Integrations with Tactical RMM (syncing clients, sites, agents) and Zammad (viewing/replying to tickets).
--   A full-featured UI including a dashboard, NOC-style server view, project management with job tracking, a DC health check page, a documentation viewer, and a user management admin page.
--   A floating Sophie AI chat assistant.
--   A custom report builder and an incidents page that automatically populates with TRMM alerts.
--   A complete Docker-based deployment setup, including , Dockerfiles for frontend/backend, and a one-line  script designed to clone the repo and build the application from source.
--   Credentials for TRMM, Zammad, and MeshCentral have been hardcoded into the installation files as requested by the user for a private repository setup.
+The project is a full-stack application with a FastAPI backend, React frontend, and MongoDB database, deployed via Docker Compose. Key implemented features include:
+-   **Integrations:** Tactical RMM (syncing clients, sites, agents), Zammad (ticket viewing), Vaultwarden (via separate subdomain), and Bitdefender (dashboard/NOC widgets, admin status).
+-   **UI:** A comprehensive UI with a dashboard, NOC-style server view, project management, a redesigned Monthly Health Check workflow, documentation viewer, user management, custom report builder, and an incidents page.
+-   **Deployment:** A one-line  script for fresh Ubuntu installs, which now includes self-signed SSL certificate generation for internal domains and a  service for auto-starting on reboot.
+-   **Authentication:** JWT-based login that supports case-insensitive login with either username or email.
+-   Work has begun on an Infrastructure Management feature to allow manual monitoring of devices like Proxmox hosts, routers (SNMP), and other ping-able devices.
 
 **Last working item**:
--   Last item agent was working: The agent was debugging a deployment failure on the user's fresh Ubuntu VPS. The docker build process was failing with the error . The agent correctly identified that this package requires a special installation command. The last action taken was to remove the package from , but the fix was not completed.
--   Status: BLOCKED
+-   Last item agent was working: The agent was building the Infrastructure Management feature. This involved creating backend models (, , ) and API endpoints for CRUD operations. The agent decided to create a new dedicated page at  for this feature instead of cluttering the Admin page.
+-   Status: IN PROGRESS
 -   Agent Testing Done: N
--   Which testing method agent to use? The agent must test the full installation process. First, fix the Dockerfile. Then, use  to simulate the user's one-line install command () to ensure the build and deployment succeed.
--   User Testing Done: N (User is blocked by this installation error).
+-   Which testing method agent to use? both
+-   User Testing Done: N
 
 **All Pending/In progress Issue list**:
--   **Issue 1: Deployment fails during backend Docker image build (P0 - BLOCKER)**
-    -   **Description:** The build process fails because it cannot find the  package in the standard PyPI repository.
-    -   **Attempted fixes:** The agent removed  from . This was an incomplete fix.
+-   **Issue 1: Data Mismatch - Servers vs. Workstations (P0 - BLOCKER)**
+    -   **Description:** A recurring and high-priority issue where the application fails to correctly differentiate between servers and workstations synced from Tactical RMM. This causes workstations to appear in server-only lists (e.g., Health Checks) and breaks asset counts. The user has repeatedly reported this, indicating fixes are not being deployed or are ineffective.
+    -   **Attempted fixes:** The agent has made numerous attempts: adding a  filter to the  endpoint, creating a separate  endpoint, implementing a manual  function, and updating the core sync logic. The core problem appears to be a combination of the user's deployment process (forgetting to rebuild the backend, not pushing changes to git) and the implemented fixes being insufficient.
     -   **Next debug checklist:**
-        1.  Edit .
-        2.  Inside the Dockerfile, *before* the  line, add a new  command to install the package from its specific index: 
-        3.  After fixing the Dockerfile, the agent MUST NOT ask the user to test. The agent must test the fix itself by running the  script to validate the entire deployment flow.
-    -   **Why fix this issue and what will be achieved with the fix?** This is the highest priority issue and is blocking the user from deploying and testing the entire application. Fixing it will make the application deployable.
+        1.  Verify with the user that all code changes have been pushed to GitHub via the Save to GitHub button and that they are running  (with no service name specified) to rebuild *all* images.
+        2.  Refactor the TRMM sync logic in . The sync process should be the single source of truth. It must robustly handle device classification on every run. The manual reclassify button is a patch and should be removed in favor of a more intelligent sync.
+        3.  The sync should check the  for every agent and ensure it is stored correctly in the database. If a device's type has changed in TRMM, the sync should automatically move it from the  collection to a  collection (or vice-versa), or handle it with a  field within a single  collection.
+    -   **Why fix this issue and what will be achieved with the fix?** This is a fundamental data integrity problem that breaks multiple core features. A reliable fix is critical for the application to be usable.
     -   **Status:** IN PROGRESS
+    -   **Is recurring issue?** Y
+    -   **Should Test frontend/backend/both after fix?** both
+
+-   **Issue 2: Zammad Integration Not Working (P2)**
+    -   **Description:** The user briefly mentioned, zammad i maay remove as iots not working properly on here. This indicates an unspecified problem with the Zammad integration.
+    -   **Attempted fixes:** None.
+    -   **Next debug checklist:**
+        1.  Ask the user for specific details about what is not working (e.g., are tickets not appearing, are replies failing, is the page crashing?).
+        2.  Investigate the Zammad-related API endpoints in  and the corresponding frontend pages.
+        3.  Verify the Zammad credentials in the user's deployment.
+    -   **Status:** NOT STARTED
     -   **Is recurring issue?** N
-    -   **Should Test frontend/backend/both after fix?** Backend (specifically the Docker build process).
+    -   **Should Test frontend/backend/both after fix?** both
 
 **In progress Task List**:
--   None. All focus is on the deployment blocker.
+-   **Task 1: Implement Infrastructure Management (P1)**
+    -   **Description:** Create a dedicated page for manually adding and monitoring devices not covered by TRMM, including Proxmox hosts, SNMP devices (routers, switches), and any device via ICMP ping.
+    -   **Where to resume:**
+        1.  Complete the CRUD API endpoints for , , and  in .
+        2.  Build the UI on the new  page to allow users to add, view, and manage these devices.
+        3.  Add the Infrastructure page to the main application router () and sidebar navigation.
+        4.  Implement a background job using APScheduler in  to periodically poll the status of these devices.
+        5.  Display the live status of monitored devices on the UI (Infrastructure page, Dashboard, and NOC Display).
+    -   **What will be achieved with this?** Centralized monitoring for the user's entire infrastructure stack beyond what TRMM provides.
+    -   **Status:** IN PROGRESS
+    -   **Should Test frontend/backend/both after fix?** both
+    -   **Blocked on something:** No.
 
 **Upcoming and Future Tasks**
 -   **Upcoming Tasks:**
-    -   **(P0) User Verification of Recent Features:** After the deployment is fixed, the agent must guide the user to verify the massive batch of features implemented in the last session (User Management, Report Builder, Incidents page, Floating Sophie, etc.).
-    -   **(P1) Finalize Production Docker Deployment with SSL:** Integrate a Let's Encrypt companion service into  to enable automatic SSL certificate generation.
-    -   **(P2) Implement Email Summary Reports:** The original SendGrid integration task to email daily/weekly summary reports is still pending.
+    -   **(P1) Proxmox Integration:** As part of the Infrastructure Management task, fully integrate with the Proxmox API using the provided credentials to display VM status, resource usage, and alerts.
+    -   **(P2) Implement Email Summary Reports:** The original request to use SendGrid for emailing summary reports is still pending.
 
 -   **Future Tasks:**
     -   Mobile application.
-    -   Enhance the Staff page or consolidate it with the Admin user management page.
-    -   Make the  content viewable within the application on a dedicated Help page.
+    -   Consolidate the Staff page with the main Admin user management page.
+    -   Create an in-app Help page to display the contents of .
 
 **Completed work in this session**
--   **Deployment Overhaul:** Created s for frontend and backend, a comprehensive  with Vaultwarden, and a one-line  script to automate deployment on a fresh server.
--   **User Management:** Replaced the non-functional Admin page with a full User Management UI for creating users, assigning roles (Admin, Engineer, Viewer), and resetting passwords.
--   **Feature - Report Builder:** Created a new Reports page allowing users to generate custom reports by selecting clients, date ranges, and data modules (servers, tickets, etc.).
--   **Feature - Incidents from TRMM:** Enhanced the Incidents page to automatically pull in offline server alerts directly from Tactical RMM.
--   **Feature - Project Management:** Implemented a detailed project view with tabs for jobs, tasks, and time entries.
--   **UI/UX Fixes:**
-    -   Converted the Ask Sophie AI assistant into a floating chat widget in the bottom-right corner.
-    -   Fixed the Documentation page by seeding it with content from the backend, resolving the headings only issue.
-    -   Fixed the DC Health Check page by correcting the filter for templates.
-    -   Updated the Tickets page to default to Open status.
-    -   Added the company logo throughout the application.
--   **Security Hardening:** Implemented rate limiting and secure headers on the FastAPI backend.
--   **Integration:** Added MS Teams webhook notifications for server offline events and a Connect button on server pages to open MeshCentral.
+-   **Deployment & SSL:** Fixed the initial Docker build failures, implemented a  service for auto-reboot, and set up a full self-signed SSL configuration for internal domains (, ).
+-   **Authentication:** Made login case-insensitive and enabled login with either username or email.
+-   **Feature - Bitdefender Integration:** Added backend APIs and frontend widgets (Dashboard, NOC) to display security status and alerts from Bitdefender GravityZone. The UI was updated to always show a status card, even with zero alerts.
+-   **Feature - Monthly Health Check:** Completely redesigned the DC Health Check page into a comprehensive workflow with server selection, detailed checklists, sign-off capabilities, and historical records.
+-   **Bug Fixes:**
+    -   Fixed the MeshCentral Connect button to open the correct TRMM Take Control URL in a new window.
+    -   Resolved multiple 404/405 errors reported by the user, which were primarily caused by their outdated backend build. Implemented graceful error handling on the frontend to prevent page crashes.
+    -   Updated client pages to show separate counts for servers and workstations.
+-   **Branding:** Removed Made with Emergent branding and tracking scripts from the main HTML file.
 
 **Earlier issues found/mentioned but not fixed**
--   **Issue 1: Client Detail Page shows 0 assets**
-    -   **Debug checklist:** The user reported that the Client Detail page showed 0 for servers and workstations. The previous agent concluded it was a data issue (the test client had no assets). This needs to be re-verified.
-        1. Check the TRMM sync logic in  to ensure sites and agents are correctly associated with clients during the sync.
-        2. Manually query the MongoDB , , and  collections to trace the relationship for a specific client that should have assets.
-        3. Confirm if the  endpoint returns correct data.
-    -   **Why to solve this issue and what will be achieved with this?** This is a core functionality. Users need to be able to see all assets belonging to a client.
-    -   **Should Test frontend/backend/both after fix:** Both.
-    -   **Is recurring issue?** Y
+-   None. The issues mentioned were either addressed or are listed in the Pending/In progress Issue list.
 
 **Known issue recurrence from previous fork**
 -   N/A
@@ -88,22 +97,25 @@ The project is a full-stack application with a FastAPI backend, React frontend, 
 **Key Technical Concepts**
 -   **Backend:** FastAPI, Pydantic, MongoDB (), APScheduler.
 -   **Frontend:** React, Tailwind CSS, shadcn/ui.
--   **Integrations:** Tactical RMM, Zammad, MS Teams Webhooks, Vaultwarden, MeshCentral.
--   **Deployment:** Docker Compose, shell scripting for one-line installation.
+-   **Integrations:** Tactical RMM, Zammad, MS Teams, Vaultwarden, MeshCentral, Bitdefender GravityZone.
+-   **Deployment:** Docker Compose, Nginx (as reverse proxy), ,  for self-signed certificates.
 
 **key DB schema**
--   **users:** New collection for user accounts, roles, and credentials.
--   **documents:** Used to populate the documentation page.
--   **project_jobs:** New collection to store jobs associated with a project.
--   **servers:** Includes  (server or workstation).
--   **tasks:** Includes optional .
+-   **users:** Stores user accounts, roles (, , ).
+-   **servers:** Intended for servers, but currently contains workstations due to data integrity issues.
+-   **health_checks:** Stores records from the Monthly Health Check feature.
+-   **proxmox_hosts, snmp_devices, ping_devices:** New collections being added for the Infrastructure Management feature.
 
 **changes in tech stack**
--   None.
+-   Nginx was added as a reverse proxy to handle SSL termination and routing to multiple services (SynthOps, Vaultwarden).
 
 **All files of reference**
--   : Needs to be fixed to solve the deployment blocker.
--   : Was modified to remove .
+-   : The monolithic backend file containing almost all logic. Key areas of recent change include Bitdefender integration, Health Check endpoints, and the new Infrastructure Management stubs.
+-   : Updated with a persistent Bitdefender status card.
+-   : The completely rewritten health check page.
+-   : Modified to prevent crashing when the  endpoint fails.
+-   : The new, empty page for the in-progress infrastructure feature.
+-   : Updated with Bitdefender credentials and the new Vaultwarden subdomain configuration.
 -   [0;36m
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
@@ -121,87 +133,76 @@ The project is a full-stack application with a FastAPI backend, React frontend, 
 [1;33mWarning: This script is designed for Ubuntu. Proceeding anyway...[0m
 [0;32m[1/7] Updating system packages...[0m
 [0;32m[2/7] Installing prerequisites...[0m
-[0;32m[3/7] Installing Docker...[0m: The main installation script for the user.
--   : Defines the application services and now uses a  context instead of pre-built images.
--   : Contains almost all backend logic.
--   , , .
+[0;32m[3/7] Installing Docker...[0m: Updated to generate SSL certs and set up the  service.
+-   : The configuration for the SSL reverse proxy.
 
 **Areas that need refactoring**:
--   **Monolithic :** This file is critically oversized. It handles all API routes, database models, background scheduling, and logic for every integration. It must be broken down into a structured package (e.g., , , ).
+-   **:** This file is now over 3,000 lines long and is unmaintainable. It is imperative to break it down. A potential structure would be:
+    -    (for route definitions)
+    -    (for integration logic like TRMM, Bitdefender)
+    -    (for Pydantic and database models)
+    -    (for background jobs)
 
 **key api endpoints**
--   , : For user management.
--   , : For project tracking.
--   : Now pulls data from TRMM alerts.
--   : For the report builder.
--   : Manages webhook URLs.
+-   : (GET) Lists devices identified as workstations. **(This is likely missing from the user's deployment, causing 404s)**.
+-   : (POST) A manual trigger to fix workstation/server data.
+-   : (POST/GET) Endpoints for the new monthly health check system.
+-   : (GET) Endpoint to fetch security alerts for the dashboard.
+-   : (CRUD) Endpoints being built for managing monitored devices.
 
 **Critical Info for New Agent**
--   Your immediate and only priority is to fix the deployment blocker. Do not work on anything else until the user can successfully run the one-line installer on their VPS.
--   The fix involves adding a  command to the .
--   After fixing the Dockerfile, you must validate the entire installation process yourself using the  script. Do not ask the user to test your fix.
--   The user wants their API keys and URLs pre-configured in the committed files (, ) as they will be using a private GitHub repository.
--   Once the deployment is working, the next step is to guide the user through verifying all the new features that were recently added.
+-   **Do not trust the user's deployment environment.** The user has repeatedly struggled with the deployment process (forgetting to push code to GitHub, running incorrect build commands). When debugging an issue the user reports, first verify the relevant code exists in the  branch of their GitHub repository. Be extremely explicit with deployment commands: , then , then .
+-   The Servers vs. Workstations data problem is the #1 blocker. Solving this with a robust, automatic sync process (not a manual button) is the highest priority bug fix.
+-   The current active development task is building the Infrastructure Management feature. This is what the previous agent was in the middle of.
+-   The application uses self-signed SSL certificates for internal domains (, ). The user will need to have corresponding DNS A records on their internal network.
 
 **documents and test reports created in this job**
--    (updated)
--   [0;36m
-╔═══════════════════════════════════════════════════════════════╗
-║                                                               ║
-║   ███████╗██╗   ██╗███╗   ██╗████████╗██╗  ██╗ ██████╗ ██████╗███████╗  ║
-║   ██╔════╝╚██╗ ██╔╝████╗  ██║╚══██╔══╝██║  ██║██╔═══██╗██╔══██╗██╔════╝ ║
-║   ███████╗ ╚████╔╝ ██╔██╗ ██║   ██║   ███████║██║   ██║██████╔╝███████╗ ║
-║   ╚════██║  ╚██╔╝  ██║╚██╗██║   ██║   ██╔══██║██║   ██║██╔═══╝ ╚════██║ ║
-║   ███████║   ██║   ██║ ╚████║   ██║   ██║  ██║╚██████╔╝██║     ███████║ ║
-║   ╚══════╝   ╚═╝   ╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚══════╝ ║
-║                                                               ║
-║              IT Operations Portal Installer                   ║
-║                    Synthesis IT Ltd                           ║
-╚═══════════════════════════════════════════════════════════════╝
-[0m
-[1;33mWarning: This script is designed for Ubuntu. Proceeding anyway...[0m
-[0;32m[1/7] Updating system packages...[0m (created and modified)
--    (created)
--    (created)
+-   
+-   The  script was heavily modified to include SSL generation and systemd service creation.
+-   The testing agent was run once, and all 16 tests passed in the preview environment after a database reset.
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User:** password reset, attachment one what that about, tickets times should only show open ones... - A large list of feedback and bug reports. (Status: Mostly Addressed)
-2.  **User:** Provided clarifications on time tracking, staff, and incidents. (Status: Addressed)
-3.  **User:** im going to bed just do it all ill cretae a new vps tomorreo and test it I still need the one line install on ubuntu - Authorized agent to implement all fixes and prepare for deployment. (Status: In Progress)
-4.  **User:** what di need to install on the server beforehand - Asked about prerequisites for installation. (Status: Answered)
-5.  **User:** you have the details trmm zammadmesh ceteral urls already im not sharing this so ilude them in the file oe this is working ill make github private - Confirmed credentials should be hardcoded. (Status: Done)
-6.  **User:** Provided the correct GitHub repo URL. (Status: Addressed)
-7.  **User:** Shared the  error log showing denied when pulling images. (Status: Root cause identified - should build locally).
-8.  **User:** still same error - Reported the error persisted. (Status: Agent identified the user needed to push changes to GitHub).
-9.  **User:** im logged in as root / fatal: destination path /opt/synthops already exists - User providing live feedback while running commands. (Status: Agent provided correct commands).
-10. **User:** Shared the final build error: . (Status: THIS IS THE CURRENT BLOCKER).
+1.  **User:** the connect button has not changed the url - Reported the TRMM connect button was still using the old, incorrect URL. (Status: Fixed by agent).
+2.  **User:** Asks for Bitdefender integration. (Status: Implemented).
+3.  **User:** Provides Bitdefender API key. (Status: Integrated).
+4.  **User:** Confirms Bitdefender permissions are set. (Status: Agent verified).
+5.  **User:** Asks how to monitor other devices like Proxmox, PBX, and pfSense. (Status: Agent proposed Infrastructure Management feature).
+6.  **User:** dont build that yet but then agrees to add a place in admin to add devices. Reports Bitdefender status isn't showing on the dashboard. (Status: Agent fixed dashboard to always show Bitdefender status).
+7.  **User:** we we also see the alert - Asks if Bitdefender alerts will be visible. (Status: Agent confirmed they will).
+8.  **User:** Provides Proxmox API token to test. (Status: Agent confirmed it can't connect from the preview environment but can still build the integration).
+9.  **User:** Asks for a place to add devices like routers via SNMP and other Proxmox servers. (Status: Agent started building the Infrastructure Management feature).
+10. **User:** i have lots of other servers such as proxmox servers and pbx and ticket system how mest to monitor them - Initial query that led to the infrastructure monitoring discussion.
 
 **Project Health Check:**
--   **Broken:** The deployment process is broken. The application cannot be installed on a fresh server due to a Python package dependency error during the Docker build.
--   **Mocked:** No features are currently mocked, but many recently-added features (Project Tracking, User Management, Report Builder) have not been user-tested.
+-   **Broken:** The core data model distinguishing servers from workstations is not functioning reliably on the user's live deployment, causing a cascade of UI and data integrity failures. Multiple new API endpoints (, ) are likely missing from the user's deployment, causing 404 errors.
+-   **Mocked:** N/A
 
 **3rd Party Integrations**
 -   **Tactical RMM:** (Active) Requires User API Key.
--   **Zammad:** (Active) Requires User API Key.
--   **SendGrid:** (Planned) Requires User API Key.
--   **Claude Sonnet 4.5 (Sophie):** (Active) Uses Emergent LLM Key via .
--   **Vaultwarden:** (Active) Integrated via Docker Compose.
--   **Let's Encrypt:** (Planned) To be added to Docker Compose for SSL.
--   **MeshCentral:** (Active) URL configured for connect button.
--   **Microsoft Teams:** (Active) Webhook URL required for notifications.
+-   **Zammad:** (Active but Unstable) Requires User API Key. User reported it's not working properly.
+-   **Claude Sonnet 4.5 (Sophie):** (Active) Uses Emergent LLM Key.
+-   **Vaultwarden:** (Active) Integrated via Docker Compose on a separate subdomain.
+-   **MeshCentral:** (Active) Linked via TRMM's Take Control feature.
+-   **Microsoft Teams:** (Active) Webhook URL for notifications.
+-   **Bitdefender GravityZone:** (Active) Requires User API Key. Integrated into Dashboard and NOC display.
+-   **Proxmox:** (In Progress) Requires User API Token.
+-   **SNMP/Ping Devices:** (In Progress) Generic monitoring.
+-   **Let's Encrypt:** (Planned)
+-   **SendGrid:** (Planned)
 
 **Testing status**
--   Testing agent used after significant changes: NO (Not used for the last major batch of features).
+-   Testing agent used after significant changes: YES (Used once to validate multiple fixes in the preview environment).
 -   Troubleshoot agent used after agent stuck in loop: NO
 -   Test files created: []
--   Known regressions: None identified, but extensive changes were made without regression testing.
+-   Known regressions: The server/workstation classification is a persistent regression.
 
 **Credentials to test flow:**
--   **Tactical RMM API Key:** 
--   **Tactical RMM URL:** 
--   **Zammad Token:** 
--   **Zammad URL:** 
--   **MeshCentral URL:** 
+-   **Proxmox URL:** 
+-   **Proxmox Token ID:** 
+-   **Proxmox Token Secret:** 
+-   **Bitdefender API Key:** 
+-   **Bitdefender URL:** 
 
 **What agent forgot to execute**
--   The agent correctly diagnosed the  build error but failed to implement the complete fix. It removed the line from  but forgot to add the necessary  command to the .</analysis>
+-   The agent failed to break the cycle of fix - reports failure. Instead of repeatedly telling the user to rebuild, the agent should have escalated its debugging by asking the user to verify the code on GitHub or check the container logs for version/endpoint mismatches.
+-   The agent implemented a manual reclassify button as a patch for the data integrity issue, instead of building a robust, idempotent sync process that would fix the problem at its source.</analysis>
