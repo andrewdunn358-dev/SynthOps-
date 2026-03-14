@@ -8,12 +8,14 @@ import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Badge } from '../components/ui/badge';
 import { 
-  User, Moon, Sun, Shield, Bell, Key, CheckCircle, XCircle, Send, Monitor, KeyRound, ExternalLink
+  User, Moon, Sun, Shield, Bell, Key, CheckCircle, XCircle, Send, Monitor, KeyRound, ExternalLink, Book
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export default function Settings() {
   const { user } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const navigate = useNavigate();
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
     newPassword: '',
@@ -325,6 +327,31 @@ export default function Settings() {
             </div>
             <Button variant="outline" data-testid="setup-2fa">
               {user?.totp_enabled ? 'Manage 2FA' : 'Setup 2FA'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* User Manual */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Book className="h-5 w-5" />
+            Help & Documentation
+          </CardTitle>
+          <CardDescription>User manual and guides</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium">SynthOps User Manual</p>
+              <p className="text-sm text-muted-foreground">
+                Learn how to use all features of SynthOps including servers, tasks, incidents, reports, and more.
+              </p>
+            </div>
+            <Button onClick={() => navigate('/manual')} data-testid="open-manual">
+              <Book className="h-4 w-4 mr-2" />
+              Open Manual
             </Button>
           </div>
         </CardContent>

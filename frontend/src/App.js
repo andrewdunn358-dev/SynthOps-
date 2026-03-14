@@ -26,6 +26,7 @@ import Tickets from './pages/Tickets';
 import Reports from './pages/Reports';
 import NOCDisplay from './pages/NOCDisplay';
 import Infrastructure from './pages/Infrastructure';
+import UserManual from './pages/UserManual';
 
 // Components
 import Layout from './components/Layout';
@@ -208,6 +209,7 @@ function App() {
               <Route path="settings" element={<Settings />} />
               <Route path="admin" element={<Admin />} />
               <Route path="infrastructure" element={<Infrastructure />} />
+              <Route path="manual" element={<UserManual />} />
             </Route>
           </Routes>
         </BrowserRouter>

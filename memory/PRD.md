@@ -104,6 +104,14 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 - Redesigned Reports page with 5 tabs: Overview, Clients, Operations, Staff, Infrastructure
 - Added CSV export for all major report types
 
+### User Manual
+- Comprehensive in-app documentation for Engineers and Admins
+- Accessible from Settings page via "Help & Documentation" card
+- 5 tabbed sections: Getting Started, Daily Operations, Monitoring, Reports, Administration
+- Role-aware content (Administration tab only visible to admins)
+- Includes tips, warnings, and step-by-step guides
+- Route: `/manual`
+
 ### PDF Export & Historical Trend Charts
 - **PDF Export** for: Weekly Status, All Clients Summary, Individual Client Reports, Incident Trends
 - **Interactive Trend Charts** using Recharts:
