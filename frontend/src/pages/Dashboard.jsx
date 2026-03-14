@@ -8,8 +8,21 @@ import { ScrollArea } from '../components/ui/scroll-area';
 import { 
   Building2, Server, ListTodo, FolderKanban, AlertTriangle, 
   Activity, ArrowRight, CheckCircle, Clock, AlertCircle,
-  RefreshCw, Wrench, WifiOff, X, Bell, Ticket, Shield, ShieldAlert
+  RefreshCw, Wrench, WifiOff, X, Bell, Ticket, Shield, ShieldAlert,
+  TrendingUp
 } from 'lucide-react';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  Legend
+} from 'recharts';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -20,6 +33,8 @@ export default function Dashboard() {
   const [dismissedAlerts, setDismissedAlerts] = useState([]);
   const [ticketStats, setTicketStats] = useState(null);
   const [securityAlerts, setSecurityAlerts] = useState(null);
+  const [incidentTrends, setIncidentTrends] = useState([]);
+  const [taskTrends, setTaskTrends] = useState([]);
 
   useEffect(() => {
     fetchData();
@@ -27,13 +42,17 @@ export default function Dashboard() {
 
   const fetchData = async () => {
     try {
-      const [statsRes, activityRes, serversRes] = await Promise.all([
+      const [statsRes, activityRes, serversRes, incidentTrendsRes, taskTrendsRes] = await Promise.all([
         apiClient.get('/dashboard/stats'),
         apiClient.get('/dashboard/activity'),
-        apiClient.get('/servers')
+        apiClient.get('/servers'),
+        apiClient.get('/reports/trends/incidents?days=14').catch(() => ({ data: { data: [] } })),
+        apiClient.get('/reports/trends/tasks?days=14').catch(() => ({ data: { data: [] } }))
       ]);
       setStats(statsRes.data);
       setActivity(activityRes.data);
+      setIncidentTrends(incidentTrendsRes.data?.data || []);
+      setTaskTrends(taskTrendsRes.data?.data || []);
       
       // Get offline devices (servers only for critical alerts)
       const offline = serversRes.data.filter(s => 
@@ -472,6 +491,84 @@ export default function Dashboard() {
               <Building2 className="h-4 w-4 mr-2" />
               Add Client
             </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Trend Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Incidents Trend */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center gap-2" style={{ fontFamily: 'Barlow Condensed' }}>
+              <TrendingUp className="h-5 w-5" />
+              INCIDENTS (14 DAYS)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {incidentTrends.length > 0 ? (
+              <ResponsiveContainer width="100%" height={180}>
+                <AreaChart data={incidentTrends}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                  <XAxis 
+                    dataKey="date" 
+                    tick={{ fontSize: 10 }} 
+                    tickFormatter={(v) => v.slice(5)}
+                    stroke="#666"
+                  />
+                  <YAxis tick={{ fontSize: 10 }} stroke="#666" />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: '4px' }}
+                    labelStyle={{ color: '#fff' }}
+                  />
+                  <Area type="monotone" dataKey="critical" stackId="1" stroke="#ef4444" fill="#ef4444" fillOpacity={0.7} />
+                  <Area type="monotone" dataKey="high" stackId="1" stroke="#f97316" fill="#f97316" fillOpacity={0.7} />
+                  <Area type="monotone" dataKey="medium" stackId="1" stroke="#eab308" fill="#eab308" fillOpacity={0.7} />
+                  <Area type="monotone" dataKey="low" stackId="1" stroke="#22c55e" fill="#22c55e" fillOpacity={0.7} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[180px] flex items-center justify-center text-muted-foreground">
+                No incident data
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Tasks Trend */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center gap-2" style={{ fontFamily: 'Barlow Condensed' }}>
+              <CheckCircle className="h-5 w-5" />
+              TASKS (14 DAYS)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {taskTrends.length > 0 ? (
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={taskTrends}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                  <XAxis 
+                    dataKey="date" 
+                    tick={{ fontSize: 10 }} 
+                    tickFormatter={(v) => v.slice(5)}
+                    stroke="#666"
+                  />
+                  <YAxis tick={{ fontSize: 10 }} stroke="#666" />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: '4px' }}
+                    labelStyle={{ color: '#fff' }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: '12px' }} />
+                  <Bar dataKey="completed" fill="#22c55e" name="Completed" />
+                  <Bar dataKey="created" fill="#3b82f6" name="Created" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[180px] flex items-center justify-center text-muted-foreground">
+                No task data
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '../App';
-import { Server, Ticket, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield } from 'lucide-react';
+import { Server, Ticket, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield, TrendingUp } from 'lucide-react';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  LineChart,
+  Line
+} from 'recharts';
 
 export default function NOCDisplay() {
   const [stats, setStats] = useState(null);
@@ -8,6 +19,7 @@ export default function NOCDisplay() {
   const [tickets, setTickets] = useState([]);
   const [incidents, setIncidents] = useState([]);
   const [securityAlerts, setSecurityAlerts] = useState(null);
+  const [incidentTrends, setIncidentTrends] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [error, setError] = useState(null);
@@ -20,15 +32,17 @@ export default function NOCDisplay() {
         apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       }
       
-      const [statsRes, serversRes, incidentsRes] = await Promise.all([
+      const [statsRes, serversRes, incidentsRes, trendsRes] = await Promise.all([
         apiClient.get('/dashboard/stats'),
         apiClient.get('/servers'),
-        apiClient.get('/incidents?status=open')
+        apiClient.get('/incidents?status=open'),
+        apiClient.get('/reports/trends/incidents?days=7').catch(() => ({ data: { data: [] } }))
       ]);
       
       setStats(statsRes.data);
       setServers(serversRes.data || []);
       setIncidents(incidentsRes.data || []);
+      setIncidentTrends(trendsRes.data?.data || []);
       setLastRefresh(new Date());
       setError(null);
       
@@ -255,6 +269,38 @@ export default function NOCDisplay() {
           ))}
         </div>
       </div>
+
+      {/* Incident Trends Chart */}
+      {incidentTrends.length > 0 && (
+        <div className="noc-grid-container" style={{ marginTop: '16px' }}>
+          <h2 className="noc-section-title">
+            <TrendingUp className="h-6 w-6" />
+            Incident Trends (7 Days)
+          </h2>
+          <div style={{ width: '100%', height: '150px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '16px' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={incidentTrends}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                <XAxis 
+                  dataKey="date" 
+                  tick={{ fontSize: 10, fill: '#888' }} 
+                  tickFormatter={(v) => v.slice(5)}
+                  stroke="#444"
+                />
+                <YAxis tick={{ fontSize: 10, fill: '#888' }} stroke="#444" />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: '4px' }}
+                  labelStyle={{ color: '#fff' }}
+                />
+                <Area type="monotone" dataKey="critical" stackId="1" stroke="#ef4444" fill="#ef4444" fillOpacity={0.8} />
+                <Area type="monotone" dataKey="high" stackId="1" stroke="#f97316" fill="#f97316" fillOpacity={0.8} />
+                <Area type="monotone" dataKey="medium" stackId="1" stroke="#eab308" fill="#eab308" fillOpacity={0.8} />
+                <Area type="monotone" dataKey="low" stackId="1" stroke="#22c55e" fill="#22c55e" fillOpacity={0.8} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
 
       {/* Alerts & Tickets Row */}
       <div className="noc-bottom-row">

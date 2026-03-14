@@ -111,6 +111,8 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
   - Tasks (30 days) - Bar chart showing Created vs Completed
   - Hours Logged (30 days) - Line chart
 - Backend trend data endpoints: `/reports/trends/incidents`, `/reports/trends/tasks`, `/reports/trends/time-logged`
+- **Dashboard Trend Charts** - Added 14-day incident and task trends to the main dashboard
+- **NOC Display Trend Chart** - Added 7-day incident trends chart to the NOC view
 
 ### UI Fixes
 - Fixed favicon to use Synthesis IT logo
