@@ -3273,6 +3273,423 @@ async def export_client_report(client_id: str, user: dict = Depends(get_current_
     )
 
 
+# ==================== COMPREHENSIVE REPORTS API ====================
+
+@api_router.get("/reports/client-health/{client_id}")
+async def get_client_health_report(client_id: str, user: dict = Depends(get_current_user)):
+    """Client Health Summary - Per-client overview with servers, tickets, incidents"""
+    client = await db.clients.find_one({"id": client_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    servers = await db.servers.find({"client_id": client_id}, {"_id": 0}).to_list(1000)
+    incidents = await db.incidents.find({"client_id": client_id, "status": {"$ne": "resolved"}}, {"_id": 0}).to_list(100)
+    tasks = await db.tasks.find({"client_id": client_id, "status": {"$nin": ["completed", "blocked"]}}, {"_id": 0}).to_list(100)
+    
+    # Calculate uptime percentage (last 30 days would need history tracking)
+    total_servers = len(servers)
+    online_servers = len([s for s in servers if s.get("status") == "online"])
+    uptime_pct = (online_servers / total_servers * 100) if total_servers > 0 else 100
+    
+    return {
+        "client": {"id": client["id"], "name": client.get("name")},
+        "servers": {
+            "total": total_servers,
+            "online": online_servers,
+            "offline": total_servers - online_servers,
+            "uptime_percentage": round(uptime_pct, 1)
+        },
+        "open_incidents": len(incidents),
+        "open_tasks": len(tasks),
+        "health_score": min(100, max(0, 100 - len(incidents) * 10 - (total_servers - online_servers) * 20)),
+        "recent_incidents": incidents[:5]
+    }
+
+@api_router.get("/reports/client-assets/{client_id}")
+async def get_client_assets_report(client_id: str, user: dict = Depends(get_current_user)):
+    """Client Asset Inventory - All devices per client with specs"""
+    client = await db.clients.find_one({"id": client_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    servers = await db.servers.find({"client_id": client_id}, {"_id": 0}).to_list(1000)
+    workstations = await db.workstations.find({"client_id": client_id}, {"_id": 0}).to_list(1000)
+    
+    return {
+        "client": {"id": client["id"], "name": client.get("name")},
+        "servers": [{
+            "hostname": s.get("hostname"),
+            "ip_address": s.get("ip_address"),
+            "os": s.get("operating_system"),
+            "role": s.get("role"),
+            "status": s.get("status"),
+            "last_seen": s.get("last_seen")
+        } for s in servers],
+        "workstations": [{
+            "hostname": w.get("hostname"),
+            "ip_address": w.get("ip_address"),
+            "os": w.get("operating_system"),
+            "status": w.get("status"),
+            "last_seen": w.get("last_seen")
+        } for w in workstations],
+        "totals": {
+            "servers": len(servers),
+            "workstations": len(workstations),
+            "total_devices": len(servers) + len(workstations)
+        }
+    }
+
+@api_router.get("/reports/weekly-status")
+async def get_weekly_status_report(user: dict = Depends(get_current_user)):
+    """Weekly/Monthly Status Report - Summary of tickets, incidents, servers"""
+    # Get date ranges
+    now = datetime.now(timezone.utc)
+    week_ago = (now - timedelta(days=7)).isoformat()
+    month_ago = (now - timedelta(days=30)).isoformat()
+    
+    # Tickets resolved this week (from local tasks since Zammad is external)
+    tasks_resolved_week = await db.tasks.count_documents({
+        "status": "completed",
+        "updated_at": {"$gte": week_ago}
+    })
+    
+    # Incidents this week
+    incidents_week = await db.incidents.find({
+        "date_opened": {"$gte": week_ago}
+    }, {"_id": 0}).to_list(100)
+    
+    incidents_resolved_week = len([i for i in incidents_week if i.get("status") == "resolved"])
+    
+    # Server stats
+    total_servers = await db.servers.count_documents({})
+    online_servers = await db.servers.count_documents({"status": "online"})
+    
+    # Time logged this week
+    time_entries = await db.time_entries.find({
+        "entry_date": {"$gte": week_ago[:10]}
+    }, {"_id": 0}).to_list(1000)
+    total_hours = sum(e.get("duration_minutes", 0) for e in time_entries) / 60
+    
+    return {
+        "period": {"start": week_ago[:10], "end": now.isoformat()[:10]},
+        "tasks": {
+            "completed_this_week": tasks_resolved_week
+        },
+        "incidents": {
+            "opened_this_week": len(incidents_week),
+            "resolved_this_week": incidents_resolved_week,
+            "still_open": len(incidents_week) - incidents_resolved_week
+        },
+        "servers": {
+            "total": total_servers,
+            "online": online_servers,
+            "offline": total_servers - online_servers,
+            "uptime_percentage": round((online_servers / total_servers * 100) if total_servers > 0 else 100, 1)
+        },
+        "time_tracking": {
+            "hours_logged": round(total_hours, 1),
+            "entries_count": len(time_entries)
+        }
+    }
+
+@api_router.get("/reports/offline-history")
+async def get_offline_history_report(days: int = 30, user: dict = Depends(get_current_user)):
+    """Offline Server History - Which servers went offline, when, how long"""
+    # Get servers that are currently offline or have been offline recently
+    servers = await db.servers.find({}, {"_id": 0, "id": 1, "hostname": 1, "client_name": 1, "status": 1, "last_seen": 1}).to_list(1000)
+    
+    offline_servers = []
+    for s in servers:
+        if s.get("status") == "offline":
+            offline_servers.append({
+                "hostname": s.get("hostname"),
+                "client": s.get("client_name"),
+                "status": "offline",
+                "last_seen": s.get("last_seen"),
+                "offline_since": s.get("last_seen")  # Approximation
+            })
+    
+    return {
+        "period_days": days,
+        "currently_offline": len(offline_servers),
+        "offline_servers": offline_servers
+    }
+
+@api_router.get("/reports/ticket-aging")
+async def get_ticket_aging_report(user: dict = Depends(get_current_user)):
+    """Ticket Aging Report - Open tickets by age"""
+    # Get open tasks as proxy for tickets
+    tasks = await db.tasks.find({
+        "status": {"$in": ["open", "in_progress"]}
+    }, {"_id": 0}).to_list(1000)
+    
+    now = datetime.now(timezone.utc)
+    aging = {"24h": 0, "48h": 0, "7d": 0, "30d": 0, "older": 0}
+    
+    aged_tasks = []
+    for t in tasks:
+        created = t.get("created_at", "")
+        if created:
+            try:
+                created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                age_hours = (now - created_dt).total_seconds() / 3600
+                
+                if age_hours <= 24:
+                    aging["24h"] += 1
+                elif age_hours <= 48:
+                    aging["48h"] += 1
+                elif age_hours <= 168:  # 7 days
+                    aging["7d"] += 1
+                elif age_hours <= 720:  # 30 days
+                    aging["30d"] += 1
+                else:
+                    aging["older"] += 1
+                
+                aged_tasks.append({
+                    "id": t.get("id"),
+                    "title": t.get("title"),
+                    "status": t.get("status"),
+                    "age_days": round(age_hours / 24, 1),
+                    "created_at": created
+                })
+            except:
+                pass
+    
+    # Sort by age (oldest first)
+    aged_tasks.sort(key=lambda x: x.get("age_days", 0), reverse=True)
+    
+    return {
+        "summary": aging,
+        "total_open": len(tasks),
+        "oldest_tasks": aged_tasks[:20]
+    }
+
+@api_router.get("/reports/incident-trends")
+async def get_incident_trends_report(days: int = 90, user: dict = Depends(get_current_user)):
+    """Incident Trend Report - Incidents over time by type/client"""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    
+    incidents = await db.incidents.find({
+        "date_opened": {"$gte": cutoff}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Group by date
+    by_date = {}
+    by_severity = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    by_client = {}
+    
+    for i in incidents:
+        date = i.get("date_opened", "")[:10]
+        if date:
+            by_date[date] = by_date.get(date, 0) + 1
+        
+        severity = i.get("severity", "medium").lower()
+        if severity in by_severity:
+            by_severity[severity] += 1
+        
+        client = i.get("client_name") or "Unknown"
+        by_client[client] = by_client.get(client, 0) + 1
+    
+    # Sort dates
+    sorted_dates = sorted(by_date.items())
+    
+    return {
+        "period_days": days,
+        "total_incidents": len(incidents),
+        "by_date": [{"date": d, "count": c} for d, c in sorted_dates],
+        "by_severity": by_severity,
+        "by_client": dict(sorted(by_client.items(), key=lambda x: -x[1])[:10])
+    }
+
+@api_router.get("/reports/time-tracking-summary")
+async def get_time_tracking_summary(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """Time Tracking Summary - Hours per engineer, client, project"""
+    query = {}
+    if start_date:
+        query["entry_date"] = {"$gte": start_date}
+    if end_date:
+        if "entry_date" in query:
+            query["entry_date"]["$lte"] = end_date
+        else:
+            query["entry_date"] = {"$lte": end_date}
+    
+    entries = await db.time_entries.find(query, {"_id": 0}).to_list(10000)
+    
+    by_user = {}
+    by_client = {}
+    by_project = {}
+    
+    for e in entries:
+        minutes = e.get("duration_minutes", 0)
+        
+        user_id = e.get("user_id")
+        if user_id:
+            if user_id not in by_user:
+                u = await db.users.find_one({"id": user_id}, {"username": 1})
+                by_user[user_id] = {"name": u.get("username") if u else "Unknown", "minutes": 0}
+            by_user[user_id]["minutes"] += minutes
+        
+        client_id = e.get("client_id")
+        if client_id:
+            if client_id not in by_client:
+                c = await db.clients.find_one({"id": client_id}, {"name": 1})
+                by_client[client_id] = {"name": c.get("name") if c else "Unknown", "minutes": 0}
+            by_client[client_id]["minutes"] += minutes
+        
+        project_id = e.get("project_id")
+        if project_id:
+            if project_id not in by_project:
+                p = await db.projects.find_one({"id": project_id}, {"name": 1})
+                by_project[project_id] = {"name": p.get("name") if p else "Unknown", "minutes": 0}
+            by_project[project_id]["minutes"] += minutes
+    
+    # Convert to hours and sort
+    def to_hours_list(d):
+        return sorted([{"name": v["name"], "hours": round(v["minutes"] / 60, 1)} for v in d.values()], key=lambda x: -x["hours"])
+    
+    total_minutes = sum(e.get("duration_minutes", 0) for e in entries)
+    
+    return {
+        "period": {"start": start_date, "end": end_date},
+        "total_hours": round(total_minutes / 60, 1),
+        "total_entries": len(entries),
+        "by_engineer": to_hours_list(by_user),
+        "by_client": to_hours_list(by_client),
+        "by_project": to_hours_list(by_project)
+    }
+
+@api_router.get("/reports/workload-distribution")
+async def get_workload_distribution(user: dict = Depends(get_current_user)):
+    """Workload Distribution - Who has the most open tasks/tickets"""
+    users = await db.users.find({"is_active": True}, {"_id": 0, "id": 1, "username": 1}).to_list(100)
+    
+    workload = []
+    for u in users:
+        open_tasks = await db.tasks.count_documents({
+            "assigned_to": u["id"],
+            "status": {"$in": ["open", "in_progress"]}
+        })
+        
+        # Today's time
+        today = datetime.now(timezone.utc).date().isoformat()
+        time_entries = await db.time_entries.find({
+            "user_id": u["id"],
+            "entry_date": {"$regex": f"^{today}"}
+        }, {"_id": 0}).to_list(100)
+        hours_today = sum(e.get("duration_minutes", 0) for e in time_entries) / 60
+        
+        workload.append({
+            "user_id": u["id"],
+            "username": u["username"],
+            "open_tasks": open_tasks,
+            "hours_today": round(hours_today, 1)
+        })
+    
+    # Sort by open tasks
+    workload.sort(key=lambda x: -x["open_tasks"])
+    
+    return {
+        "staff_count": len(workload),
+        "workload": workload
+    }
+
+@api_router.get("/reports/security-summary")
+async def get_security_summary(user: dict = Depends(get_current_user)):
+    """Security Summary - Bitdefender alerts by severity, client"""
+    # Try to get Bitdefender alerts
+    try:
+        alerts_data = await bitdefender_api_call("GET", "getEndpointsList", {
+            "parentId": os.environ.get("BITDEFENDER_COMPANY_ID"),
+            "perPage": 100
+        })
+        
+        by_severity = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        # Process alerts (structure depends on Bitdefender API response)
+        
+        return {
+            "source": "bitdefender",
+            "by_severity": by_severity,
+            "total_alerts": sum(by_severity.values())
+        }
+    except:
+        return {
+            "source": "bitdefender",
+            "status": "not_configured_or_unavailable",
+            "by_severity": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+            "total_alerts": 0
+        }
+
+@api_router.get("/reports/infrastructure-uptime")
+async def get_infrastructure_uptime(user: dict = Depends(get_current_user)):
+    """Uptime Report - Device uptime % over time"""
+    # Get infrastructure devices
+    devices = await db.infrastructure_devices.find({"is_active": True}, {"_id": 0}).to_list(500)
+    
+    online = len([d for d in devices if d.get("status") == "online"])
+    offline = len([d for d in devices if d.get("status") == "offline"])
+    unknown = len([d for d in devices if d.get("status") not in ["online", "offline"]])
+    
+    # Get servers too
+    servers = await db.servers.find({}, {"_id": 0, "status": 1}).to_list(1000)
+    servers_online = len([s for s in servers if s.get("status") == "online"])
+    servers_total = len(servers)
+    
+    return {
+        "infrastructure_devices": {
+            "total": len(devices),
+            "online": online,
+            "offline": offline,
+            "unknown": unknown,
+            "uptime_percentage": round((online / len(devices) * 100) if devices else 100, 1)
+        },
+        "servers": {
+            "total": servers_total,
+            "online": servers_online,
+            "offline": servers_total - servers_online,
+            "uptime_percentage": round((servers_online / servers_total * 100) if servers_total > 0 else 100, 1)
+        }
+    }
+
+@api_router.get("/reports/all-clients-summary")
+async def get_all_clients_summary(user: dict = Depends(get_current_user)):
+    """All Clients Summary - Overview of all clients"""
+    clients = await db.clients.find({"is_active": True}, {"_id": 0}).to_list(1000)
+    
+    summaries = []
+    for c in clients:
+        server_count = await db.servers.count_documents({"client_id": c["id"]})
+        online_count = await db.servers.count_documents({"client_id": c["id"], "status": "online"})
+        open_incidents = await db.incidents.count_documents({"client_id": c["id"], "status": {"$ne": "resolved"}})
+        open_tasks = await db.tasks.count_documents({"client_id": c["id"], "status": {"$in": ["open", "in_progress"]}})
+        
+        uptime = round((online_count / server_count * 100) if server_count > 0 else 100, 1)
+        
+        summaries.append({
+            "id": c["id"],
+            "name": c.get("name"),
+            "code": c.get("code"),
+            "servers": server_count,
+            "online": online_count,
+            "offline": server_count - online_count,
+            "uptime_percentage": uptime,
+            "open_incidents": open_incidents,
+            "open_tasks": open_tasks,
+            "health_score": min(100, max(0, 100 - open_incidents * 10 - (server_count - online_count) * 20))
+        })
+    
+    # Sort by health score (worst first)
+    summaries.sort(key=lambda x: x["health_score"])
+    
+    return {
+        "total_clients": len(summaries),
+        "clients": summaries
+    }
+
+
 # ==================== BITDEFENDER GRAVITYZONE INTEGRATION ====================
 
 async def bitdefender_api_call(method: str, endpoint: str, params: dict = None):

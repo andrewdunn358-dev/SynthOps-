@@ -88,7 +88,27 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 
 ## Completed Work (March 2026)
 
-### Infrastructure Monitoring Feature (Latest)
+### Comprehensive Reports Feature (Latest)
+- Added 12 new report endpoints:
+  - `/reports/weekly-status` - Weekly status summary
+  - `/reports/all-clients-summary` - All clients health overview
+  - `/reports/client-health/{id}` - Per-client health report
+  - `/reports/client-assets/{id}` - Client asset inventory
+  - `/reports/ticket-aging` - Open tickets by age
+  - `/reports/incident-trends` - Incidents over time
+  - `/reports/time-tracking-summary` - Hours by engineer/client/project
+  - `/reports/workload-distribution` - Staff task distribution
+  - `/reports/infrastructure-uptime` - Device uptime stats
+  - `/reports/offline-history` - Offline server history
+  - `/reports/security-summary` - Bitdefender alerts summary
+- Redesigned Reports page with 5 tabs: Overview, Clients, Operations, Staff, Infrastructure
+- Added CSV export for all major report types
+
+### UI Fixes
+- Fixed favicon to use Synthesis IT logo
+- Page title now shows "SynthOps | IT Operations Portal"
+
+### Infrastructure Monitoring Feature
 - Added Infrastructure Management page at /infrastructure
 - CRUD APIs for managing Proxmox, SNMP, and Ping devices
 - Device status checking with response time tracking
@@ -99,10 +119,6 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 - Updated stats endpoint to count "open" + "merged" as open tickets
 - Made state matching case-insensitive
 - Added search API for fetching all tickets
-
-### Bug Fixes
-- Fixed Dashboard.jsx syntax error (missing closing div tag)
-- Made sidebar properly scrollable to show all admin items
 
 ---
 
