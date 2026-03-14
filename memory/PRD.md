@@ -104,6 +104,14 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 - Redesigned Reports page with 5 tabs: Overview, Clients, Operations, Staff, Infrastructure
 - Added CSV export for all major report types
 
+### PDF Export & Historical Trend Charts
+- **PDF Export** for: Weekly Status, All Clients Summary, Individual Client Reports, Incident Trends
+- **Interactive Trend Charts** using Recharts:
+  - Incidents (30 days) - Stacked area chart by severity
+  - Tasks (30 days) - Bar chart showing Created vs Completed
+  - Hours Logged (30 days) - Line chart
+- Backend trend data endpoints: `/reports/trends/incidents`, `/reports/trends/tasks`, `/reports/trends/time-logged`
+
 ### UI Fixes
 - Fixed favicon to use Synthesis IT logo
 - Page title now shows "SynthOps | IT Operations Portal"

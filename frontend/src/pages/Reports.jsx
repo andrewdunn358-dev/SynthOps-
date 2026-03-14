@@ -26,14 +26,33 @@ import {
   BarChart3, Download, RefreshCw, Server, Users, Ticket,
   AlertTriangle, Clock, CheckCircle, XCircle, FileText, 
   TrendingUp, Calendar, Building2, HardDrive, Shield, Activity,
-  Wifi, WifiOff, Timer, UserCheck
+  Wifi, WifiOff, Timer, UserCheck, FileDown
 } from 'lucide-react';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar
+} from 'recharts';
 
 export default function Reports() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
   const [clients, setClients] = useState([]);
   const [selectedClient, setSelectedClient] = useState('');
+  
+  // Trend data states
+  const [incidentTrendData, setIncidentTrendData] = useState([]);
+  const [taskTrendData, setTaskTrendData] = useState([]);
+  const [timeTrendData, setTimeTrendData] = useState([]);
   
   // Report data states
   const [weeklyStatus, setWeeklyStatus] = useState(null);
@@ -54,18 +73,41 @@ export default function Reports() {
   const fetchInitialData = async () => {
     setLoading(true);
     try {
-      const [clientsRes, weeklyRes, allClientsRes] = await Promise.all([
+      const [clientsRes, weeklyRes, allClientsRes, incidentTrendsRes, taskTrendsRes, timeTrendsRes] = await Promise.all([
         apiClient.get('/clients'),
         apiClient.get('/reports/weekly-status').catch(() => ({ data: null })),
-        apiClient.get('/reports/all-clients-summary').catch(() => ({ data: null }))
+        apiClient.get('/reports/all-clients-summary').catch(() => ({ data: null })),
+        apiClient.get('/reports/trends/incidents?days=30').catch(() => ({ data: { data: [] } })),
+        apiClient.get('/reports/trends/tasks?days=30').catch(() => ({ data: { data: [] } })),
+        apiClient.get('/reports/trends/time-logged?days=30').catch(() => ({ data: { data: [] } }))
       ]);
       setClients(clientsRes.data || []);
       setWeeklyStatus(weeklyRes.data);
       setAllClientsSummary(allClientsRes.data);
+      setIncidentTrendData(incidentTrendsRes.data?.data || []);
+      setTaskTrendData(taskTrendsRes.data?.data || []);
+      setTimeTrendData(timeTrendsRes.data?.data || []);
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to load data'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const downloadPDF = async (endpoint, filename) => {
+    try {
+      const response = await apiClient.get(endpoint, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('PDF downloaded');
+    } catch (error) {
+      toast.error('PDF export failed');
     }
   };
 
@@ -180,14 +222,20 @@ export default function Reports() {
           {/* Weekly Status Summary */}
           {weeklyStatus && (
             <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Calendar className="h-5 w-5" />
-                  Weekly Status Report
-                </CardTitle>
-                <CardDescription>
-                  {weeklyStatus.period?.start} to {weeklyStatus.period?.end}
-                </CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5" />
+                    Weekly Status Report
+                  </CardTitle>
+                  <CardDescription>
+                    {weeklyStatus.period?.start} to {weeklyStatus.period?.end}
+                  </CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => downloadPDF('/reports/pdf/weekly-status', 'weekly_status.pdf')}>
+                  <FileDown className="h-4 w-4 mr-2" />
+                  PDF
+                </Button>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -212,6 +260,115 @@ export default function Reports() {
             </Card>
           )}
 
+          {/* Trend Charts */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Incidents Trend Chart */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5" />
+                  Incidents (Last 30 Days)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {incidentTrendData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={250}>
+                    <AreaChart data={incidentTrendData.slice(-30)}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                      <XAxis 
+                        dataKey="date" 
+                        tick={{ fontSize: 10 }} 
+                        tickFormatter={(v) => v.slice(5)}
+                        stroke="#888"
+                      />
+                      <YAxis tick={{ fontSize: 10 }} stroke="#888" />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333' }}
+                        labelStyle={{ color: '#fff' }}
+                      />
+                      <Legend />
+                      <Area type="monotone" dataKey="critical" stackId="1" stroke="#ef4444" fill="#ef4444" fillOpacity={0.6} name="Critical" />
+                      <Area type="monotone" dataKey="high" stackId="1" stroke="#f97316" fill="#f97316" fillOpacity={0.6} name="High" />
+                      <Area type="monotone" dataKey="medium" stackId="1" stroke="#eab308" fill="#eab308" fillOpacity={0.6} name="Medium" />
+                      <Area type="monotone" dataKey="low" stackId="1" stroke="#22c55e" fill="#22c55e" fillOpacity={0.6} name="Low" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-muted-foreground text-center py-8">No incident data available</p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Tasks Trend Chart */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5" />
+                  Tasks (Last 30 Days)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {taskTrendData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={250}>
+                    <BarChart data={taskTrendData.slice(-30)}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                      <XAxis 
+                        dataKey="date" 
+                        tick={{ fontSize: 10 }} 
+                        tickFormatter={(v) => v.slice(5)}
+                        stroke="#888"
+                      />
+                      <YAxis tick={{ fontSize: 10 }} stroke="#888" />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333' }}
+                        labelStyle={{ color: '#fff' }}
+                      />
+                      <Legend />
+                      <Bar dataKey="created" fill="#3b82f6" name="Created" />
+                      <Bar dataKey="completed" fill="#22c55e" name="Completed" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-muted-foreground text-center py-8">No task data available</p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Time Logged Trend Chart */}
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Timer className="h-5 w-5" />
+                  Hours Logged (Last 30 Days)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {timeTrendData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={timeTrendData.slice(-30)}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                      <XAxis 
+                        dataKey="date" 
+                        tick={{ fontSize: 10 }} 
+                        tickFormatter={(v) => v.slice(5)}
+                        stroke="#888"
+                      />
+                      <YAxis tick={{ fontSize: 10 }} stroke="#888" />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333' }}
+                        labelStyle={{ color: '#fff' }}
+                        formatter={(value) => [`${value}h`, 'Hours']}
+                      />
+                      <Line type="monotone" dataKey="hours" stroke="#06b6d4" strokeWidth={2} dot={false} name="Hours" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-muted-foreground text-center py-8">No time tracking data available</p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
           {/* All Clients Health Overview */}
           {allClientsSummary && (
             <Card>
@@ -223,10 +380,16 @@ export default function Reports() {
                   </CardTitle>
                   <CardDescription>{allClientsSummary.total_clients} active clients</CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => exportToCSV('/export/clients', 'clients_report.csv')}>
-                  <Download className="h-4 w-4 mr-2" />
-                  Export
-                </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => downloadPDF('/reports/pdf/all-clients', 'clients_summary.pdf')}>
+                    <FileDown className="h-4 w-4 mr-2" />
+                    PDF
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => exportToCSV('/export/clients', 'clients_report.csv')}>
+                    <Download className="h-4 w-4 mr-2" />
+                    CSV
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <Table>
@@ -279,7 +442,7 @@ export default function Reports() {
               <CardDescription>Select a client to view detailed reports</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex gap-4">
+              <div className="flex flex-wrap gap-4">
                 <Select value={selectedClient} onValueChange={setSelectedClient}>
                   <SelectTrigger className="w-64">
                     <SelectValue placeholder="Select client" />
@@ -297,10 +460,16 @@ export default function Reports() {
                   Load Assets
                 </Button>
                 {selectedClient && (
-                  <Button variant="outline" onClick={() => exportToCSV(`/export/client-report/${selectedClient}`, 'client_report.csv')}>
-                    <Download className="h-4 w-4 mr-2" />
-                    Export Full Report
-                  </Button>
+                  <>
+                    <Button variant="outline" onClick={() => downloadPDF(`/reports/pdf/client/${selectedClient}`, 'client_report.pdf')}>
+                      <FileDown className="h-4 w-4 mr-2" />
+                      PDF Report
+                    </Button>
+                    <Button variant="outline" onClick={() => exportToCSV(`/export/client-report/${selectedClient}`, 'client_report.csv')}>
+                      <Download className="h-4 w-4 mr-2" />
+                      CSV Export
+                    </Button>
+                  </>
                 )}
               </div>
 
@@ -478,9 +647,14 @@ export default function Reports() {
                   <TrendingUp className="h-5 w-5" />
                   Incident Trends (90 days)
                 </CardTitle>
-                <Button size="sm" onClick={() => loadReport('incident-trends')}>
-                  <RefreshCw className="h-4 w-4" />
-                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => loadReport('incident-trends')}>
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => downloadPDF('/reports/pdf/incident-trends', 'incident_trends.pdf')}>
+                    <FileDown className="h-4 w-4" />
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 {incidentTrends ? (
