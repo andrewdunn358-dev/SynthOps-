@@ -3700,8 +3700,10 @@ async def get_zammad_stats(user: dict = Depends(get_current_user)):
                     # Count open vs closed
                     if state_id in closed_state_ids or "closed" in state_name:
                         closed_count += 1
-                    elif state_name not in ["merged", "removed"]:
-                        # Everything not closed/merged/removed is considered "open"
+                    elif state_name in ["removed"]:
+                        pass  # Don't count removed tickets
+                    else:
+                        # "open", "merged", "new", "pending" etc. are all considered "open"
                         open_count += 1
             
             logger.info(f"Zammad stats: total={len(tickets)}, open={open_count}, closed={closed_count}, states={state_counts}")

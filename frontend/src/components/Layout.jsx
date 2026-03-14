@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Building2, Server, ListTodo, FolderKanban, 
   AlertTriangle, Wrench, FileText, Clock, Users, Settings, 
   Shield, LogOut, Menu, X, Sun, Moon, ChevronLeft,
-  Ticket, BarChart3, KeyRound, ExternalLink, Monitor, ShieldCheck
+  Ticket, BarChart3, KeyRound, ExternalLink, Monitor, ShieldCheck, Network
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
@@ -35,6 +35,7 @@ const navItems = [
 ];
 
 const adminItems = [
+  { path: '/infrastructure', icon: Network, label: 'Infrastructure' },
   { path: '/admin', icon: Shield, label: 'Admin' },
   { path: '/settings', icon: Settings, label: 'Settings' },
 ];
@@ -93,7 +94,7 @@ export default function Layout() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 py-4 overflow-y-auto">
+        <nav className="flex-1 py-4 overflow-y-auto min-h-0">
           <div className="space-y-1 px-2">
             {navItems.map((item) => (
               <NavLink

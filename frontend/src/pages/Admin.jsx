@@ -30,11 +30,13 @@ import {
 } from '../components/ui/dialog';
 import { 
   Shield, Users, RefreshCw, Link2, CheckCircle, XCircle, Plus, 
-  UserPlus, Edit, Trash2, Key, Clock
+  UserPlus, Edit, Trash2, Key, Clock, Network
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export default function Admin() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [trmmStatus, setTrmmStatus] = useState(null);
   const [zammadStatus, setZammadStatus] = useState(null);
@@ -449,6 +451,28 @@ export default function Admin() {
               onClick={() => window.open('https://cloudgz.gravityzone.bitdefender.com/', '_blank')}
             >
               Open GravityZone Console
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Infrastructure Monitoring */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Network className="h-5 w-5 text-blue-500" />
+              Infrastructure Monitoring
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Monitor Proxmox hosts, routers, and other network devices
+            </p>
+            <Button 
+              variant="default" 
+              size="sm" 
+              onClick={() => navigate('/infrastructure')}
+            >
+              Manage Devices
             </Button>
           </CardContent>
         </Card>
