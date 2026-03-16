@@ -90,17 +90,25 @@ class RateLimiter:
         self.requests[client_ip].append(now)
         return True
 
-rate_limiter = RateLimiter(requests_per_minute=120)
+# Increase rate limit significantly - dashboard makes many parallel calls
+rate_limiter = RateLimiter(requests_per_minute=600)
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Skip rate limiting for health checks
-        if request.url.path == "/api/" or request.url.path == "/api/health":
+        # Skip rate limiting for health checks and static assets
+        path = request.url.path
+        if path in ["/api/", "/api/health"] or path.startswith("/static"):
+            return await call_next(request)
+        
+        # Skip rate limiting for authenticated GET requests (normal app usage)
+        # Only apply strict limits to auth endpoints to prevent brute force
+        if request.method == "GET" and "Authorization" in request.headers:
             return await call_next(request)
         
         client_ip = request.client.host if request.client else "unknown"
         
         if not rate_limiter.is_allowed(client_ip):
+            logger.warning(f"Rate limit exceeded for {client_ip} on {path}")
             return JSONResponse(
                 status_code=429,
                 content={"detail": "Too many requests. Please try again later."}
