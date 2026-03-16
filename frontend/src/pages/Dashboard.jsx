@@ -5,11 +5,21 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
+import { Progress } from '../components/ui/progress';
 import { 
   Building2, Server, ListTodo, FolderKanban, AlertTriangle, 
   Activity, ArrowRight, CheckCircle, Clock, AlertCircle,
-  RefreshCw, Wrench, WifiOff, X, Bell, Ticket, Shield, ShieldAlert
+  RefreshCw, Wrench, WifiOff, X, Bell, Ticket, Shield, ShieldAlert,
+  Network, HardDrive, Monitor, Container, Cpu, MemoryStick
 } from 'lucide-react';
+
+function formatBytes(bytes, decimals = 1) {
+  if (!bytes) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[i];
+}
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -20,6 +30,7 @@ export default function Dashboard() {
   const [dismissedAlerts, setDismissedAlerts] = useState([]);
   const [ticketStats, setTicketStats] = useState(null);
   const [securityAlerts, setSecurityAlerts] = useState(null);
+  const [infraStatus, setInfraStatus] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -55,6 +66,14 @@ export default function Dashboard() {
         setSecurityAlerts(securityRes.data);
       } catch (e) {
         // Bitdefender not configured
+      }
+
+      // Try to get infrastructure status
+      try {
+        const infraRes = await apiClient.get('/infrastructure/status');
+        setInfraStatus(infraRes.data);
+      } catch (e) {
+        // Infrastructure not configured
       }
     } catch (error) {
       console.error('Dashboard fetch error:', error);
@@ -239,7 +258,7 @@ export default function Dashboard() {
                   {ticketStats.open} open ticket{ticketStats.open > 1 ? 's' : ''} in Zammad
                 </span>
               </div>
-            )}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -361,6 +380,152 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Infrastructure Status Row - Show if there are infrastructure devices */}
+      {infraStatus && infraStatus.total > 0 && (
+        <Card className="border-l-4 border-l-purple-500">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Network className="h-5 w-5 text-purple-400" />
+                Infrastructure Monitoring
+              </CardTitle>
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => navigate('/infrastructure')}
+              >
+                View Details
+                <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {/* Device Status */}
+              <div className="p-3 bg-muted rounded-lg text-center">
+                <div className="flex items-center justify-center gap-2 mb-1">
+                  <span className={`h-2 w-2 rounded-full ${infraStatus.online > 0 ? 'bg-emerald-400' : 'bg-gray-400'}`} />
+                  <span className="text-xs text-muted-foreground">Devices</span>
+                </div>
+                <p className="text-xl font-bold">
+                  <span className="text-emerald-400">{infraStatus.online}</span>
+                  <span className="text-muted-foreground mx-1">/</span>
+                  <span>{infraStatus.total}</span>
+                </p>
+              </div>
+
+              {/* Proxmox Stats */}
+              {infraStatus.by_type?.proxmox && (
+                <>
+                  <div className="p-3 bg-muted rounded-lg text-center">
+                    <div className="flex items-center justify-center gap-2 mb-1">
+                      <HardDrive className="h-4 w-4 text-purple-400" />
+                      <span className="text-xs text-muted-foreground">Proxmox</span>
+                    </div>
+                    <p className="text-xl font-bold">
+                      <span className={infraStatus.by_type.proxmox.online > 0 ? 'text-emerald-400' : 'text-red-400'}>
+                        {infraStatus.by_type.proxmox.online}
+                      </span>
+                      <span className="text-muted-foreground mx-1">/</span>
+                      <span>{infraStatus.by_type.proxmox.total}</span>
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {/* Network Devices */}
+              {(infraStatus.by_type?.ping || infraStatus.by_type?.snmp) && (
+                <div className="p-3 bg-muted rounded-lg text-center">
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <Network className="h-4 w-4 text-cyan-400" />
+                    <span className="text-xs text-muted-foreground">Network</span>
+                  </div>
+                  <p className="text-xl font-bold">
+                    <span className="text-emerald-400">
+                      {(infraStatus.by_type?.ping?.online || 0) + (infraStatus.by_type?.snmp?.online || 0)}
+                    </span>
+                    <span className="text-muted-foreground mx-1">/</span>
+                    <span>
+                      {(infraStatus.by_type?.ping?.total || 0) + (infraStatus.by_type?.snmp?.total || 0)}
+                    </span>
+                  </p>
+                </div>
+              )}
+
+              {/* Aggregate VM/Container stats from Proxmox devices */}
+              {infraStatus.devices && (() => {
+                const proxmoxDevices = infraStatus.devices.filter(d => d.device_type === 'proxmox' && d.extra_data?.summary);
+                const totalVms = proxmoxDevices.reduce((sum, d) => sum + (d.extra_data?.summary?.total_vms || 0), 0);
+                const runningVms = proxmoxDevices.reduce((sum, d) => sum + (d.extra_data?.summary?.running_vms || 0), 0);
+                const totalCts = proxmoxDevices.reduce((sum, d) => sum + (d.extra_data?.summary?.total_containers || 0), 0);
+                const runningCts = proxmoxDevices.reduce((sum, d) => sum + (d.extra_data?.summary?.running_containers || 0), 0);
+                
+                if (totalVms === 0 && totalCts === 0) return null;
+                
+                return (
+                  <>
+                    {totalVms > 0 && (
+                      <div className="p-3 bg-muted rounded-lg text-center">
+                        <div className="flex items-center justify-center gap-2 mb-1">
+                          <Monitor className="h-4 w-4 text-purple-400" />
+                          <span className="text-xs text-muted-foreground">VMs</span>
+                        </div>
+                        <p className="text-xl font-bold">
+                          <span className="text-emerald-400">{runningVms}</span>
+                          <span className="text-muted-foreground mx-1">/</span>
+                          <span>{totalVms}</span>
+                        </p>
+                      </div>
+                    )}
+                    {totalCts > 0 && (
+                      <div className="p-3 bg-muted rounded-lg text-center">
+                        <div className="flex items-center justify-center gap-2 mb-1">
+                          <Container className="h-4 w-4 text-cyan-400" />
+                          <span className="text-xs text-muted-foreground">Containers</span>
+                        </div>
+                        <p className="text-xl font-bold">
+                          <span className="text-emerald-400">{runningCts}</span>
+                          <span className="text-muted-foreground mx-1">/</span>
+                          <span>{totalCts}</span>
+                        </p>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+
+              {/* Offline Alerts */}
+              {infraStatus.offline > 0 && (
+                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-center">
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <WifiOff className="h-4 w-4 text-red-400" />
+                    <span className="text-xs text-red-400">Offline</span>
+                  </div>
+                  <p className="text-xl font-bold text-red-400">{infraStatus.offline}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Show offline infrastructure devices if any */}
+            {infraStatus.devices && infraStatus.devices.filter(d => d.status === 'offline').length > 0 && (
+              <div className="mt-3 pt-3 border-t border-border">
+                <div className="flex flex-wrap gap-2">
+                  {infraStatus.devices
+                    .filter(d => d.status === 'offline')
+                    .slice(0, 5)
+                    .map(device => (
+                      <Badge key={device.id} className="bg-red-500/20 text-red-400">
+                        <WifiOff className="h-3 w-3 mr-1" />
+                        {device.name}
+                      </Badge>
+                    ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
