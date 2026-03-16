@@ -70,7 +70,8 @@ export default function Tasks() {
         apiClient.get('/tasks/kanban'),
         apiClient.get('/clients'),
         apiClient.get('/projects'),
-        user?.role === 'admin' ? apiClient.get('/users') : Promise.resolve({ data: [] })
+        // All authenticated users can now see the user list for task assignment
+        apiClient.get('/users')
       ]);
       setTasks(tasksRes.data);
       setKanban(kanbanRes.data);

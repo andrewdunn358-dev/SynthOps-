@@ -599,7 +599,8 @@ async def refresh_token(refresh_token: str = Body(..., embed=True)):
 # ==================== USER MANAGEMENT ====================
 
 @api_router.get("/users", response_model=List[UserResponse])
-async def list_users(user: dict = Depends(require_admin)):
+async def list_users(user: dict = Depends(get_current_user)):
+    """List all users - any authenticated user can view for task assignment"""
     users = await db.users.find({}, {"_id": 0, "password_hash": 0, "totp_secret": 0}).to_list(1000)
     return [UserResponse(
         id=u["id"], email=u["email"], username=u["username"],
