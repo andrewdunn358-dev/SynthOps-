@@ -428,6 +428,42 @@ class DashboardStats(BaseModel):
     active_projects: int
     pending_health_checks: int
 
+# Infrastructure monitoring models
+class InfraDeviceCreate(BaseModel):
+    name: str
+    device_type: str  # proxmox, snmp, ping
+    ip_address: str
+    port: Optional[int] = None
+    location: Optional[str] = None
+    description: Optional[str] = None
+    # Proxmox specific
+    api_token_id: Optional[str] = None
+    api_token_secret: Optional[str] = None
+    # SNMP specific
+    snmp_community: Optional[str] = None
+    snmp_version: Optional[str] = "2c"
+    # General
+    check_interval: int = 60  # seconds
+    is_active: bool = True
+
+class InfraDeviceResponse(BaseModel):
+    id: str
+    name: str
+    device_type: str
+    ip_address: str
+    port: Optional[int]
+    location: Optional[str]
+    description: Optional[str]
+    status: str  # online, offline, unknown
+    last_check: Optional[datetime]
+    last_seen: Optional[datetime]
+    response_time_ms: Optional[int]
+    check_interval: int
+    is_active: bool
+    created_at: datetime
+    # Extra data from monitoring
+    extra_data: Optional[Dict[str, Any]] = None
+
 # ==================== AUTH HELPERS ====================
 
 def hash_password(password: str) -> str:
@@ -3792,6 +3828,331 @@ async def trigger_manual_sync(sync_type: str, user: dict = Depends(get_current_u
         return {"message": "Zammad sync triggered"}
     else:
         raise HTTPException(status_code=400, detail="Invalid sync type. Use 'trmm' or 'zammad'")
+
+
+# ==================== INFRASTRUCTURE MONITORING ====================
+
+@api_router.get("/infrastructure/devices")
+async def list_infrastructure_devices(user: dict = Depends(get_current_user)):
+    """List all infrastructure devices"""
+    devices = await db.infrastructure_devices.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+    return [InfraDeviceResponse(
+        id=d["id"],
+        name=d["name"],
+        device_type=d["device_type"],
+        ip_address=d["ip_address"],
+        port=d.get("port"),
+        location=d.get("location"),
+        description=d.get("description"),
+        status=d.get("status", "unknown"),
+        last_check=datetime.fromisoformat(d["last_check"]) if d.get("last_check") else None,
+        last_seen=datetime.fromisoformat(d["last_seen"]) if d.get("last_seen") else None,
+        response_time_ms=d.get("response_time_ms"),
+        check_interval=d.get("check_interval", 60),
+        is_active=d.get("is_active", True),
+        created_at=datetime.fromisoformat(d["created_at"]),
+        extra_data=d.get("extra_data")
+    ) for d in devices]
+
+@api_router.post("/infrastructure/devices")
+async def create_infrastructure_device(device: InfraDeviceCreate, user: dict = Depends(get_current_user)):
+    """Add a new infrastructure device to monitor"""
+    device_data = {
+        "id": str(uuid.uuid4()),
+        "name": device.name,
+        "device_type": device.device_type,
+        "ip_address": device.ip_address,
+        "port": device.port or (8006 if device.device_type == "proxmox" else 161 if device.device_type == "snmp" else None),
+        "location": device.location,
+        "description": device.description,
+        "check_interval": device.check_interval,
+        "is_active": device.is_active,
+        "status": "unknown",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": user["id"]
+    }
+    
+    # Store credentials securely (encrypted)
+    if device.device_type == "proxmox":
+        device_data["api_token_id"] = encrypt_field(device.api_token_id) if device.api_token_id else None
+        device_data["api_token_secret"] = encrypt_field(device.api_token_secret) if device.api_token_secret else None
+    elif device.device_type == "snmp":
+        device_data["snmp_community"] = encrypt_field(device.snmp_community) if device.snmp_community else None
+        device_data["snmp_version"] = device.snmp_version
+    
+    await db.infrastructure_devices.insert_one(device_data)
+    
+    return {"message": "Device added", "id": device_data["id"]}
+
+@api_router.get("/infrastructure/devices/{device_id}")
+async def get_infrastructure_device(device_id: str, user: dict = Depends(get_current_user)):
+    """Get a specific infrastructure device"""
+    device = await db.infrastructure_devices.find_one({"id": device_id}, {"_id": 0})
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return device
+
+@api_router.put("/infrastructure/devices/{device_id}")
+async def update_infrastructure_device(device_id: str, device: InfraDeviceCreate, user: dict = Depends(get_current_user)):
+    """Update an infrastructure device"""
+    existing = await db.infrastructure_devices.find_one({"id": device_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    update_data = {
+        "name": device.name,
+        "device_type": device.device_type,
+        "ip_address": device.ip_address,
+        "port": device.port,
+        "location": device.location,
+        "description": device.description,
+        "check_interval": device.check_interval,
+        "is_active": device.is_active,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    if device.device_type == "proxmox" and device.api_token_secret:
+        update_data["api_token_id"] = encrypt_field(device.api_token_id) if device.api_token_id else None
+        update_data["api_token_secret"] = encrypt_field(device.api_token_secret) if device.api_token_secret else None
+    elif device.device_type == "snmp" and device.snmp_community:
+        update_data["snmp_community"] = encrypt_field(device.snmp_community)
+        update_data["snmp_version"] = device.snmp_version
+    
+    await db.infrastructure_devices.update_one({"id": device_id}, {"$set": update_data})
+    return {"message": "Device updated"}
+
+@api_router.delete("/infrastructure/devices/{device_id}")
+async def delete_infrastructure_device(device_id: str, user: dict = Depends(get_current_user)):
+    """Delete an infrastructure device"""
+    result = await db.infrastructure_devices.delete_one({"id": device_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return {"message": "Device deleted"}
+
+@api_router.post("/infrastructure/devices/{device_id}/check")
+async def check_infrastructure_device(device_id: str, user: dict = Depends(get_current_user)):
+    """Manually trigger a check for a device"""
+    device = await db.infrastructure_devices.find_one({"id": device_id}, {"_id": 0})
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    result = await check_device_status(device)
+    return result
+
+async def check_device_status(device: dict) -> dict:
+    """Check the status of an infrastructure device"""
+    import subprocess
+    import time
+    
+    device_type = device.get("device_type")
+    ip_address = device.get("ip_address")
+    port = device.get("port")
+    
+    result = {
+        "device_id": device["id"],
+        "status": "offline",
+        "response_time_ms": None,
+        "extra_data": {}
+    }
+    
+    try:
+        if device_type == "ping":
+            # Simple ping check
+            start = time.time()
+            proc = subprocess.run(
+                ["ping", "-c", "1", "-W", "3", ip_address],
+                capture_output=True, timeout=5
+            )
+            elapsed = int((time.time() - start) * 1000)
+            
+            if proc.returncode == 0:
+                result["status"] = "online"
+                result["response_time_ms"] = elapsed
+        
+        elif device_type == "proxmox":
+            # Proxmox API check
+            token_id = decrypt_field(device.get("api_token_id")) if device.get("api_token_id") else None
+            token_secret = decrypt_field(device.get("api_token_secret")) if device.get("api_token_secret") else None
+            
+            if token_id and token_secret:
+                start = time.time()
+                async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
+                    base_url = f"https://{ip_address}:{port or 8006}/api2/json"
+                    headers = {"Authorization": f"PVEAPIToken={token_id}={token_secret}"}
+                    
+                    # Get version
+                    resp = await client.get(f"{base_url}/version", headers=headers)
+                    elapsed = int((time.time() - start) * 1000)
+                    
+                    if resp.status_code == 200:
+                        result["status"] = "online"
+                        result["response_time_ms"] = elapsed
+                        result["extra_data"]["version"] = resp.json().get("data", {})
+                        
+                        # Get nodes info
+                        nodes_resp = await client.get(f"{base_url}/nodes", headers=headers)
+                        if nodes_resp.status_code == 200:
+                            nodes_data = nodes_resp.json().get("data", [])
+                            result["extra_data"]["nodes"] = []
+                            
+                            for node in nodes_data:
+                                node_name = node.get("node")
+                                node_info = {
+                                    "name": node_name,
+                                    "status": node.get("status"),
+                                    "cpu": round(node.get("cpu", 0) * 100, 1),
+                                    "maxcpu": node.get("maxcpu"),
+                                    "mem": node.get("mem"),
+                                    "maxmem": node.get("maxmem"),
+                                    "mem_percent": round((node.get("mem", 0) / node.get("maxmem", 1)) * 100, 1) if node.get("maxmem") else 0,
+                                    "disk": node.get("disk"),
+                                    "maxdisk": node.get("maxdisk"),
+                                    "uptime": node.get("uptime"),
+                                    "vms": [],
+                                    "containers": []
+                                }
+                                
+                                # Get VMs for this node
+                                try:
+                                    vms_resp = await client.get(f"{base_url}/nodes/{node_name}/qemu", headers=headers)
+                                    if vms_resp.status_code == 200:
+                                        vms = vms_resp.json().get("data", [])
+                                        node_info["vms"] = [{
+                                            "vmid": vm.get("vmid"),
+                                            "name": vm.get("name"),
+                                            "status": vm.get("status"),
+                                            "cpu": round(vm.get("cpu", 0) * 100, 1) if vm.get("cpu") else 0,
+                                            "mem": vm.get("mem"),
+                                            "maxmem": vm.get("maxmem"),
+                                            "uptime": vm.get("uptime")
+                                        } for vm in vms]
+                                except:
+                                    pass
+                                
+                                # Get containers for this node
+                                try:
+                                    lxc_resp = await client.get(f"{base_url}/nodes/{node_name}/lxc", headers=headers)
+                                    if lxc_resp.status_code == 200:
+                                        containers = lxc_resp.json().get("data", [])
+                                        node_info["containers"] = [{
+                                            "vmid": ct.get("vmid"),
+                                            "name": ct.get("name"),
+                                            "status": ct.get("status"),
+                                            "cpu": round(ct.get("cpu", 0) * 100, 1) if ct.get("cpu") else 0,
+                                            "mem": ct.get("mem"),
+                                            "maxmem": ct.get("maxmem")
+                                        } for ct in containers]
+                                except:
+                                    pass
+                                
+                                result["extra_data"]["nodes"].append(node_info)
+                            
+                            # Summary counts
+                            total_vms = sum(len(n.get("vms", [])) for n in result["extra_data"]["nodes"])
+                            total_cts = sum(len(n.get("containers", [])) for n in result["extra_data"]["nodes"])
+                            running_vms = sum(1 for n in result["extra_data"]["nodes"] for vm in n.get("vms", []) if vm.get("status") == "running")
+                            running_cts = sum(1 for n in result["extra_data"]["nodes"] for ct in n.get("containers", []) if ct.get("status") == "running")
+                            
+                            result["extra_data"]["summary"] = {
+                                "total_vms": total_vms,
+                                "running_vms": running_vms,
+                                "total_containers": total_cts,
+                                "running_containers": running_cts,
+                                "total_nodes": len(nodes_data)
+                            }
+            else:
+                # Just ping check if no credentials
+                proc = subprocess.run(
+                    ["ping", "-c", "1", "-W", "3", ip_address],
+                    capture_output=True, timeout=5
+                )
+                if proc.returncode == 0:
+                    result["status"] = "online"
+        
+        elif device_type == "snmp":
+            # For SNMP, we'll do a simple port check for now
+            # Full SNMP requires additional libraries
+            import socket
+            start = time.time()
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(3)
+            try:
+                sock.connect((ip_address, port or 161))
+                elapsed = int((time.time() - start) * 1000)
+                result["status"] = "online"
+                result["response_time_ms"] = elapsed
+            except:
+                pass
+            finally:
+                sock.close()
+    
+    except Exception as e:
+        logging.error(f"Device check failed for {ip_address}: {str(e)}")
+    
+    # Update device status in database
+    await db.infrastructure_devices.update_one(
+        {"id": device["id"]},
+        {"$set": {
+            "status": result["status"],
+            "response_time_ms": result["response_time_ms"],
+            "last_check": datetime.now(timezone.utc).isoformat(),
+            "last_seen": datetime.now(timezone.utc).isoformat() if result["status"] == "online" else device.get("last_seen"),
+            "extra_data": result["extra_data"] if result["extra_data"] else device.get("extra_data")
+        }}
+    )
+    
+    return result
+
+@api_router.get("/infrastructure/status")
+async def get_infrastructure_status(user: dict = Depends(get_current_user)):
+    """Get summary status of all infrastructure devices"""
+    devices = await db.infrastructure_devices.find({"is_active": True}, {"_id": 0}).to_list(500)
+    
+    total = len(devices)
+    online = sum(1 for d in devices if d.get("status") == "online")
+    offline = sum(1 for d in devices if d.get("status") == "offline")
+    unknown = total - online - offline
+    
+    by_type = {}
+    for d in devices:
+        dtype = d.get("device_type", "unknown")
+        if dtype not in by_type:
+            by_type[dtype] = {"total": 0, "online": 0, "offline": 0}
+        by_type[dtype]["total"] += 1
+        if d.get("status") == "online":
+            by_type[dtype]["online"] += 1
+        elif d.get("status") == "offline":
+            by_type[dtype]["offline"] += 1
+    
+    return {
+        "total": total,
+        "online": online,
+        "offline": offline,
+        "unknown": unknown,
+        "by_type": by_type,
+        "devices": devices
+    }
+
+@api_router.post("/infrastructure/check-all")
+async def check_all_infrastructure(user: dict = Depends(get_current_user)):
+    """Trigger checks for all active infrastructure devices"""
+    devices = await db.infrastructure_devices.find({"is_active": True}, {"_id": 0}).to_list(500)
+    
+    results = []
+    for device in devices:
+        result = await check_device_status(device)
+        results.append(result)
+    
+    online = sum(1 for r in results if r["status"] == "online")
+    offline = sum(1 for r in results if r["status"] == "offline")
+    
+    return {
+        "message": f"Checked {len(results)} devices",
+        "online": online,
+        "offline": offline,
+        "results": results
+    }
+
 
 # ==================== MESHCENTRAL INTEGRATION ====================
 
