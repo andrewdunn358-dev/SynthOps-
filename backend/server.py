@@ -72,7 +72,7 @@ logger = logging.getLogger(__name__)
 # ==================== RATE LIMITING ====================
 
 class RateLimiter:
-    """Simple in-memory rate limiter"""
+    """Simple in-memory rate limiter - only for unauthenticated requests"""
     def __init__(self, requests_per_minute: int = 60):
         self.requests_per_minute = requests_per_minute
         self.requests: Dict[str, List[float]] = defaultdict(list)
@@ -90,19 +90,18 @@ class RateLimiter:
         self.requests[client_ip].append(now)
         return True
 
-# Increase rate limit significantly - dashboard makes many parallel calls
-rate_limiter = RateLimiter(requests_per_minute=600)
+# Rate limiter only applies to unauthenticated login attempts
+rate_limiter = RateLimiter(requests_per_minute=30)
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Skip rate limiting for health checks and static assets
         path = request.url.path
-        if path in ["/api/", "/api/health"] or path.startswith("/static"):
-            return await call_next(request)
         
-        # Skip rate limiting for authenticated GET requests (normal app usage)
-        # Only apply strict limits to auth endpoints to prevent brute force
-        if request.method == "GET" and "Authorization" in request.headers:
+        # ONLY rate limit login/register endpoints to prevent brute force
+        # All other endpoints are unrestricted for normal app usage
+        auth_endpoints = ["/api/auth/login", "/api/auth/register"]
+        
+        if path not in auth_endpoints:
             return await call_next(request)
         
         client_ip = request.client.host if request.client else "unknown"
@@ -111,7 +110,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             logger.warning(f"Rate limit exceeded for {client_ip} on {path}")
             return JSONResponse(
                 status_code=429,
-                content={"detail": "Too many requests. Please try again later."}
+                content={"detail": "Too many login attempts. Please try again later."}
             )
         
         return await call_next(request)
