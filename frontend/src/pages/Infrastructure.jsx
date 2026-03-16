@@ -68,12 +68,13 @@ function formatUptime(seconds) {
 }
 
 // Proxmox Detail Card Component
-function ProxmoxDetailCard({ device, onRefresh }) {
+function ProxmoxDetailCard({ device, onRefresh, onDebug }) {
   const [expanded, setExpanded] = useState(true);
   const extraData = device.extra_data || {};
   const nodes = extraData.nodes || [];
   const summary = extraData.summary || {};
   const version = extraData.version || {};
+  const errors = extraData.errors || [];
 
   if (!nodes.length && device.status !== 'online') {
     return (
@@ -81,10 +82,16 @@ function ProxmoxDetailCard({ device, onRefresh }) {
         <CardContent className="p-6 text-center text-muted-foreground">
           <HardDrive className="h-12 w-12 mx-auto mb-2 opacity-50" />
           <p>No data available. Device may be offline or credentials not configured.</p>
-          <Button variant="outline" size="sm" className="mt-2" onClick={() => onRefresh(device)}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Check Status
-          </Button>
+          <div className="flex gap-2 justify-center mt-2">
+            <Button variant="outline" size="sm" onClick={() => onRefresh(device)}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Check Status
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => onDebug(device)}>
+              <Eye className="h-4 w-4 mr-2" />
+              Debug API
+            </Button>
+          </div>
         </CardContent>
       </Card>
     );
@@ -111,6 +118,9 @@ function ProxmoxDetailCard({ device, onRefresh }) {
               {device.status === 'online' ? <CheckCircle className="h-3 w-3 mr-1" /> : <XCircle className="h-3 w-3 mr-1" />}
               {device.status}
             </Badge>
+            <Button variant="ghost" size="sm" onClick={() => onDebug(device)} title="Debug API">
+              <Eye className="h-4 w-4" />
+            </Button>
             <Button variant="ghost" size="sm" onClick={() => onRefresh(device)}>
               <RefreshCw className="h-4 w-4" />
             </Button>
@@ -118,6 +128,15 @@ function ProxmoxDetailCard({ device, onRefresh }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Show API errors if any */}
+        {errors.length > 0 && (
+          <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+            <p className="text-sm font-medium text-red-400 mb-2">API Errors:</p>
+            {errors.map((err, idx) => (
+              <p key={idx} className="text-xs text-red-300 font-mono">{err}</p>
+            ))}
+          </div>
+        )}
         {/* Summary Stats */}
         {summary.total_nodes > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -409,6 +428,24 @@ export default function Infrastructure() {
     }
   };
 
+  const [debugDialogOpen, setDebugDialogOpen] = useState(false);
+  const [debugData, setDebugData] = useState(null);
+  const [debugLoading, setDebugLoading] = useState(false);
+
+  const handleDebug = async (device) => {
+    setDebugLoading(true);
+    setDebugDialogOpen(true);
+    setDebugData(null);
+    try {
+      const res = await apiClient.get(`/infrastructure/devices/${device.id}/debug`);
+      setDebugData(res.data);
+    } catch (error) {
+      setDebugData({ error: getErrorMessage(error, 'Debug request failed') });
+    } finally {
+      setDebugLoading(false);
+    }
+  };
+
   const openEditDialog = (device) => {
     setEditingDevice(device);
     setForm({
@@ -603,7 +640,7 @@ export default function Infrastructure() {
                 Proxmox Servers
               </h2>
               {proxmoxDevices.map(device => (
-                <ProxmoxDetailCard key={device.id} device={device} onRefresh={handleCheck} />
+                <ProxmoxDetailCard key={device.id} device={device} onRefresh={handleCheck} onDebug={handleDebug} />
               ))}
             </div>
           )}
@@ -1037,6 +1074,78 @@ export default function Infrastructure() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Debug Dialog */}
+      <Dialog open={debugDialogOpen} onOpenChange={setDebugDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Proxmox API Debug</DialogTitle>
+          </DialogHeader>
+          {debugLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : debugData ? (
+            <div className="space-y-4">
+              {debugData.error ? (
+                <div className="p-4 bg-red-500/10 rounded-lg text-red-400">
+                  {debugData.error}
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Device</p>
+                      <p className="font-medium">{debugData.device_name}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Endpoint</p>
+                      <p className="font-mono text-sm">{debugData.ip_address}:{debugData.port}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Token ID</p>
+                    <p className="font-mono text-xs bg-muted p-2 rounded">{debugData.token_id}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium mb-2">API Call Results:</p>
+                    <div className="space-y-3">
+                      {debugData.api_calls?.map((call, idx) => (
+                        <div key={idx} className="border rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <code className="text-sm font-medium">{call.endpoint}</code>
+                            {call.error ? (
+                              <Badge className="bg-red-500/20 text-red-400">Error</Badge>
+                            ) : (
+                              <Badge className={call.status_code === 200 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-yellow-500/20 text-yellow-400'}>
+                                {call.status_code}
+                              </Badge>
+                            )}
+                          </div>
+                          <pre className="text-xs bg-muted p-2 rounded overflow-x-auto max-h-48 overflow-y-auto">
+                            {call.error || JSON.stringify(call.response, null, 2)}
+                          </pre>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {debugData.connection_error && (
+                    <div className="p-4 bg-red-500/10 rounded-lg">
+                      <p className="text-sm font-medium text-red-400">Connection Error:</p>
+                      <p className="text-xs font-mono text-red-300">{debugData.connection_error}</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDebugDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

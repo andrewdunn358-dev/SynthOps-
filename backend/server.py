@@ -3976,9 +3976,11 @@ async def check_device_status(device: dict) -> dict:
             
             if token_id and token_secret:
                 start = time.time()
-                async with httpx.AsyncClient(verify=False, timeout=15.0) as client:
+                async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
                     base_url = f"https://{ip_address}:{port or 8006}/api2/json"
                     headers = {"Authorization": f"PVEAPIToken={token_id}={token_secret}"}
+                    
+                    logger.info(f"Proxmox check for {ip_address} - Token ID: {token_id[:20]}...")
                     
                     # Get version
                     resp = await client.get(f"{base_url}/version", headers=headers)
@@ -3988,62 +3990,112 @@ async def check_device_status(device: dict) -> dict:
                         result["status"] = "online"
                         result["response_time_ms"] = elapsed
                         result["extra_data"]["version"] = resp.json().get("data", {})
+                        result["extra_data"]["errors"] = []
                         
                         # Get nodes info
                         nodes_resp = await client.get(f"{base_url}/nodes", headers=headers)
+                        logger.info(f"Proxmox nodes response: {nodes_resp.status_code}")
+                        
                         if nodes_resp.status_code == 200:
                             nodes_data = nodes_resp.json().get("data", [])
+                            logger.info(f"Proxmox found {len(nodes_data)} nodes")
                             result["extra_data"]["nodes"] = []
                             
                             for node in nodes_data:
                                 node_name = node.get("node")
+                                logger.info(f"Processing node: {node_name}, raw data: {node}")
+                                
                                 node_info = {
                                     "name": node_name,
                                     "status": node.get("status"),
                                     "cpu": round(node.get("cpu", 0) * 100, 1),
-                                    "maxcpu": node.get("maxcpu"),
-                                    "mem": node.get("mem"),
-                                    "maxmem": node.get("maxmem"),
+                                    "maxcpu": node.get("maxcpu", 0),
+                                    "mem": node.get("mem", 0),
+                                    "maxmem": node.get("maxmem", 0),
                                     "mem_percent": round((node.get("mem", 0) / node.get("maxmem", 1)) * 100, 1) if node.get("maxmem") else 0,
-                                    "disk": node.get("disk"),
-                                    "maxdisk": node.get("maxdisk"),
-                                    "uptime": node.get("uptime"),
+                                    "disk": node.get("disk", 0),
+                                    "maxdisk": node.get("maxdisk", 0),
+                                    "uptime": node.get("uptime", 0),
                                     "vms": [],
                                     "containers": []
                                 }
                                 
+                                # Get detailed node status for more accurate resource info
+                                try:
+                                    node_status_resp = await client.get(f"{base_url}/nodes/{node_name}/status", headers=headers)
+                                    if node_status_resp.status_code == 200:
+                                        node_status = node_status_resp.json().get("data", {})
+                                        logger.info(f"Node {node_name} status: CPU={node_status.get('cpu')}, mem={node_status.get('memory', {})}")
+                                        # Update with more detailed info
+                                        if node_status.get("cpu"):
+                                            node_info["cpu"] = round(node_status.get("cpu", 0) * 100, 1)
+                                        if node_status.get("cpuinfo"):
+                                            node_info["maxcpu"] = node_status.get("cpuinfo", {}).get("cpus", node_info["maxcpu"])
+                                        if node_status.get("memory"):
+                                            mem_info = node_status.get("memory", {})
+                                            node_info["mem"] = mem_info.get("used", node_info["mem"])
+                                            node_info["maxmem"] = mem_info.get("total", node_info["maxmem"])
+                                            if node_info["maxmem"]:
+                                                node_info["mem_percent"] = round((node_info["mem"] / node_info["maxmem"]) * 100, 1)
+                                        if node_status.get("rootfs"):
+                                            rootfs = node_status.get("rootfs", {})
+                                            node_info["disk"] = rootfs.get("used", node_info["disk"])
+                                            node_info["maxdisk"] = rootfs.get("total", node_info["maxdisk"])
+                                        if node_status.get("uptime"):
+                                            node_info["uptime"] = node_status.get("uptime")
+                                    else:
+                                        logger.warning(f"Node status failed: {node_status_resp.status_code} - {node_status_resp.text}")
+                                except Exception as e:
+                                    logger.error(f"Error getting node status for {node_name}: {e}")
+                                
                                 # Get VMs for this node
                                 try:
                                     vms_resp = await client.get(f"{base_url}/nodes/{node_name}/qemu", headers=headers)
+                                    logger.info(f"VMs response for {node_name}: {vms_resp.status_code}")
                                     if vms_resp.status_code == 200:
                                         vms = vms_resp.json().get("data", [])
+                                        logger.info(f"Found {len(vms)} VMs on {node_name}")
                                         node_info["vms"] = [{
                                             "vmid": vm.get("vmid"),
                                             "name": vm.get("name"),
                                             "status": vm.get("status"),
                                             "cpu": round(vm.get("cpu", 0) * 100, 1) if vm.get("cpu") else 0,
-                                            "mem": vm.get("mem"),
-                                            "maxmem": vm.get("maxmem"),
-                                            "uptime": vm.get("uptime")
+                                            "mem": vm.get("mem", 0),
+                                            "maxmem": vm.get("maxmem", 0),
+                                            "uptime": vm.get("uptime", 0)
                                         } for vm in vms]
-                                except:
-                                    pass
+                                    else:
+                                        error_msg = f"VMs API returned {vms_resp.status_code}: {vms_resp.text[:200]}"
+                                        logger.warning(error_msg)
+                                        result["extra_data"]["errors"].append(error_msg)
+                                except Exception as e:
+                                    error_msg = f"Error fetching VMs for {node_name}: {str(e)}"
+                                    logger.error(error_msg)
+                                    result["extra_data"]["errors"].append(error_msg)
                                 
                                 # Get containers for this node
                                 try:
                                     lxc_resp = await client.get(f"{base_url}/nodes/{node_name}/lxc", headers=headers)
+                                    logger.info(f"LXC response for {node_name}: {lxc_resp.status_code}")
                                     if lxc_resp.status_code == 200:
                                         containers = lxc_resp.json().get("data", [])
+                                        logger.info(f"Found {len(containers)} containers on {node_name}")
                                         node_info["containers"] = [{
                                             "vmid": ct.get("vmid"),
                                             "name": ct.get("name"),
                                             "status": ct.get("status"),
                                             "cpu": round(ct.get("cpu", 0) * 100, 1) if ct.get("cpu") else 0,
-                                            "mem": ct.get("mem"),
-                                            "maxmem": ct.get("maxmem")
+                                            "mem": ct.get("mem", 0),
+                                            "maxmem": ct.get("maxmem", 0)
                                         } for ct in containers]
-                                except:
-                                    pass
+                                    else:
+                                        error_msg = f"LXC API returned {lxc_resp.status_code}: {lxc_resp.text[:200]}"
+                                        logger.warning(error_msg)
+                                        result["extra_data"]["errors"].append(error_msg)
+                                except Exception as e:
+                                    error_msg = f"Error fetching containers for {node_name}: {str(e)}"
+                                    logger.error(error_msg)
+                                    result["extra_data"]["errors"].append(error_msg)
                                 
                                 result["extra_data"]["nodes"].append(node_info)
                             
@@ -4060,6 +4112,13 @@ async def check_device_status(device: dict) -> dict:
                                 "running_containers": running_cts,
                                 "total_nodes": len(nodes_data)
                             }
+                            logger.info(f"Proxmox summary: {result['extra_data']['summary']}")
+                        else:
+                            error_msg = f"Nodes API returned {nodes_resp.status_code}: {nodes_resp.text[:200]}"
+                            logger.warning(error_msg)
+                            result["extra_data"]["errors"] = [error_msg]
+                    else:
+                        logger.warning(f"Proxmox version check failed: {resp.status_code} - {resp.text}")
             else:
                 # Just ping check if no credentials
                 proc = subprocess.run(
@@ -4152,6 +4211,117 @@ async def check_all_infrastructure(user: dict = Depends(get_current_user)):
         "offline": offline,
         "results": results
     }
+
+@api_router.get("/infrastructure/devices/{device_id}/debug")
+async def debug_infrastructure_device(device_id: str, user: dict = Depends(get_current_user)):
+    """Debug endpoint to see raw Proxmox API responses"""
+    device = await db.infrastructure_devices.find_one({"id": device_id}, {"_id": 0})
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    if device.get("device_type") != "proxmox":
+        raise HTTPException(status_code=400, detail="Debug only available for Proxmox devices")
+    
+    token_id = decrypt_field(device.get("api_token_id")) if device.get("api_token_id") else None
+    token_secret = decrypt_field(device.get("api_token_secret")) if device.get("api_token_secret") else None
+    
+    if not token_id or not token_secret:
+        return {"error": "No API credentials configured"}
+    
+    ip_address = device.get("ip_address")
+    port = device.get("port") or 8006
+    
+    debug_info = {
+        "device_name": device.get("name"),
+        "ip_address": ip_address,
+        "port": port,
+        "token_id": token_id,
+        "api_calls": []
+    }
+    
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
+            base_url = f"https://{ip_address}:{port}/api2/json"
+            headers = {"Authorization": f"PVEAPIToken={token_id}={token_secret}"}
+            
+            # Test version endpoint
+            try:
+                resp = await client.get(f"{base_url}/version", headers=headers)
+                debug_info["api_calls"].append({
+                    "endpoint": "/version",
+                    "status_code": resp.status_code,
+                    "response": resp.json() if resp.status_code == 200 else resp.text[:500]
+                })
+            except Exception as e:
+                debug_info["api_calls"].append({
+                    "endpoint": "/version",
+                    "error": str(e)
+                })
+            
+            # Test nodes endpoint
+            try:
+                resp = await client.get(f"{base_url}/nodes", headers=headers)
+                debug_info["api_calls"].append({
+                    "endpoint": "/nodes",
+                    "status_code": resp.status_code,
+                    "response": resp.json() if resp.status_code == 200 else resp.text[:500]
+                })
+                
+                if resp.status_code == 200:
+                    nodes = resp.json().get("data", [])
+                    for node in nodes[:1]:  # Test first node only
+                        node_name = node.get("node")
+                        
+                        # Test node status
+                        try:
+                            status_resp = await client.get(f"{base_url}/nodes/{node_name}/status", headers=headers)
+                            debug_info["api_calls"].append({
+                                "endpoint": f"/nodes/{node_name}/status",
+                                "status_code": status_resp.status_code,
+                                "response": status_resp.json() if status_resp.status_code == 200 else status_resp.text[:500]
+                            })
+                        except Exception as e:
+                            debug_info["api_calls"].append({
+                                "endpoint": f"/nodes/{node_name}/status",
+                                "error": str(e)
+                            })
+                        
+                        # Test VMs endpoint
+                        try:
+                            vms_resp = await client.get(f"{base_url}/nodes/{node_name}/qemu", headers=headers)
+                            debug_info["api_calls"].append({
+                                "endpoint": f"/nodes/{node_name}/qemu",
+                                "status_code": vms_resp.status_code,
+                                "response": vms_resp.json() if vms_resp.status_code == 200 else vms_resp.text[:500]
+                            })
+                        except Exception as e:
+                            debug_info["api_calls"].append({
+                                "endpoint": f"/nodes/{node_name}/qemu",
+                                "error": str(e)
+                            })
+                        
+                        # Test LXC endpoint
+                        try:
+                            lxc_resp = await client.get(f"{base_url}/nodes/{node_name}/lxc", headers=headers)
+                            debug_info["api_calls"].append({
+                                "endpoint": f"/nodes/{node_name}/lxc",
+                                "status_code": lxc_resp.status_code,
+                                "response": lxc_resp.json() if lxc_resp.status_code == 200 else lxc_resp.text[:500]
+                            })
+                        except Exception as e:
+                            debug_info["api_calls"].append({
+                                "endpoint": f"/nodes/{node_name}/lxc",
+                                "error": str(e)
+                            })
+            except Exception as e:
+                debug_info["api_calls"].append({
+                    "endpoint": "/nodes",
+                    "error": str(e)
+                })
+    except Exception as e:
+        debug_info["connection_error"] = str(e)
+    
+    return debug_info
 
 
 # ==================== MESHCENTRAL INTEGRATION ====================
