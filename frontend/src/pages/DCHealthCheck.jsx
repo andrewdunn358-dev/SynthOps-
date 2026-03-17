@@ -107,6 +107,7 @@ export default function DCHealthCheck() {
   const [history, setHistory] = useState([]);
   const [historyFilter, setHistoryFilter] = useState({ server: 'all', year: new Date().getFullYear().toString() });
   const [viewingRecord, setViewingRecord] = useState(null);
+  const [activeTab, setActiveTab] = useState('new-check');
   
   const printRef = useRef();
 
@@ -257,6 +258,9 @@ export default function DCHealthCheck() {
     setCheckResults(results);
     setCheckNotes(notes);
     
+    // Switch to the "New Check" tab to show the checklist
+    setActiveTab('new-check');
+    
     toast.success('Draft loaded - continue where you left off');
   };
 
@@ -334,7 +338,7 @@ export default function DCHealthCheck() {
         </div>
       </div>
 
-      <Tabs defaultValue="new-check" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="new-check" className="flex items-center gap-2">
             <FileText className="h-4 w-4" />
