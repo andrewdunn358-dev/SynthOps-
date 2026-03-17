@@ -10,7 +10,7 @@ import {
   Building2, Server, ListTodo, FolderKanban, AlertTriangle, 
   Activity, ArrowRight, CheckCircle, Clock, AlertCircle,
   RefreshCw, Wrench, WifiOff, X, Bell, Shield, ShieldAlert,
-  Network, HardDrive, Monitor, Container, Cpu, MemoryStick
+  Network, HardDrive, Monitor, Container, Cpu, MemoryStick, Calendar
 } from 'lucide-react';
 
 function formatBytes(bytes, decimals = 1) {
@@ -30,6 +30,7 @@ export default function Dashboard() {
   const [dismissedAlerts, setDismissedAlerts] = useState([]);
   const [securityAlerts, setSecurityAlerts] = useState(null);
   const [infraStatus, setInfraStatus] = useState(null);
+  const [upcomingTasks, setUpcomingTasks] = useState([]);
 
   useEffect(() => {
     fetchData();
@@ -65,6 +66,14 @@ export default function Dashboard() {
         setInfraStatus(infraRes.data);
       } catch (e) {
         // Infrastructure not configured
+      }
+
+      // Try to get upcoming tasks
+      try {
+        const upcomingRes = await apiClient.get('/tasks/upcoming?days=2');
+        setUpcomingTasks(upcomingRes.data);
+      } catch (e) {
+        // Upcoming tasks endpoint not available
       }
     } catch (error) {
       console.error('Dashboard fetch error:', error);
@@ -233,6 +242,66 @@ export default function Dashboard() {
                   <ArrowRight className="h-4 w-4 ml-1" />
                 </Button>
               )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Upcoming Tasks Alert */}
+      {upcomingTasks.length > 0 && (
+        <Card className="border-amber-500/50 bg-amber-500/5">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <Calendar className="h-5 w-5 text-amber-400" />
+                <span className="font-medium">
+                  {upcomingTasks.length} task{upcomingTasks.length > 1 ? 's' : ''} due in the next 2 days
+                </span>
+              </div>
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => navigate('/tasks')}
+              >
+                View All
+                <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {upcomingTasks.slice(0, 5).map(task => (
+                <div 
+                  key={task.id} 
+                  className="flex items-center justify-between p-2 bg-muted/50 rounded-sm hover:bg-muted cursor-pointer"
+                  onClick={() => navigate('/tasks')}
+                >
+                  <div className="flex items-center gap-3">
+                    <ListTodo className="h-4 w-4 text-amber-400" />
+                    <div>
+                      <span className="font-medium">{task.title}</span>
+                      {task.client_name && (
+                        <span className="text-sm text-muted-foreground ml-2">• {task.client_name}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {task.is_recurring && (
+                      <Badge variant="outline" className="text-purple-400">
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                        {task.recurrence_pattern}
+                      </Badge>
+                    )}
+                    <Badge variant="outline" className={
+                      task.priority === 'urgent' ? 'text-red-400' :
+                      task.priority === 'high' ? 'text-amber-400' : ''
+                    }>
+                      {task.priority}
+                    </Badge>
+                    <span className="text-sm text-muted-foreground">
+                      {task.due_date ? new Date(task.due_date).toLocaleDateString() : 'No date'}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>

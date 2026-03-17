@@ -257,6 +257,23 @@ class TaskCreate(BaseModel):
     status: str = "open"
     due_date: Optional[datetime] = None
     assigned_to: Optional[str] = None
+    # Recurring task fields
+    is_recurring: bool = False
+    recurrence_pattern: Optional[str] = None  # daily, weekly, monthly, yearly
+    recurrence_interval: int = 1  # every X days/weeks/months
+    recurrence_end_date: Optional[datetime] = None
+    reminder_days: int = 0  # remind X days before due date
+
+class TaskNoteCreate(BaseModel):
+    content: str
+
+class TaskNoteResponse(BaseModel):
+    id: str
+    task_id: str
+    content: str
+    created_by: str
+    created_by_name: Optional[str] = None
+    created_at: datetime
 
 class TaskResponse(BaseModel):
     id: str
@@ -276,6 +293,14 @@ class TaskResponse(BaseModel):
     created_by: str
     created_at: datetime
     updated_at: Optional[datetime]
+    # Recurring task fields
+    is_recurring: bool = False
+    recurrence_pattern: Optional[str] = None
+    recurrence_interval: int = 1
+    recurrence_end_date: Optional[datetime] = None
+    reminder_days: int = 0
+    next_due_date: Optional[datetime] = None
+    notes_count: int = 0
 
 class ProjectCreate(BaseModel):
     name: str
@@ -1063,6 +1088,8 @@ async def list_tasks(status: Optional[str] = None, client_id: Optional[str] = No
             assigned_user = await db.users.find_one({"id": t["assigned_to"]}, {"username": 1})
             assigned_name = assigned_user["username"] if assigned_user else None
         
+        notes_count = await db.task_notes.count_documents({"task_id": t["id"]})
+        
         result.append(TaskResponse(
             id=t["id"], title=t["title"],
             description=decrypt_field(t.get("description")) if t.get("description") else None,
@@ -1074,7 +1101,13 @@ async def list_tasks(status: Optional[str] = None, client_id: Optional[str] = No
             assigned_to=t.get("assigned_to"), assigned_to_name=assigned_name,
             created_by=t["created_by"],
             created_at=datetime.fromisoformat(t["created_at"]),
-            updated_at=datetime.fromisoformat(t["updated_at"]) if t.get("updated_at") else None
+            updated_at=datetime.fromisoformat(t["updated_at"]) if t.get("updated_at") else None,
+            is_recurring=t.get("is_recurring", False),
+            recurrence_pattern=t.get("recurrence_pattern"),
+            recurrence_interval=t.get("recurrence_interval", 1),
+            recurrence_end_date=datetime.fromisoformat(t["recurrence_end_date"]) if t.get("recurrence_end_date") else None,
+            reminder_days=t.get("reminder_days", 0),
+            notes_count=notes_count
         ))
     return result
 
@@ -1091,6 +1124,60 @@ async def get_kanban_tasks(client_id: Optional[str] = None, user: dict = Depends
         kanban[status].append(task)
     return kanban
 
+# Upcoming tasks endpoint for dashboard - MUST be before /tasks/{task_id}
+@api_router.get("/tasks/upcoming")
+async def get_upcoming_tasks(days: int = 2, user: dict = Depends(get_current_user)):
+    """Get tasks due within the next X days (including recurring tasks)"""
+    now = datetime.now(timezone.utc)
+    future_date = now + timedelta(days=days)
+    
+    # Find tasks with due dates in the range
+    tasks = await db.tasks.find({
+        "status": {"$ne": "completed"},
+        "due_date": {
+            "$gte": now.isoformat(),
+            "$lte": future_date.isoformat()
+        }
+    }, {"_id": 0}).to_list(100)
+    
+    # Also find recurring tasks that need attention
+    recurring_tasks = await db.tasks.find({
+        "status": {"$ne": "completed"},
+        "is_recurring": True,
+        "due_date": {"$lte": future_date.isoformat()}
+    }, {"_id": 0}).to_list(100)
+    
+    # Combine and enrich
+    all_tasks = tasks + [t for t in recurring_tasks if t not in tasks]
+    result = []
+    
+    for t in all_tasks:
+        client_name = None
+        if t.get("client_id"):
+            client = await db.clients.find_one({"id": t["client_id"]}, {"name": 1})
+            client_name = client["name"] if client else None
+        
+        assigned_name = None
+        if t.get("assigned_to"):
+            assigned_user = await db.users.find_one({"id": t["assigned_to"]}, {"username": 1})
+            assigned_name = assigned_user["username"] if assigned_user else None
+        
+        result.append({
+            "id": t["id"],
+            "title": t["title"],
+            "due_date": t.get("due_date"),
+            "priority": t.get("priority", "medium"),
+            "is_recurring": t.get("is_recurring", False),
+            "recurrence_pattern": t.get("recurrence_pattern"),
+            "client_name": client_name,
+            "assigned_to_name": assigned_name
+        })
+    
+    # Sort by due date
+    result.sort(key=lambda x: x.get("due_date") or "9999")
+    
+    return result
+
 @api_router.post("/tasks", response_model=TaskResponse)
 async def create_task(task_data: TaskCreate, user: dict = Depends(get_current_user)):
     task = {
@@ -1104,6 +1191,11 @@ async def create_task(task_data: TaskCreate, user: dict = Depends(get_current_us
         "status": task_data.status,
         "due_date": task_data.due_date.isoformat() if task_data.due_date else None,
         "assigned_to": task_data.assigned_to,
+        "is_recurring": task_data.is_recurring,
+        "recurrence_pattern": task_data.recurrence_pattern,
+        "recurrence_interval": task_data.recurrence_interval,
+        "recurrence_end_date": task_data.recurrence_end_date.isoformat() if task_data.recurrence_end_date else None,
+        "reminder_days": task_data.reminder_days,
         "created_by": user["id"],
         "created_at": datetime.now(timezone.utc).isoformat()
     }
@@ -1123,6 +1215,11 @@ async def update_task(task_id: str, task_data: TaskCreate, user: dict = Depends(
         "status": task_data.status,
         "due_date": task_data.due_date.isoformat() if task_data.due_date else None,
         "assigned_to": task_data.assigned_to,
+        "is_recurring": task_data.is_recurring,
+        "recurrence_pattern": task_data.recurrence_pattern,
+        "recurrence_interval": task_data.recurrence_interval,
+        "recurrence_end_date": task_data.recurrence_end_date.isoformat() if task_data.recurrence_end_date else None,
+        "reminder_days": task_data.reminder_days,
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
     result = await db.tasks.update_one({"id": task_id}, {"$set": update_data})
@@ -1145,7 +1242,122 @@ async def delete_task(task_id: str, user: dict = Depends(get_current_user)):
     result = await db.tasks.delete_one({"id": task_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Task not found")
+    # Also delete associated notes
+    await db.task_notes.delete_many({"task_id": task_id})
     return {"message": "Task deleted"}
+
+# Task detail endpoint
+@api_router.get("/tasks/{task_id}")
+async def get_task_detail(task_id: str, user: dict = Depends(get_current_user)):
+    """Get a single task with full details"""
+    task = await db.tasks.find_one({"id": task_id}, {"_id": 0})
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Enrich with related names
+    server_name = None
+    if task.get("server_id"):
+        server = await db.servers.find_one({"id": task["server_id"]}, {"hostname": 1})
+        server_name = server["hostname"] if server else None
+    
+    project_name = None
+    if task.get("project_id"):
+        project = await db.projects.find_one({"id": task["project_id"]}, {"name": 1})
+        project_name = project["name"] if project else None
+    
+    client_name = None
+    if task.get("client_id"):
+        client = await db.clients.find_one({"id": task["client_id"]}, {"name": 1})
+        client_name = client["name"] if client else None
+    
+    assigned_name = None
+    if task.get("assigned_to"):
+        assigned_user = await db.users.find_one({"id": task["assigned_to"]}, {"username": 1})
+        assigned_name = assigned_user["username"] if assigned_user else None
+    
+    created_by_name = None
+    created_user = await db.users.find_one({"id": task["created_by"]}, {"username": 1})
+    created_by_name = created_user["username"] if created_user else None
+    
+    notes_count = await db.task_notes.count_documents({"task_id": task_id})
+    
+    return {
+        **task,
+        "description": decrypt_field(task.get("description")) if task.get("description") else None,
+        "server_name": server_name,
+        "project_name": project_name,
+        "client_name": client_name,
+        "assigned_to_name": assigned_name,
+        "created_by_name": created_by_name,
+        "notes_count": notes_count
+    }
+
+# Task Notes endpoints
+@api_router.get("/tasks/{task_id}/notes")
+async def get_task_notes(task_id: str, user: dict = Depends(get_current_user)):
+    """Get all notes for a task"""
+    task = await db.tasks.find_one({"id": task_id})
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    notes = await db.task_notes.find({"task_id": task_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    
+    # Enrich with user names
+    result = []
+    for note in notes:
+        created_by_name = None
+        user_doc = await db.users.find_one({"id": note["created_by"]}, {"username": 1})
+        created_by_name = user_doc["username"] if user_doc else None
+        result.append({
+            **note,
+            "content": decrypt_field(note.get("content")) if note.get("content") else "",
+            "created_by_name": created_by_name
+        })
+    
+    return result
+
+@api_router.post("/tasks/{task_id}/notes")
+async def add_task_note(task_id: str, note_data: TaskNoteCreate, user: dict = Depends(get_current_user)):
+    """Add a note to a task - available to all authenticated users"""
+    task = await db.tasks.find_one({"id": task_id})
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    note = {
+        "id": str(uuid.uuid4()),
+        "task_id": task_id,
+        "content": encrypt_field(note_data.content),
+        "created_by": user["id"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.task_notes.insert_one(note)
+    
+    # Get the created note with user name
+    user_doc = await db.users.find_one({"id": user["id"]}, {"username": 1})
+    
+    return {
+        "id": note["id"],
+        "task_id": task_id,
+        "content": note_data.content,
+        "created_by": user["id"],
+        "created_by_name": user_doc["username"] if user_doc else None,
+        "created_at": note["created_at"]
+    }
+
+@api_router.delete("/tasks/{task_id}/notes/{note_id}")
+async def delete_task_note(task_id: str, note_id: str, user: dict = Depends(get_current_user)):
+    """Delete a note - only the creator or admin can delete"""
+    note = await db.task_notes.find_one({"id": note_id, "task_id": task_id})
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    
+    # Check permission
+    if note["created_by"] != user["id"] and user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to delete this note")
+    
+    await db.task_notes.delete_one({"id": note_id})
+    return {"message": "Note deleted"}
 
 # ==================== PROJECTS ====================
 
