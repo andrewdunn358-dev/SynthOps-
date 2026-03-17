@@ -25,6 +25,8 @@ import Admin from './pages/Admin';
 import Reports from './pages/Reports';
 import NOCDisplay from './pages/NOCDisplay';
 import Infrastructure from './pages/Infrastructure';
+import Customers from './pages/Customers';
+import Stock from './pages/Stock';
 
 // Components
 import Layout from './components/Layout';
@@ -206,6 +208,8 @@ function App() {
               <Route path="settings" element={<Settings />} />
               <Route path="admin" element={<Admin />} />
               <Route path="infrastructure" element={<Infrastructure />} />
+              <Route path="customers" element={<Customers />} />
+              <Route path="stock" element={<Stock />} />
             </Route>
           </Routes>
         </BrowserRouter>

@@ -173,21 +173,26 @@ export default function DCHealthCheck() {
     setCheckNotes(prev => ({ ...prev, [checkId]: note }));
   };
 
-  const handleSaveHealthCheck = async () => {
+  const handleSaveHealthCheck = async (isDraft = false) => {
     if (!selectedServer) {
       toast.error('Please select a server');
       return;
     }
-    if (!signOffName.trim()) {
+    
+    if (!isDraft && !signOffName.trim()) {
       toast.error('Please enter your name to sign off');
       return;
     }
 
     const checks = getChecksForServer();
-    const allChecked = checks.every(c => checkResults[c.id]);
-    if (!allChecked) {
-      toast.error('Please complete all checks before signing off');
-      return;
+    const completedChecks = checks.filter(c => checkResults[c.id]).length;
+    
+    if (!isDraft) {
+      const allChecked = checks.every(c => checkResults[c.id]);
+      if (!allChecked) {
+        toast.error('Please complete all checks before signing off');
+        return;
+      }
     }
 
     setSaving(true);
@@ -196,37 +201,63 @@ export default function DCHealthCheck() {
         server_id: selectedServer.id,
         server_name: selectedServer.hostname,
         check_date: checkDate,
-        signed_off_by: signOffName,
+        signed_off_by: isDraft ? '' : signOffName,
         is_ad_server: isADServer,
+        is_draft: isDraft,
+        completed_count: completedChecks,
+        total_count: checks.length,
         checks: checks.map(c => ({
           id: c.id,
           category: c.category,
           name: c.name,
           description: c.description,
-          status: checkResults[c.id],
+          status: checkResults[c.id] || '',
           notes: checkNotes[c.id] || ''
         })),
         created_at: new Date().toISOString()
       };
 
       await apiClient.post('/health-checks', checkData);
-      toast.success('Health check saved successfully');
+      toast.success(isDraft ? 'Progress saved - you can continue later' : 'Health check completed and saved');
       
       // Refresh history
       const historyRes = await apiClient.get('/health-checks');
       setHistory(historyRes.data || []);
       
-      // Reset form
-      setSelectedServerId('');
-      setSelectedServer(null);
-      setCheckResults({});
-      setCheckNotes({});
-      setSignOffName('');
+      if (!isDraft) {
+        // Reset form only on complete save
+        setSelectedServerId('');
+        setSelectedServer(null);
+        setCheckResults({});
+        setCheckNotes({});
+        setSignOffName('');
+      }
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to save health check'));
     } finally {
       setSaving(false);
     }
+  };
+
+  const loadDraftHealthCheck = async (record) => {
+    // Load a draft to continue
+    setSelectedServerId(record.server_id);
+    const server = servers.find(s => s.id === record.server_id);
+    setSelectedServer(server);
+    setIsADServer(record.is_ad_server);
+    setCheckDate(record.check_date);
+    
+    // Load check results and notes
+    const results = {};
+    const notes = {};
+    record.checks.forEach(c => {
+      if (c.status) results[c.id] = c.status;
+      if (c.notes) notes[c.id] = c.notes;
+    });
+    setCheckResults(results);
+    setCheckNotes(notes);
+    
+    toast.success('Draft loaded - continue where you left off');
   };
 
   const handlePrint = () => {
@@ -337,11 +368,18 @@ export default function DCHealthCheck() {
                       <SelectValue placeholder="Select a server..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {servers.map(server => (
-                        <SelectItem key={server.id} value={server.id}>
-                          {server.hostname} ({getClientName(server.id)})
-                        </SelectItem>
-                      ))}
+                      {[...servers]
+                        .sort((a, b) => {
+                          const clientA = getClientName(a.id) || 'ZZZ';
+                          const clientB = getClientName(b.id) || 'ZZZ';
+                          if (clientA !== clientB) return clientA.localeCompare(clientB);
+                          return (a.hostname || '').localeCompare(b.hostname || '');
+                        })
+                        .map(server => (
+                          <SelectItem key={server.id} value={server.id}>
+                            {getClientName(server.id)} - {server.hostname}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -501,8 +539,11 @@ export default function DCHealthCheck() {
 
                 {/* Action Buttons */}
                 <div className="flex gap-2 mt-6">
-                  <Button onClick={handleSaveHealthCheck} disabled={saving}>
-                    {saving ? 'Saving...' : 'Save & Sign Off'}
+                  <Button onClick={() => handleSaveHealthCheck(true)} variant="outline" disabled={saving}>
+                    {saving ? 'Saving...' : 'Save Progress'}
+                  </Button>
+                  <Button onClick={() => handleSaveHealthCheck(false)} disabled={saving}>
+                    {saving ? 'Saving...' : 'Complete & Sign Off'}
                   </Button>
                   <Button variant="outline" onClick={handlePrint}>
                     <Printer className="h-4 w-4 mr-2" />
@@ -583,6 +624,7 @@ export default function DCHealthCheck() {
                       const passCount = record.checks?.filter(c => c.status === 'pass').length || 0;
                       const failCount = record.checks?.filter(c => c.status === 'fail').length || 0;
                       const totalChecks = record.checks?.length || 0;
+                      const isDraft = record.is_draft || !record.signed_off_by;
                       
                       return (
                         <TableRow key={record.id}>
@@ -594,7 +636,15 @@ export default function DCHealthCheck() {
                               {record.is_ad_server ? 'AD Server' : 'Standard'}
                             </Badge>
                           </TableCell>
-                          <TableCell>{record.signed_off_by}</TableCell>
+                          <TableCell>
+                            {isDraft ? (
+                              <Badge variant="outline" className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
+                                Draft
+                              </Badge>
+                            ) : (
+                              record.signed_off_by
+                            )}
+                          </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <span className="text-green-600">{passCount} pass</span>
@@ -605,9 +655,16 @@ export default function DCHealthCheck() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Button size="sm" variant="outline" onClick={() => setViewingRecord(record)}>
-                              View
-                            </Button>
+                            <div className="flex gap-2">
+                              {isDraft && (
+                                <Button size="sm" onClick={() => loadDraftHealthCheck(record)} data-testid={`continue-draft-${record.id}`}>
+                                  Continue
+                                </Button>
+                              )}
+                              <Button size="sm" variant="outline" onClick={() => setViewingRecord(record)}>
+                                View
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );

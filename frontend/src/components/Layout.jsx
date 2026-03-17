@@ -5,7 +5,8 @@ import {
   LayoutDashboard, Building2, Server, ListTodo, FolderKanban, 
   AlertTriangle, Wrench, FileText, Clock, Users, Settings, 
   Shield, LogOut, Menu, X, Sun, Moon, ChevronLeft,
-  BarChart3, KeyRound, ExternalLink, Monitor, ShieldCheck, Network
+  BarChart3, KeyRound, ExternalLink, Monitor, ShieldCheck, Network,
+  UsersRound, Package
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
@@ -21,8 +22,10 @@ import SophieFloating from './SophieFloating';
 const navItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard', exact: true },
   { path: '/clients', icon: Building2, label: 'Clients' },
+  { path: '/customers', icon: UsersRound, label: 'Customer CRM' },
   { path: '/servers', icon: Server, label: 'Servers' },
   { path: '/infrastructure', icon: Network, label: 'Infrastructure' },
+  { path: '/stock', icon: Package, label: 'Stock & Assets' },
   { path: '/tasks', icon: ListTodo, label: 'Tasks' },
   { path: '/projects', icon: FolderKanban, label: 'Projects' },
   { path: '/incidents', icon: AlertTriangle, label: 'Incidents' },

@@ -3,8 +3,15 @@ The user wants to build a self-hosted IT Operations Portal named SynthOps for th
 
 **PRODUCT REQUIREMENTS:**
 -   **Core Functionality:** A central dashboard showing an overview of servers, tasks, incidents, and projects. Detailed sections for Server/Infrastructure Inventory, Task/Job Tracking, Project Tracking, Incident Logging, and a Documentation/Runbook area.
--   **Integrations:** Tactical RMM, Zammad, SendGrid, Vaultwarden, MeshCentral, Microsoft Teams, Bitdefender GravityZone, Proxmox, and a Sophie AI Assistant (Claude).
--   **Management Features:** Monthly Health Checks, a custom Report Builder, User Management, and a section to manage monitored infrastructure (Proxmox, SNMP, Ping devices).
+-   **Integrations:** Tactical RMM, SendGrid, Vaultwarden, MeshCentral, Microsoft Teams, Bitdefender GravityZone, Proxmox, and a Sophie AI Assistant (Claude). Zammad was requested to be removed.
+-   **New Features Requested:**
+    1.  Recurring tasks with reminders and dashboard alerts.
+    2.  Ability to add notes to tasks.
+    3.  Click-to-view task details.
+    4.  A new CRM-like section for customer information and notes.
+    5.  A new stock sheet section to track hardware assets, including cost.
+    6.  Sort the server list alphabetically by client on the Monthly Health Check page.
+    7.  Save progress on Monthly Health Checks and resume later.
 -   **Authentication:** Local JWT-based login.
 -   **UI:** Dark/light mode, floating AI assistant.
 -   **Deployment:** The entire application must be deployable via a single one-line installer script on an Ubuntu VPS, using Docker.
@@ -12,200 +19,184 @@ The user wants to build a self-hosted IT Operations Portal named SynthOps for th
 **User's preferred language**: English
 
 **what currently exists?**
-The project is a full-stack application with a FastAPI backend, React frontend, and MongoDB database. A significant number of features are implemented, including a Docker-based deployment system with a one-line installer.
-
-Key implemented features include:
--   **Integrations:** Tactical RMM (clients, sites, agents), Zammad (tickets), MS Teams (webhooks), Vaultwarden (via Docker), MeshCentral (via TRMM link), Bitdefender GravityZone (dashboard/NOC alerts), and an in-progress Proxmox integration.
--   **UI:** A comprehensive UI with a dashboard, NOC-style server view, project management, a redesigned Monthly Health Check page, documentation viewer, user management, and a floating AI assistant.
--   **Deployment:** The system uses  for all services. Self-signed SSL has been implemented to support HTTPS for both the main application and Vaultwarden using internal hostnames (, ).
--   **Infrastructure Management:** Initial scaffolding for a new section to manually add and monitor devices like Proxmox hosts, SNMP devices, and ping-monitored hosts.
+The project is a full-stack application using FastAPI, React, and MongoDB, deployed via Docker. A significant number of features are implemented, including a dashboard, infrastructure management with Proxmox integration, user/project/task management, and various third-party integrations (Tactical RMM, Bitdefender, etc.). The Zammad ticketing integration has been mostly removed from the frontend, but the backend code still exists. The agent recently implemented recurring tasks, task notes, and a task detail view, along with dashboard alerts for upcoming tasks. It also fixed critical bugs related to API rate limiting and engineer permissions. Scaffolding for a new Customer CRM and Stock/Asset management feature has been added to the backend.
 
 **Last working item**:
--   **Last item agent was working:** The agent started building the Infrastructure Management feature. After creating the basic UI and backend endpoints to add a Proxmox server, the user asked what information it could provide beyond a simple online status. The agent was in the process of enhancing the Proxmox integration to fetch and display detailed data, such as node stats (CPU, RAM, disk), a list of all VMs/containers with their status, and storage usage.
+-   **Last item agent was working:** Implementing a batch of user-requested features. The agent had just:
+    1.  Created the backend Pydantic models and placeholder API endpoints for a new Customer CRM and Stock/Asset management system in .
+    2.  Begun work on the Monthly Health Check page () to sort the server list and add a save progress feature.
 -   **Status**: IN PROGRESS
 -   **Agent Testing Done**: N
--   **Which testing method agent to use?**: Both. Use the backend testing agent to verify Proxmox API connectivity and data parsing. Use the frontend testing agent to validate the new Infrastructure page, ensuring the detailed Proxmox data is displayed correctly.
+-   **Which testing method agent to use?**: both. The backend testing agent should be used to test the new CRUD APIs for Customers and Stock items once implemented. The frontend testing agent should be used to verify the new UI pages and the enhancements to the Monthly Health Check page.
 -   **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
--   **Issue 1: User Deployment Workflow (P0 - Recurring Blocker)**
-    -   **Description:** The user repeatedly experiences 404/500 errors after the agent makes backend changes. This is due to the user not correctly rebuilding the Docker containers on their VPS. They often rebuild only the frontend or forget the  flag, leading to an outdated backend running. The agent also needs to ensure the user clicks Save to GitHub before instructing them to pull and rebuild.
+-   **Issue 1: Proxmox Integration - Missing VM/Container Data (P0)**
+    -   **Description:** The user has confirmed that Proxmox servers connect and show as online, but the application fails to fetch and display detailed information like VM and container lists/statuses.
+    -   **Attempted fixes:** The agent correctly suspected an API permission issue or silent failure. It added a new debug endpoint () and a corresponding Debug button (eye icon) in the UI (). This allows the user to see the raw API response and diagnose the error.
     -   **Next debug checklist:**
-        1.  After making any backend change, explicitly remind the user to first Save to GitHub.
-        2.  Provide the single, correct command: .
-        3.  Do not suggest partial builds like .
-    -   **Why fix this issue and what will be achieved with the fix?** This is the root cause of most user-reported bugs in the last session. Solving this process issue will unblock user testing and prevent long, frustrating debugging loops.
+        1.  Instruct the user to navigate to the Infrastructure page on their live system.
+        2.  Ask them to click the Debug (eye) icon next to their Proxmox server.
+        3.  Analyze the JSON output shown in the debug dialog. It will likely contain an error message from the Proxmox API indicating insufficient permissions.
+        4.  Based on the error, instruct the user on which permissions to add to their Proxmox API token (e.g., , ).
+    -   **Why fix this issue and what will be achieved with the fix?** This is the core functionality of the Proxmox integration. Fixing it will provide valuable, real-time infrastructure monitoring.
     -   **Status:** IN PROGRESS
-    -   **Is recurring issue?** Y
-    -   **Should Test frontend/backend/both after fix?** Backend/Deployment process.
+    -   **Is recurring issue?** N
+    -   **Should Test frontend/backend/both after fix?** Both.
     -   **Blocked on other issue:** None.
 
--   **Issue 2: Server vs. Workstation Classification (P1 - User Verification Pending)**
-    -   **Description:** A recurring issue where all TRMM agents were being identified as servers, skewing data on the dashboard, client pages, and health checks.
-    -   **Attempted fixes:** The agent implemented multiple fixes:
-        1.  The TRMM sync logic was updated to correctly read the  field.
-        2.  The  endpoint was modified to filter and return only actual servers.
-        3.  A new  endpoint was created.
-        4.  A  endpoint and an admin button were added to fix existing data.
-        5.  The testing agent confirmed the fix in the preview environment.
-    -   **Next debug checklist:** The fix is likely complete but has not been successfully deployed and verified by the user due to the deployment issues (Issue 1). The next agent must guide the user to deploy correctly and then verify that clients, servers, and workstations are counted and displayed correctly across the application.
+-   **Issue 2: User Deployment Workflow (P1 - Recurring Blocker)**
+    -   **Description:** The user repeatedly experiences merge conflicts or runs outdated code on their VPS. This is because they do not consistently follow the correct procedure to pull changes and rebuild Docker containers.
+    -   **Attempted fixes:** The agent has repeatedly provided the correct set of commands to reset the local repository and perform a clean build.
+    -   **Next debug checklist:** Continue to be extremely explicit with deployment instructions. Every time a change is ready for deployment, provide the full, multi-line command block: , , , and . Explain *why* this is necessary to avoid conflicts.
+    -   **Why fix this issue and what will be achieved with the fix?** This is the root cause of most user-reported bugs and the biggest blocker to user testing and verification.
+    -   **Status:** IN PROGRESS
+    -   **Is recurring issue?** Y
+    -   **Should Test frontend/backend/both after fix?** N/A (Process issue).
+
+-   **Issue 3: Server vs. Workstation Classification (P2 - User Verification Pending)**
+    -   **Description:** A long-standing issue where all TRMM agents were incorrectly classified as servers. A comprehensive fix was implemented in a previous session, but it has not been verified by the user due to the deployment issues (Issue 2).
+    -   **Next debug checklist:** After the user confirms a successful deployment, guide them to check the server/workstation counts on the Dashboard, Clients page, and the server list in the Monthly Health Check to confirm the fix.
     -   **Status:** USER VERIFICATION PENDING
     -   **Is recurring issue?** Y
     -   **Should Test frontend/backend/both after fix?** Both.
 
 **In progress Task List**:
--   **Task 1: Complete Proxmox Integration (P0)**
-    -   **Where to resume:** Continue enhancing the Proxmox integration in . The basic connection is there, but it needs logic to query Proxmox API endpoints for nodes, VMs (qemu), containers (lxc), and storage.
-    -   **What will be achieved with this?** The integration will provide detailed insights into the Proxmox cluster, including resource usage and VM statuses, making it a valuable monitoring tool within SynthOps.
+-   **Task 1: Complete Zammad Integration Removal (P1)**
+    -   **Where to resume:** The agent successfully removed most Zammad references from the frontend UI. However, an attempt to remove the backend code from the monolithic  resulted in file corruption. The agent reverted  to its last working state, meaning all Zammad API endpoints and scheduler jobs still exist in the code.
+    -   **What will be achieved with this?** This will clean up the codebase, remove ~400 lines of dead code, prevent potential errors from being called, and align the application with the user's request.
     -   **Status:** IN PROGRESS
-    -   **Should Test frontend/backend/both after fix?** Both.
-    -   **Blocked on something:** None.
+    -   **Should Test frontend/backend/both after fix?** Backend.
+    -   **Blocked on something:** This task is high-risk due to the fragility of the  monolith. Extreme care must be taken. **Recommendation:** Make a backup copy of  before attempting removal again. Use precise  to remove the Zammad scheduler job and the block of Zammad API endpoints.
 
 **Upcoming and Future Tasks**
 -   **Upcoming Tasks:**
-    -   **(P1) Implement SNMP and Ping Monitoring:** Build out the other parts of the Infrastructure Management feature, allowing users to add devices for SNMP and ICMP (ping) monitoring.
-    -   **(P2) Integrate Infrastructure Data into Dashboard/NOC:** Once Proxmox/SNMP/Ping monitoring is working, add widgets and alerts to the main Dashboard and NOC Display.
-    -   **(P2) Finalize Production Docker Deployment with SSL:** The current self-signed certificate works but causes browser warnings. The agent should assist the user in setting up Let's Encrypt if the server can be made public, or document the self-signed cert process clearly.
+    -   **(P0) Build Customer CRM Feature:** Create the frontend UI for the new Customer Information section. This includes a new page (), a detail page, and forms to add/edit customer info and notes, using the backend endpoints already scaffolded. (User request #6)
+    -   **(P0) Build Stock/Asset Management Feature:** Create the frontend UI for the Stock Sheet. This includes a new page () to list hardware assets with details like hardware info and cost, using the backend endpoints already scaffolded. (User request #13, #3)
+    -   **(P1) Finalize Monthly Health Check Save Progress:** The backend was updated to allow saving partial checks as 'drafts'. Update  to add a Save Draft button and the logic to load and resume drafts. (User request #14)
+    -   **(P1) Sort Monthly Health Check Server List:** In , sort the server dropdown list alphabetically by client name before rendering. (User request #12)
+    -   **(P2) Verify Bitdefender Integration:** Guide the user on how to test the Bitdefender integration by downloading an EICAR test file and verifying that an alert appears in the SynthOps dashboard. (User request #4)
 
 -   **Future Tasks:**
-    -   Implement Email Summary Reports (SendGrid).
-    -   Create a mobile application.
-    -   Enhance/consolidate the Staff/Admin pages.
-    -   Create an in-app Help page using the content from .
-    -   Remove Zammad integration if the user decides it's not working properly for them.
+    -   Refactor  into smaller, manageable modules (routes, services, models). This is critical technical debt.
+    -   Implement SNMP and Ping Monitoring for infrastructure devices.
+    -   Enhance dashboard and NOC with more detailed infrastructure alerts.
+    -   Implement Let's Encrypt for production SSL.
 
 **Completed work in this session**
--   **Deployment Fixes:** Resolved the initial  and  Docker build failures.
--   **System Reliability:** Added a  service () and  policies to ensure the application starts automatically on server reboot.
--   **SSL Implementation:** Set up a full HTTPS environment using self-signed certificates and Nginx as a reverse proxy for both SynthOps and Vaultwarden.
--   **Domain/DNS Configuration:** Reconfigured the entire application to use internal subdomains (, ) to resolve DNS conflicts.
--   **Authentication:** Made user login case-insensitive and allow login with either username or email. Implemented password reset and user deletion via .
--   **Feature: Monthly Health Check:** Completely redesigned the old DC Health Check page into a full-featured Monthly Health Check system with server selection, dynamic checklists (Standard vs. Active Directory), and historical record-keeping.
--   **Feature: Bitdefender Integration:** Integrated Bitdefender GravityZone API to display security alerts and status on the Dashboard and NOC Display.
--   **Feature Scaffolding: Infrastructure Management:** Created the initial database models, API endpoints, and a new frontend page () to manage monitoring for Proxmox, SNMP, and Ping devices.
--   **Bugfix: MeshCentral Connect:** Changed the Connect button to open the correct TRMM Take Control URL in a new window, bypassing MeshCentral login issues.
--   **UI/UX:** Added workstation counts to the Clients page, updated server lists to show both internal/external IPs, and removed Emergent branding/tracking.
+-   **Feature: Infrastructure on Dashboard:** The main Dashboard now has a section for Infrastructure Monitoring, showing device counts and online/offline status.
+-   **Feature: Infrastructure Page UI & Navigation:** The  page UI was created, and the link was added to the sidebar navigation.
+-   **Feature: Recurring Tasks, Notes, and Detail View:** Implemented full functionality for recurring tasks, adding notes to tasks, and viewing task details in a modal. Includes backend model changes and frontend UI in .
+-   **Feature: Dashboard Task Alerts:** Added an Upcoming Tasks section to the Dashboard to show tasks due in the next few days.
+-   **Bugfix: API Rate Limiting (Critical):** Diagnosed and fixed aggressive API rate limiting (429 errors) that was making the app unusable. The fix makes the limiter more permissive for authenticated users.
+-   **Bugfix: Engineer Permissions (Critical):** Fixed a bug that prevented non-admin engineers from viewing project details by creating a less-restrictive  endpoint and updating the frontend to use it.
+-   **Task: Zammad Removal (Partial):** Removed all visible Zammad components from the frontend UI, including navigation links, pages, and dashboard widgets. Fixed a  on the  page caused by a leftover Zammad component.
 
 **Earlier issues found/mentioned but not fixed**
--   None. All previously mentioned issues have either been addressed or are captured in the All Pending/In progress Issue list.
+-   The  file was temporarily corrupted during the attempt to remove Zammad code. While the file was reverted to a working state, the underlying task of safely removing the Zammad code remains incomplete and is listed in the In progress Task List.
 
 **Known issue recurrence from previous fork**
--   **Issue recurrence in previous fork:** The issue of server vs. workstation classification has been a persistent problem across multiple sessions.
--   **Recurrence count:** 3+ times.
--   **Status:** USER VERIFICATION PENDING. The latest fixes are the most comprehensive yet but await successful deployment and confirmation by the user.
+-   **Issue recurrence in previous fork:** User Deployment Workflow.
+-   **Recurrence count:** 3+
+-   **Status:** IN PROGRESS. This remains a primary obstacle.
+
+-   **Issue recurrence in previous fork:** Server vs. Workstation Classification.
+-   **Recurrence count:** 3+
+-   **Status:** USER VERIFICATION PENDING.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
--   **Backend:** FastAPI, Pydantic, MongoDB (), APScheduler.
+-   **Backend:** FastAPI, Pydantic, MongoDB (), APScheduler, SlowAPI (for rate limiting).
 -   **Frontend:** React, Tailwind CSS, shadcn/ui.
--   **Integrations:** Tactical RMM API, Zammad API, MS Teams Webhooks, Bitdefender GravityZone API, Proxmox API (in progress).
+-   **Integrations:** Tactical RMM API, MS Teams Webhooks, Bitdefender GravityZone API, Proxmox API.
 -   **Deployment:** Docker Compose, Nginx (as reverse proxy), shell scripting, systemd.
 -   **Security:** Self-signed SSL certificates, JWT authentication.
 
 **key DB schema**
 -   : User accounts and roles.
--   : Stores TRMM agents identified as servers. Now filtered by .
--   : Stores records from the new Monthly Health Check system.
--   : New collection to store manually added devices (Proxmox, SNMP, Ping).
+-   : Stores TRMM agents identified as servers.
+-   : Stores records from the Monthly Health Check system.
+-   : Stores manually added devices (Proxmox, SNMP, Ping).
+-   : Stores tasks, now with fields for recurrence and notes.
+-   : New (scaffolded) collection for CRM data.
+-   : New (scaffolded) collection for asset tracking.
 
 **changes in tech stack**
 -   None.
 
 **All files of reference**
--   : The monolithic backend file where almost all changes were made. Contains logic for all integrations and endpoints.
--   : The new page for managing monitored devices.
--   : The rewritten health check page.
--   : Modified to include Bitdefender status.
--   : Modified to include Bitdefender alerts.
--   : Modified to fix crashes and fetch workstations from a new endpoint.
--   : Modified to add a Reclassify Devices button.
--   : Heavily modified to add Nginx, define environment variables for new integrations (Bitdefender, Proxmox), and configure subdomains.
--   [0;36m
-╔═══════════════════════════════════════════════════════════════╗
-║                                                               ║
-║   ███████╗██╗   ██╗███╗   ██╗████████╗██╗  ██╗ ██████╗ ██████╗███████╗  ║
-║   ██╔════╝╚██╗ ██╔╝████╗  ██║╚══██╔══╝██║  ██║██╔═══██╗██╔══██╗██╔════╝ ║
-║   ███████╗ ╚████╔╝ ██╔██╗ ██║   ██║   ███████║██║   ██║██████╔╝███████╗ ║
-║   ╚════██║  ╚██╔╝  ██║╚██╗██║   ██║   ██╔══██║██║   ██║██╔═══╝ ╚════██║ ║
-║   ███████║   ██║   ██║ ╚████║   ██║   ██║  ██║╚██████╔╝██║     ███████║ ║
-║   ╚══════╝   ╚═╝   ╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚══════╝ ║
-║                                                               ║
-║              IT Operations Portal Installer                   ║
-║                    Synthesis IT Ltd                           ║
-╚═══════════════════════════════════════════════════════════════╝
-[0m
-[1;33mWarning: This script is designed for Ubuntu. Proceeding anyway...[0m
-[0;32m[1/7] Updating system packages...[0m
-[0;32m[2/7] Installing prerequisites...[0m
-[0;32m[3/7] Installing Docker...[0m: Modified to generate SSL certs and configure new environment variables.
--   : New file for the Nginx reverse proxy configuration.
+-   : Heavily modified to fix rate limiting, add new user endpoints, implement recurring tasks, and scaffold CRM/Stock APIs. Zammad removal was attempted and reverted.
+-   : Updated to include Infrastructure and Upcoming Task sections, and remove Zammad stats.
+-   : Updated to include a debug button and dialog for Proxmox devices.
+-   : Updated to add the  route and remove the  route.
+-   : Updated to add Infrastructure and remove Tickets from sidebar navigation.
+-   : Significantly rewritten to support recurring tasks, notes, and a task detail modal.
+-   : Updated to use the new  endpoint to fix permission errors for engineers.
+-   : Updated to remove the Zammad tickets tab, fixing a crash.
+-   : Identified for upcoming changes (sorting, save progress).
 
 **Areas that need refactoring**:
--   ** is critically oversized and unmaintainable.** It urgently needs to be broken down into a proper Python package structure (e.g., , , ). This is becoming a major technical debt that hinders development and debugging.
+-   ** is critically oversized and fragile.** The difficulty encountered when trying to remove the Zammad code highlights that this monolith is a major source of technical debt and risk. Breaking it down into a proper package structure (e.g., , , ) should be a high-priority task to improve maintainability.
 
 **key api endpoints**
--    (POST, GET): New endpoints for the redesigned health check system.
--    (GET): New endpoint to specifically list workstations.
--    (POST): New endpoint to fix legacy data classification.
--   : New endpoints for the Bitdefender integration.
--   : New endpoints for managing and polling monitored infrastructure.
+-    (GET): New endpoint to list user names, accessible by any authenticated user.
+-    (GET): New endpoint to get tasks due soon for the dashboard.
+-    (POST, GET): New endpoints for adding and viewing task notes.
+-    (GET): New endpoint to help debug Proxmox connectivity.
+-    (CRUD stubs): New placeholder endpoints for the Customer CRM.
+-    (CRUD stubs): New placeholder endpoints for the Stock/Asset manager.
+-    (GET): Now accessible by engineers.
+-   All Zammad endpoints () still exist but are no longer called by the frontend.
 
 **Critical Info for New Agent**
--   **The user's biggest blocker is the deployment process.** You must be extremely clear and precise with deployment instructions. Always tell the user to Save to GitHub first, then provide the full  command. Do not assume they know which services to rebuild.
--   The Server vs. Workstation classification issue is a major source of user frustration. Your first priority after resolving any blockers should be to get the user to a state where they can verify this is fixed once and for all.
--   The current active development task is the Proxmox integration within the new Infrastructure Management feature. The user's Proxmox credentials are in the chat history. The API will time out in the preview environment but should work on the user's VPS.
--   The monolith  is a risk. Be extra careful when editing it.
+-   **The user's deployment process is the #1 blocker.** Be extremely clear with deployment instructions (Unstaged changes after reset:
+M	backend/server.py
+M	frontend/src/pages/DCHealthCheck.jsx, ). Do not assume they know which services to rebuild or how to resolve merge conflicts.
+-   **The  monolith is extremely fragile.** When removing the remaining Zammad code, make a backup of the file first (). Use precise, small  operations rather than large block deletions.
+-   **The Proxmox data issue is almost certainly an API token permissions problem.** The new debug feature is the key to resolving this. Guide the user to use it and interpret the results.
+-   **The user has provided a new, long list of feature requests.** Your first action should be to confirm the priority of the new Upcoming Tasks (CRM, Stock, Health Check fixes) with the user before starting implementation.
 
 **documents and test reports created in this job**
--   : New Nginx configuration file.
--   : New systemd service file.
--   : A test report was generated mid-session showing 16/16 tests passing after a DB reset and TRMM sync. Many changes were made after this test.
+-   : Testing agent report with 10/10 tests passing, which validated the Infrastructure page and fixed a minor bug.
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User:** i have lots of other servers such as proxmox... how best to monitor them - **Request for new feature.** (Status: In Progress)
-2.  **User:** Provided details on devices to monitor (Proxmox, pfSense, etc.). (Status: Addressed)
-3.  **User:** dont build that yet i think if we have a place in the admin portal where I can add them that would be better also not seing anthyng on bit defender... - **Shifted priority** to fix Bitdefender display and plan for an admin UI for infrastructure. (Status: Addressed)
-4.  **User:** Shows red with alert count when threats detected we we also see the alert - Asked for clarification on Bitdefender alerts. (Status: Answered)
-5.  **User:** Provided Proxmox API token and URL to test with. - **Gave credentials for new feature.** (Status: In Progress)
-6.  **User:** what about a place where on the admin page where I can add devices like routers via snmp... - **Refined the Infrastructure feature request.** (Status: In Progress)
-7.  **User:** when we add a proxmox server waht can it tell us currently just says online - **Asked for more detail in the Proxmox feature.** (Status: Agent started implementing this).
-8.  **(Implicit pending):** The user is waiting for the enhanced Proxmox monitoring feature to be completed.
-9.  **(Implicit pending):** The user is waiting to see the Server/Workstation classification issue resolved on their live system.
-10. **(Implicit pending):** The user expects the Connect via TRMM button to work correctly after the next deployment.
+1.  **User:** Lists 8 new features/fixes including recurring tasks, notes, CRM, stock sheet, and health check improvements. (Status: In Progress)
+2.  **User:** Confirms priorities for CRM & Stock sheet features, asking for hardware info and cost to be included. (Status: Addressed, work started)
+3.  **User:** Provides login credentials for the preview environment. (Status: Addressed)
+4.  **User:** Reports a  crash on their production server. (Status: Resolved)
+5.  **User:** Confirms the production crash is fixed and asks to continue with the rest of the list. (Status: Addressed, work continued)
+6.  **User:** Confirms priorities for the next batch of 4 features (CRM, Stock, Health Check sorting, Health Check save progress). (Status: Addressed, work started)
+7.  **(Implicit pending):** The user is waiting for the agent to complete the new list of features, starting with the CRM, Stock, and Health Check improvements.
+8.  **(Implicit pending):** The user is waiting for a resolution to the Proxmox data-fetching issue.
+9.  **(Implicit pending):** The user needs to verify the server/workstation classification fix on their live system.
+10. **(Implicit pending):** The user needs to deploy the latest changes to get all the new task features and bug fixes.
 
 **Project Health Check:**
--   **Broken:** The user's deployment is consistently outdated due to a flawed update process, causing them to see 404/500 errors for features that are already implemented in the codebase. The Proxmox integration is unfinished.
+-   **Broken:** The  file is fragile and contains dead code from the partial Zammad removal. The Proxmox integration is incomplete as it doesn't fetch VM/container data.
 -   **Mocked:** None.
 
 **3rd Party Integrations**
 -   **Tactical RMM:** (Active) Requires User API Key.
--   **Zammad:** (Active) Requires User API Key. User considering removal.
 -   **Claude (Sophie):** (Active) Uses Emergent LLM Key.
--   **Vaultwarden:** (Active) Integrated via Docker Compose with self-signed SSL.
--   **MeshCentral:** (Active) Connection is now initiated via TRMM URL.
+-   **Vaultwarden:** (Active) Integrated via Docker Compose.
 -   **Microsoft Teams:** (Active) Webhook for notifications.
--   **Bitdefender GravityZone:** (Active) Integrated for alerts/status. Requires User API Key.
--   **Proxmox:** (In Progress) API integration being built. Requires User API Token.
+-   **Bitdefender GravityZone:** (Active) Requires User API Key.
+-   **Proxmox:** (In Progress) Requires User API Token. Core functionality is broken pending permission fix.
+-   **Zammad:** (Partially Removed) UI is gone, backend code remains. To be fully removed.
 -   **SNMP/Ping:** (Planned)
--   **Let's Encrypt:** (Planned) For production SSL.
+-   **Let's Encrypt:** (Planned)
 
 **Testing status**
--   **Testing agent used after significant changes:** YES, once mid-session. It passed 16/16 tests on a clean preview environment.
+-   **Testing agent used after significant changes:** YES. Used to validate the new Infrastructure page.
 -   **Troubleshoot agent used after agent stuck in loop:** NO
 -   **Test files created:** []
--   **Known regressions:** None confirmed, but the user's out-of-sync deployment makes it hard to tell.
+-   **Known regressions:** None.
 
 **Credentials to test flow:**
--   **Tactical RMM API Key:** 
--   **Tactical RMM URL:** 
--   **Zammad Token:** 
--   **Zammad URL:** 
--   **Bitdefender API Key:** 
--   **Bitdefender API URL:** 
--   **Proxmox API Token:** 
--   **Proxmox URL:** 
+-   **Preview Login:**  /  OR  / 
+-   (All 3rd party API keys from the initial handoff are still relevant)
 
 **What agent forgot to execute**
--   The agent repeatedly failed to address the root cause of the user's deployment problems, which was the user's misunderstanding of the  process. Instead of focusing on simplifying and clarifying this instruction, the agent got caught in a loop of re-explaining that endpoints existed, without realizing the user was running old code. The agent must prioritize fixing this communication and process gap.</analysis>
+-   The agent struggled significantly and ultimately failed to cleanly remove the Zammad code from . It correctly identified the monolithic nature of the file as the root cause but spent a large number of turns attempting piecemeal fixes before reverting. A more decisive approach (e.g., backing up and using a more surgical removal strategy sooner) would have been more efficient.</analysis>
