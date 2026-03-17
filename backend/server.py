@@ -4073,13 +4073,56 @@ async def get_bitdefender_alerts(user: dict = Depends(get_current_user)):
                 "source": "bitdefender"
             })
     
-    # Get network inventory to check for issues (offline endpoints, etc)
+    # Get network inventory to count endpoints
+    total_endpoints = 0
+    company_list = []
+    
+    # Get network inventory root
     network = await bitdefender_api_call("getNetworkInventoryItems", "network", {
         "page": 1,
         "perPage": 100
     })
     
-    # Sort by date, newest first
+    if network and network.get("items"):
+        # Find the "Companies" folder and get company list
+        for item in network["items"]:
+            if item.get("name") == "Companies" and item.get("type") == 2:
+                # Get all companies in this folder (paginated)
+                page = 1
+                while True:
+                    companies_result = await bitdefender_api_call("getNetworkInventoryItems", "network", {
+                        "parentId": item.get("id"),
+                        "page": page,
+                        "perPage": 100
+                    })
+                    
+                    if not companies_result or not companies_result.get("items"):
+                        break
+                    
+                    for company in companies_result["items"]:
+                        # Type 1 in this context = Company (MSP customer)
+                        details = company.get("details", {})
+                        license_info = details.get("licenseInfo", {})
+                        used_slots = license_info.get("usedSlots", 0) or 0
+                        
+                        company_list.append({
+                            "id": company.get("id"),
+                            "name": company.get("name"),
+                            "endpoints": used_slots,
+                            "is_suspended": details.get("isSuspended", False)
+                        })
+                        total_endpoints += used_slots
+                    
+                    # Check if there are more pages
+                    if page >= companies_result.get("pagesCount", 1):
+                        break
+                    page += 1
+                break
+    
+    # Sort companies by endpoint count (descending)
+    company_list.sort(key=lambda x: x.get("endpoints", 0), reverse=True)
+    
+    # Sort alerts by date, newest first
     alerts.sort(key=lambda x: x.get("created_at", "") or "", reverse=True)
     
     return {
@@ -4087,8 +4130,108 @@ async def get_bitdefender_alerts(user: dict = Depends(get_current_user)):
         "alerts": alerts[:20],
         "has_critical": any(a.get("severity") == "critical" for a in alerts),
         "has_high": any(a.get("severity") == "high" for a in alerts),
-        "network_items": network.get("total", 0) if network else 0
+        "endpoint_count": total_endpoints,
+        "company_count": len(company_list),
+        "companies": company_list[:10]  # Return top 10 companies by endpoint count
     }
+
+@api_router.get("/bitdefender/endpoints")
+async def get_bitdefender_endpoints(
+    page: int = 1,
+    per_page: int = 50,
+    user: dict = Depends(get_current_user)
+):
+    """Get list of endpoints from Bitdefender"""
+    all_endpoints = []
+    
+    # Get network inventory root
+    network = await bitdefender_api_call("getNetworkInventoryItems", "network", {
+        "page": 1,
+        "perPage": 100
+    })
+    
+    if network and network.get("items"):
+        # Recursively get endpoints from network groups
+        async def get_endpoints_from_group(parent_id, depth=0):
+            if depth > 3:
+                return []
+            
+            endpoints = []
+            items = await bitdefender_api_call("getNetworkInventoryItems", "network", {
+                "parentId": parent_id,
+                "page": 1,
+                "perPage": 100
+            })
+            
+            if items and items.get("items"):
+                for item in items["items"]:
+                    item_type = item.get("type")
+                    if item_type == 1:  # Endpoint
+                        endpoints.append({
+                            "id": item.get("id"),
+                            "name": item.get("name"),
+                            "ip": item.get("ip"),
+                            "machine_type": item.get("machineType"),
+                            "os": item.get("operatingSystem"),
+                            "is_managed": item.get("isManaged", True),
+                            "fqdn": item.get("fqdn"),
+                            "label": item.get("label")
+                        })
+                    elif item_type == 2:  # Group
+                        sub_endpoints = await get_endpoints_from_group(item["id"], depth + 1)
+                        endpoints.extend(sub_endpoints)
+            
+            return endpoints
+        
+        # Search in each root group
+        for item in network["items"]:
+            if item.get("type") == 2 and item.get("id"):
+                found_endpoints = await get_endpoints_from_group(item["id"])
+                all_endpoints.extend(found_endpoints)
+    
+    # Paginate results
+    start = (page - 1) * per_page
+    end = start + per_page
+    paginated = all_endpoints[start:end]
+    
+    return {
+        "total": len(all_endpoints),
+        "page": page,
+        "per_page": per_page,
+        "items": paginated
+    }
+
+@api_router.get("/bitdefender/debug")
+async def debug_bitdefender(user: dict = Depends(get_current_user)):
+    """Debug endpoint to see raw Bitdefender API responses"""
+    debug_data = {}
+    
+    # Test companies API
+    companies = await bitdefender_api_call("getCompaniesList", "companies", {})
+    debug_data["companies"] = companies
+    
+    # Test network inventory root
+    network = await bitdefender_api_call("getNetworkInventoryItems", "network", {
+        "page": 1,
+        "perPage": 10
+    })
+    debug_data["network_inventory_root"] = network
+    
+    # If we have network items (groups), explore them
+    if network and network.get("items"):
+        debug_data["network_subgroups"] = {}
+        for item in network.get("items", []):
+            group_id = item.get("id")
+            group_name = item.get("name")
+            if group_id and item.get("type") == 2:  # Type 2 = Group
+                sub_items = await bitdefender_api_call("getNetworkInventoryItems", "network", {
+                    "parentId": group_id,
+                    "page": 1,
+                    "perPage": 20
+                })
+                debug_data["network_subgroups"][group_name] = sub_items
+    
+    return debug_data
 
 
 # ==================== ZAMMAD INTEGRATION ====================
