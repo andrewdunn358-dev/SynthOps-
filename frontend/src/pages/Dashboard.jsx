@@ -9,7 +9,7 @@ import { Progress } from '../components/ui/progress';
 import { 
   Building2, Server, ListTodo, FolderKanban, AlertTriangle, 
   Activity, ArrowRight, CheckCircle, Clock, AlertCircle,
-  RefreshCw, Wrench, WifiOff, X, Bell, Ticket, Shield, ShieldAlert,
+  RefreshCw, Wrench, WifiOff, X, Bell, Shield, ShieldAlert,
   Network, HardDrive, Monitor, Container, Cpu, MemoryStick
 } from 'lucide-react';
 
@@ -28,7 +28,6 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [offlineDevices, setOfflineDevices] = useState([]);
   const [dismissedAlerts, setDismissedAlerts] = useState([]);
-  const [ticketStats, setTicketStats] = useState(null);
   const [securityAlerts, setSecurityAlerts] = useState(null);
   const [infraStatus, setInfraStatus] = useState(null);
 
@@ -51,14 +50,6 @@ export default function Dashboard() {
         s.status === 'offline' && s.server_type === 'server'
       );
       setOfflineDevices(offline);
-      
-      // Try to get ticket stats
-      try {
-        const ticketRes = await apiClient.get('/zammad/stats');
-        setTicketStats(ticketRes.data);
-      } catch (e) {
-        // Zammad not configured
-      }
       
       // Try to get Bitdefender security alerts
       try {
@@ -242,22 +233,6 @@ export default function Dashboard() {
                   <ArrowRight className="h-4 w-4 ml-1" />
                 </Button>
               )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Open Tickets Alert */}
-      {ticketStats && ticketStats.open > 0 && (
-        <Card className="border-amber-500/50 bg-amber-500/5">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Ticket className="h-5 w-5 text-amber-400" />
-                <span className="font-medium">
-                  {ticketStats.open} open ticket{ticketStats.open > 1 ? 's' : ''} in Zammad
-                </span>
-              </div>
             </div>
           </CardContent>
         </Card>

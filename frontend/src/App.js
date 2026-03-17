@@ -22,7 +22,6 @@ import TimeTracking from './pages/TimeTracking';
 import StaffDashboard from './pages/StaffDashboard';
 import Settings from './pages/Settings';
 import Admin from './pages/Admin';
-import Tickets from './pages/Tickets';
 import Reports from './pages/Reports';
 import NOCDisplay from './pages/NOCDisplay';
 import Infrastructure from './pages/Infrastructure';
@@ -198,7 +197,6 @@ function App() {
               <Route path="projects" element={<Projects />} />
               <Route path="projects/:id" element={<ProjectDetail />} />
               <Route path="incidents" element={<Incidents />} />
-              <Route path="tickets" element={<Tickets />} />
               <Route path="maintenance" element={<Maintenance />} />
               <Route path="dc-health-check" element={<DCHealthCheck />} />
               <Route path="docs" element={<Documentation />} />

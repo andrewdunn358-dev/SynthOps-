@@ -37,7 +37,6 @@ export default function Admin() {
   const { user } = useAuth();
   const [users, setUsers] = useState([]);
   const [trmmStatus, setTrmmStatus] = useState(null);
-  const [zammadStatus, setZammadStatus] = useState(null);
   const [syncStatus, setSyncStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [testingTrmm, setTestingTrmm] = useState(false);
@@ -67,14 +66,6 @@ export default function Admin() {
       setUsers(usersRes.data);
       setTrmmStatus(trmmRes.data);
       setSyncStatus(syncRes.data);
-      
-      // Test Zammad
-      try {
-        const zammadRes = await apiClient.get('/zammad/test');
-        setZammadStatus(zammadRes.data);
-      } catch (e) {
-        setZammadStatus({ status: 'not_configured' });
-      }
     } catch (error) {
       console.error('Admin fetch error:', error);
     } finally {
@@ -387,41 +378,6 @@ export default function Admin() {
               </Button>
               <Button variant="secondary" size="sm" onClick={reclassifyDevices} disabled={syncing}>
                 Reclassify Devices
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Zammad */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Link2 className="h-5 w-5" />
-              Zammad Helpdesk
-            </CardTitle>
-            <CardDescription>Ticketing system integration</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-2">
-              {zammadStatus?.status === 'connected' ? (
-                <CheckCircle className="h-5 w-5 text-emerald-400" />
-              ) : (
-                <XCircle className="h-5 w-5 text-red-400" />
-              )}
-              <span className={zammadStatus?.status === 'connected' ? 'text-emerald-400' : 'text-red-400'}>
-                {zammadStatus?.status === 'connected' ? 'Connected' : 'Not Connected'}
-              </span>
-            </div>
-            {syncStatus?.zammad?.next_run && (
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                Next sync: {new Date(syncStatus.zammad.next_run).toLocaleString()}
-              </p>
-            )}
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => triggerSync('zammad')}>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Sync Tickets
               </Button>
             </div>
           </CardContent>

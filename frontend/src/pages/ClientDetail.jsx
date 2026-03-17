@@ -8,7 +8,7 @@ import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { 
   Building2, Server, MapPin, Phone, Mail, ArrowLeft, Plus,
-  Edit, AlertTriangle, ListTodo, Clock, Monitor, Laptop, Ticket,
+  Edit, AlertTriangle, ListTodo, Clock, Monitor, Laptop,
   ExternalLink, MessageSquare
 } from 'lucide-react';
 
@@ -21,9 +21,7 @@ export default function ClientDetail() {
   const [workstations, setWorkstations] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [incidents, setIncidents] = useState([]);
-  const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [loadingTickets, setLoadingTickets] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -52,26 +50,11 @@ export default function ClientDetail() {
         // Workstations endpoint not available, set empty
         setWorkstations([]);
       }
-      
-      // Try to fetch Zammad tickets for this client
-      fetchTickets(clientRes.data.name);
     } catch (error) {
       toast.error('Failed to load client details');
       navigate('/clients');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchTickets = async (clientName) => {
-    setLoadingTickets(true);
-    try {
-      const res = await apiClient.get(`/zammad/tickets?organization=${encodeURIComponent(clientName)}`);
-      setTickets(res.data || []);
-    } catch (error) {
-      console.log('Zammad tickets not available:', error);
-    } finally {
-      setLoadingTickets(false);
     }
   };
 
@@ -100,7 +83,6 @@ export default function ClientDetail() {
 
   const openTasks = tasks.filter(t => t.status !== 'completed').length;
   const openIncidents = incidents.filter(i => i.status !== 'resolved').length;
-  const openTickets = tickets.filter(t => t.state !== 'closed').length;
 
   return (
     <div className="space-y-6" data-testid="client-detail">
@@ -125,8 +107,8 @@ export default function ClientDetail() {
         <Badge variant="outline" className="capitalize">{client.contract_type}</Badge>
       </div>
 
-      {/* Info Cards - Now with Servers, Workstations, and Tickets */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+      {/* Info Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 text-muted-foreground mb-1">
@@ -152,15 +134,6 @@ export default function ClientDetail() {
               <span className="text-sm">Workstations</span>
             </div>
             <p className="text-2xl font-bold font-mono">{workstations.length}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <Ticket className="h-4 w-4" />
-              <span className="text-sm">Open Tickets</span>
-            </div>
-            <p className="text-2xl font-bold font-mono">{openTickets}</p>
           </CardContent>
         </Card>
         <Card>
