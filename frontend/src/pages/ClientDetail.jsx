@@ -191,7 +191,7 @@ export default function ClientDetail() {
         </Card>
       )}
 
-      {/* Tabs - Now with separate Servers/Workstations and Tickets */}
+      {/* Tabs - Servers, Workstations, Tasks, Incidents */}
       <Tabs defaultValue="servers">
         <TabsList>
           <TabsTrigger value="sites">Sites ({sites.length})</TabsTrigger>
@@ -202,10 +202,6 @@ export default function ClientDetail() {
           <TabsTrigger value="workstations">
             <Laptop className="h-4 w-4 mr-1" />
             Workstations ({workstations.length})
-          </TabsTrigger>
-          <TabsTrigger value="tickets">
-            <Ticket className="h-4 w-4 mr-1" />
-            Tickets ({tickets.length})
           </TabsTrigger>
           <TabsTrigger value="tasks">Tasks ({tasks.length})</TabsTrigger>
           <TabsTrigger value="incidents">Incidents ({incidents.length})</TabsTrigger>
@@ -303,55 +299,6 @@ export default function ClientDetail() {
                         <Badge variant="outline" className={ws.status === 'online' ? 'bg-emerald-500/20 text-emerald-400' : ''}>
                           {ws.status}
                         </Badge>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="tickets" className="mt-4">
-          <Card>
-            <CardContent className="p-4">
-              {loadingTickets ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-                </div>
-              ) : tickets.length === 0 ? (
-                <div className="empty-state py-8">
-                  <Ticket className="h-12 w-12" />
-                  <p>No tickets found</p>
-                  <p className="text-sm text-muted-foreground">Zammad tickets will appear here</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {tickets.map((ticket) => (
-                    <div 
-                      key={ticket.id} 
-                      className="flex items-center justify-between p-3 rounded-sm bg-muted/50 hover:bg-muted cursor-pointer"
-                      onClick={() => window.open(`https://help.synthesis-it.co.uk/#ticket/zoom/${ticket.id}`, '_blank')}
-                    >
-                      <div className="flex items-center gap-3">
-                        <MessageSquare className="h-5 w-5 text-muted-foreground" />
-                        <div>
-                          <p className="font-medium">{ticket.title}</p>
-                          <p className="text-sm text-muted-foreground">
-                            #{ticket.number} • {new Date(ticket.created_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge className={
-                          ticket.state === 'open' ? 'bg-red-500/20 text-red-400' :
-                          ticket.state === 'pending' ? 'bg-amber-500/20 text-amber-400' :
-                          ticket.state === 'closed' ? 'bg-emerald-500/20 text-emerald-400' :
-                          ''
-                        }>
-                          {ticket.state}
-                        </Badge>
-                        <ExternalLink className="h-4 w-4 text-muted-foreground" />
                       </div>
                     </div>
                   ))}
