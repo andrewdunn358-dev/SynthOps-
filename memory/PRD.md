@@ -38,6 +38,18 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 - [x] Time entries tracking
 - [x] Engineers can create/edit projects
 
+### Customer CRM
+1. **Full CRM Page at /customers** - linked to TRMM clients
+2. **Customer Notes** - activity tracking with timestamps
+
+### Stock & Asset Management
+1. **Full Asset Page at /stock** - hardware inventory
+2. **Asset tracking** - cost, warranty, status, location
+
+### Monthly Health Check
+1. **Server sorting** - alphabetically by client
+2. **Draft save** - resume later with Continue button
+
 ### Integrations
 - [x] Tactical RMM (sync clients, sites, agents)
 - [x] MeshCentral (Connect button)
@@ -50,7 +62,7 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 
 ---
 
-## Completed This Session (March 2025)
+## Completed Previous Sessions (March 2025)
 
 ### Task System Enhancements
 1. **Recurring Tasks**
@@ -89,26 +101,84 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 
 ---
 
+## Completed This Session (December 2025)
+
+### Customer CRM Feature
+1. **Full CRM Page at /customers**
+   - Stats cards: Total Customers, Active, Total Contract Value, With Notes
+   - Search and filter by status
+   - Customer table with contact info, contract details, server count
+   
+2. **Customer Management**
+   - Add/Edit customer dialog with tabbed interface (Basic Info, Contract, Other)
+   - Link customers to TRMM clients
+   - Contract tracking: type, value, start/end dates
+   - Account manager assignment
+   
+3. **Customer Notes**
+   - Activity notes with timestamps
+   - Any user can add notes
+   - Note count displayed on table
+
+### Stock & Asset Management Feature
+1. **Full Asset Page at /stock**
+   - Stats cards: Total Assets, In Stock, Deployed, Total Value
+   - Warranty expiry alerts
+   - Search and filter by type/status
+
+2. **Asset Types**
+   - Server, Laptop, Desktop, Network, Storage, Other
+   - Status: In Stock, In Refurb, Deployed, Disposed, Sold
+   - Condition: New, Refurbished, Used
+
+3. **Asset Details**
+   - Manufacturer, Model, Serial Number, Specifications
+   - Purchase date, cost, supplier
+   - Warranty end date with expiry tracking
+   - Assign to customer and location
+
+### Monthly Health Check Enhancements
+1. **Server List Sorting** - Alphabetically by client name
+2. **Save Progress/Draft** - Save without sign-off, resume later
+3. **Continue Button** - History tab shows drafts with Continue button
+
+---
+
 ## Remaining Tasks (Priority Order)
 
 ### P1 - High
-- [ ] Customer CRM section (linked to TRMM + manual)
-- [ ] Stock/Asset tracking sheet
-- [ ] Monthly health check - save progress
-- [ ] Monthly check server list alphabetical order
 - [ ] Bitdefender alerts investigation
+- [ ] Proxmox VM/Container data fetch (API permissions issue)
 
 ### P2 - Medium  
 - [ ] SNMP device monitoring (full data)
 - [ ] Let's Encrypt SSL
+- [ ] Complete Zammad backend code removal
 
 ### P3 - Low/Future
 - [ ] Mobile application
-- [ ] Backend refactoring (split server.py)
+- [ ] Backend refactoring (split server.py into modules)
 
 ---
 
 ## API Endpoints Added
+
+### Customer CRM
+- `GET /api/customers` - List all customers
+- `POST /api/customers` - Create customer
+- `GET /api/customers/{id}` - Get customer details
+- `PUT /api/customers/{id}` - Update customer
+- `DELETE /api/customers/{id}` - Delete customer
+- `GET /api/customers/{id}/notes` - List customer notes
+- `POST /api/customers/{id}/notes` - Add customer note
+- `DELETE /api/customers/{id}/notes/{note_id}` - Delete note
+
+### Stock/Asset Management
+- `GET /api/assets` - List all assets
+- `POST /api/assets` - Create asset
+- `GET /api/assets/{id}` - Get asset details
+- `PUT /api/assets/{id}` - Update asset
+- `DELETE /api/assets/{id}` - Delete asset
 
 ### Task Notes
 - `GET /api/tasks/{task_id}/notes` - List task notes
@@ -124,6 +194,53 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 ---
 
 ## Database Schema Changes
+
+### customers collection - New
+```
+id: uuid
+name: string
+trmm_client_id: uuid (optional, links to clients)
+contact_name, contact_email, contact_phone: string
+address, website: string
+contract_type: string (monthly, annual, project, adhoc)
+contract_value: float
+contract_start, contract_end: datetime
+account_manager: uuid (user id)
+notes: encrypted string
+tags: array
+is_active: boolean
+created_at, updated_at: datetime
+```
+
+### customer_notes collection - New
+```
+id: uuid
+customer_id: uuid
+content: encrypted string
+created_by: uuid
+created_at: datetime
+```
+
+### assets collection - New
+```
+id: uuid
+name: string
+asset_type: string (server, laptop, desktop, network, storage, other)
+manufacturer, model, serial_number: string
+specifications: encrypted string
+purchase_date: datetime
+purchase_cost: float
+warranty_end: datetime
+supplier: string
+status: string (in_stock, in_refurb, deployed, disposed, sold)
+condition: string (new, refurbished, used)
+assigned_customer_id: uuid
+location: string
+notes: encrypted string
+tags: array
+created_by: uuid
+created_at, updated_at: datetime
+```
 
 ### tasks collection - New Fields
 ```
