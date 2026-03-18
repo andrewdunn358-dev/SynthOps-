@@ -362,26 +362,34 @@ export default function Dashboard() {
               </Button>
             </div>
             {/* Endpoint stats when no alerts */}
-            {securityAlerts?.endpoint_count > 0 && securityAlerts?.total === 0 && (
+            {securityAlerts?.total === 0 && (
               <div className="mt-3 pt-3 border-t border-border">
-                <div className="flex items-center justify-between text-sm mb-2">
-                  <span className="text-muted-foreground">Protected Endpoints</span>
-                  <span className="font-medium text-emerald-400">{securityAlerts.endpoint_count}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Companies</span>
-                  <span className="font-medium">{securityAlerts.company_count || 0}</span>
-                </div>
-                {securityAlerts.companies && securityAlerts.companies.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {securityAlerts.companies.slice(0, 3).map((company, idx) => (
-                      <div key={company.id || idx} className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <div className={`w-2 h-2 rounded-full ${company.is_suspended ? 'bg-yellow-500' : 'bg-emerald-500'}`}></div>
-                        <span className="truncate flex-1">{company.name}</span>
-                        <span className="ml-auto opacity-70">{company.endpoints} endpoints</span>
+                {securityAlerts?.endpoint_count > 0 ? (
+                  <>
+                    <div className="flex items-center justify-between text-sm mb-2">
+                      <span className="text-muted-foreground">Protected Endpoints</span>
+                      <span className="font-medium text-emerald-400">{securityAlerts.endpoint_count}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Companies</span>
+                      <span className="font-medium">{securityAlerts.company_count || 0}</span>
+                    </div>
+                    {securityAlerts.companies && securityAlerts.companies.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {securityAlerts.companies.slice(0, 3).map((company, idx) => (
+                          <div key={company.id || idx} className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <div className={`w-2 h-2 rounded-full ${company.is_suspended ? 'bg-yellow-500' : 'bg-emerald-500'}`}></div>
+                            <span className="truncate flex-1">{company.name}</span>
+                            <span className="ml-auto opacity-70">{company.endpoints} endpoints</span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Deploy latest update to see endpoint stats
+                  </p>
                 )}
               </div>
             )}
