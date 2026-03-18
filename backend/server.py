@@ -3445,7 +3445,9 @@ Guidelines:
             # Use Gemini
             import google.generativeai as genai
             genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            # Use gemini-2.0-flash-lite which has higher free tier limits
+            model = genai.GenerativeModel('gemini-2.0-flash-lite')
             
             # Get chat history for context
             history = await db.sophie_chats.find(
