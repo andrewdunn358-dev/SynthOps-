@@ -34,7 +34,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { 
   Shield, Server, CheckCircle, XCircle, Clock, 
   FileText, Download, Printer, Calendar, User,
-  ChevronDown, ChevronUp, AlertTriangle, History
+  ChevronDown, ChevronUp, AlertTriangle, History, Trash2
 } from 'lucide-react';
 
 // Health check templates - Standard Server Checks
@@ -262,6 +262,22 @@ export default function DCHealthCheck() {
     setActiveTab('new-check');
     
     toast.success('Draft loaded - continue where you left off');
+  };
+
+  const handleDeleteHealthCheck = async (checkId, serverName) => {
+    if (!confirm(`Are you sure you want to delete this health check record for "${serverName}"? This cannot be undone.`)) {
+      return;
+    }
+    
+    try {
+      await apiClient.delete(`/health-checks/${checkId}`);
+      toast.success('Health check record deleted');
+      // Refresh the history list
+      const historyRes = await apiClient.get('/health-checks');
+      setHistory(historyRes.data || []);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to delete health check'));
+    }
   };
 
   const handlePrint = () => {
@@ -667,6 +683,18 @@ export default function DCHealthCheck() {
                               )}
                               <Button size="sm" variant="outline" onClick={() => setViewingRecord(record)}>
                                 View
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                className="text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteHealthCheck(record.id, record.server_name);
+                                }}
+                                data-testid={`delete-check-${record.id}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
                               </Button>
                             </div>
                           </TableCell>
