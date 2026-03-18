@@ -39,20 +39,51 @@ import {
 
 // Health check templates - Standard Server Checks
 const STANDARD_SERVER_CHECKS = [
+  // Storage
   { id: 'std-1', category: 'Storage', name: 'Disk Space Usage', description: 'Check disk space on all drives. Alert if >80% used.\nRun: Get-PSDrive -PSProvider FileSystem' },
   { id: 'std-2', category: 'Storage', name: 'RAID Health Status', description: 'Verify RAID array health and check for degraded disks' },
+  // Backup
   { id: 'std-3', category: 'Backup', name: 'Backup Job Status', description: 'Verify all backup jobs completing successfully' },
   { id: 'std-4', category: 'Backup', name: 'Test Restore Verification', description: 'Perform test restore to verify backup integrity (if scheduled this month)' },
-  { id: 'std-5', category: 'Security', name: 'Windows Updates Status', description: 'Check for pending Windows updates and review installed updates' },
-  { id: 'std-6', category: 'Security', name: 'Antivirus Status', description: 'Verify AV definitions are current and no threats detected' },
-  { id: 'std-7', category: 'Security', name: 'Certificate Expiry Check', description: 'Check SSL/TLS certificate expiry dates' },
-  { id: 'std-8', category: 'Performance', name: 'CPU Usage Review', description: 'Review CPU usage patterns for anomalies' },
-  { id: 'std-9', category: 'Performance', name: 'Memory Usage Review', description: 'Review memory usage patterns and available RAM' },
-  { id: 'std-10', category: 'Event Logs', name: 'System Event Log Review', description: 'Review System event log for critical errors and warnings' },
-  { id: 'std-11', category: 'Event Logs', name: 'Application Event Log Review', description: 'Review Application event log for errors' },
-  { id: 'std-12', category: 'Services', name: 'Critical Services Status', description: 'Verify all critical services are running' },
-  { id: 'std-13', category: 'Hardware', name: 'Hardware Health', description: 'Check hardware health via iLO/iDRAC/vendor tools if available' },
-  { id: 'std-14', category: 'Network', name: 'Network Connectivity', description: 'Verify network connectivity and DNS resolution' },
+  { id: 'std-5', category: 'Backup', name: 'Backup Storage Capacity', description: 'Check backup destination has sufficient free space for growth' },
+  // Security
+  { id: 'std-6', category: 'Security', name: 'Windows Updates Status', description: 'Check for pending Windows updates and review installed updates' },
+  { id: 'std-7', category: 'Security', name: 'Antivirus Status', description: 'Verify AV definitions are current and no threats detected' },
+  { id: 'std-8', category: 'Security', name: 'Certificate Expiry Check', description: 'Check SSL/TLS certificate expiry dates (warn if <60 days)' },
+  { id: 'std-9', category: 'Security', name: 'Local Admin Accounts', description: 'Review local administrator accounts - remove any unauthorized' },
+  { id: 'std-10', category: 'Security', name: 'Failed Login Attempts', description: 'Review Security event log for failed login attempts (Event ID 4625)' },
+  // Performance
+  { id: 'std-11', category: 'Performance', name: 'CPU Usage Review', description: 'Review CPU usage patterns for anomalies. Check for sustained >80%' },
+  { id: 'std-12', category: 'Performance', name: 'Memory Usage Review', description: 'Review memory usage patterns. Check available RAM and page file usage' },
+  { id: 'std-13', category: 'Performance', name: 'Disk I/O Performance', description: 'Check disk queue length and I/O latency for bottlenecks' },
+  // Event Logs
+  { id: 'std-14', category: 'Event Logs', name: 'System Event Log Review', description: 'Review System event log for critical errors and warnings' },
+  { id: 'std-15', category: 'Event Logs', name: 'Application Event Log Review', description: 'Review Application event log for errors' },
+  // Services
+  { id: 'std-16', category: 'Services', name: 'Critical Services Status', description: 'Verify all critical services are running and set to auto-start' },
+  { id: 'std-17', category: 'Services', name: 'Scheduled Tasks Review', description: 'Review scheduled tasks for failures or disabled critical tasks' },
+  // Hardware (Physical Servers)
+  { id: 'std-18', category: 'Hardware', name: 'Hardware Health (iLO/iDRAC)', description: 'Check hardware health via iLO/iDRAC/vendor tools. Review any warnings' },
+  { id: 'std-19', category: 'Hardware', name: 'Temperature & Fans', description: 'Verify CPU/system temperatures normal and all fans operational' },
+  { id: 'std-20', category: 'Hardware', name: 'Power Supply Status', description: 'Check redundant PSU status - both should be healthy' },
+  // UPS / Power (Physical Servers)
+  { id: 'std-21', category: 'UPS / Power', name: 'UPS PowerChute Status', description: 'Verify APC PowerChute agent is running and communicating with UPS.\nCheck: Services > APC PBE Agent' },
+  { id: 'std-22', category: 'UPS / Power', name: 'UPS Battery Health', description: 'Check UPS battery status in PowerChute. Replace if "Battery Needs Replacement"' },
+  { id: 'std-23', category: 'UPS / Power', name: 'UPS Runtime Capacity', description: 'Verify UPS runtime is sufficient (recommend >10 mins at current load)' },
+  { id: 'std-24', category: 'UPS / Power', name: 'UPS Shutdown Settings', description: 'Confirm graceful shutdown is configured correctly with appropriate delay' },
+  { id: 'std-25', category: 'UPS / Power', name: 'UPS Self-Test Results', description: 'Review recent UPS self-test results for any failures' },
+  // Network
+  { id: 'std-26', category: 'Network', name: 'Network Connectivity', description: 'Verify network connectivity, DNS resolution, and gateway reachability' },
+  { id: 'std-27', category: 'Network', name: 'NIC Teaming Status', description: 'If NIC teaming configured, verify all adapters active and healthy' },
+  { id: 'std-28', category: 'Network', name: 'Network Errors', description: 'Check for network adapter errors, dropped packets, or CRC errors' },
+  // Licensing & Compliance
+  { id: 'std-29', category: 'Licensing', name: 'Windows Activation', description: 'Verify Windows is activated and license is valid' },
+  { id: 'std-30', category: 'Licensing', name: 'Software License Check', description: 'Review key software licenses (SQL, Exchange, etc.) for expiry' },
+  // Documentation
+  { id: 'std-31', category: 'Documentation', name: 'Asset Info Current', description: 'Verify server documentation is current (IP, specs, contacts)' },
+  { id: 'std-32', category: 'Documentation', name: 'Recovery Procedures', description: 'Confirm disaster recovery documentation exists and is accessible' },
+  // Firmware & Drivers
+  { id: 'std-33', category: 'Firmware', name: 'BIOS/Firmware Version', description: 'Check if BIOS/firmware updates are available (apply during maintenance window)' },
 ];
 
 // Health check templates - Active Directory Checks
@@ -60,32 +91,47 @@ const AD_SERVER_CHECKS = [
   // Replication
   { id: 'ad-1', category: 'AD Replication', name: 'Replication Summary', description: 'Run: repadmin /replsummary\nConfirm no replication failures between DCs' },
   { id: 'ad-2', category: 'AD Replication', name: 'Replication Status Detail', description: 'Run: repadmin /showrepl\nCheck largest delta times are reasonable (<24 hours)' },
+  { id: 'ad-3', category: 'AD Replication', name: 'Replication Queue', description: 'Run: repadmin /queue\nConfirm replication queue is not backed up' },
   // DC Diagnostics
-  { id: 'ad-3', category: 'AD Diagnostics', name: 'DC Diagnostics Full', description: 'Run: dcdiag /v\nConfirm all tests pass: Advertising, Replications, NetLogons, Services, DFSREvent, SysVolCheck' },
-  { id: 'ad-4', category: 'AD Diagnostics', name: 'FSMO Roles Verification', description: 'Run: netdom query fsmo\nConfirm FSMO role holders are online and healthy' },
+  { id: 'ad-4', category: 'AD Diagnostics', name: 'DC Diagnostics Full', description: 'Run: dcdiag /v\nConfirm all tests pass: Advertising, Replications, NetLogons, Services, DFSREvent, SysVolCheck' },
+  { id: 'ad-5', category: 'AD Diagnostics', name: 'FSMO Roles Verification', description: 'Run: netdom query fsmo\nConfirm FSMO role holders are online and healthy' },
   // SYSVOL/NETLOGON
-  { id: 'ad-5', category: 'AD SYSVOL', name: 'SYSVOL Check', description: 'Run: dcdiag /test:sysvolcheck\nConfirm SYSVOL share exists and is accessible' },
-  { id: 'ad-6', category: 'AD SYSVOL', name: 'DFS Replication Status', description: 'Run: dcdiag /test:dfsrevent\nCheck for DFS replication issues' },
-  { id: 'ad-7', category: 'AD SYSVOL', name: 'Network Shares Verification', description: 'Run: net share\nConfirm SYSVOL and NETLOGON shares exist' },
+  { id: 'ad-6', category: 'AD SYSVOL', name: 'SYSVOL Check', description: 'Run: dcdiag /test:sysvolcheck\nConfirm SYSVOL share exists and is accessible' },
+  { id: 'ad-7', category: 'AD SYSVOL', name: 'DFS Replication Status', description: 'Run: dcdiag /test:dfsrevent\nCheck for DFS replication issues' },
+  { id: 'ad-8', category: 'AD SYSVOL', name: 'Network Shares Verification', description: 'Run: net share\nConfirm SYSVOL and NETLOGON shares exist' },
+  { id: 'ad-9', category: 'AD SYSVOL', name: 'GPO Folder Consistency', description: 'Compare SYSVOL GPO folders match across DCs' },
   // DNS
-  { id: 'ad-8', category: 'AD DNS', name: 'DNS Health Check', description: 'Run: dcdiag /test:dns\nConfirm DNS zones replicate correctly' },
-  { id: 'ad-9', category: 'AD DNS', name: 'DNS Forwarders Check', description: 'Verify DNS forwarders are configured and responding' },
-  { id: 'ad-10', category: 'AD DNS', name: 'DNS Event Log Review', description: 'Check DNS Server event log for errors' },
+  { id: 'ad-10', category: 'AD DNS', name: 'DNS Health Check', description: 'Run: dcdiag /test:dns\nConfirm DNS zones replicate correctly' },
+  { id: 'ad-11', category: 'AD DNS', name: 'DNS Forwarders Check', description: 'Verify DNS forwarders are configured and responding' },
+  { id: 'ad-12', category: 'AD DNS', name: 'DNS Event Log Review', description: 'Check DNS Server event log for errors' },
+  { id: 'ad-13', category: 'AD DNS', name: 'DNS Scavenging', description: 'Verify DNS scavenging is enabled and stale records are being cleaned' },
   // Time Sync
-  { id: 'ad-11', category: 'AD Time Sync', name: 'NTP Source Check', description: 'Run: w32tm /query /source\nVerify time source is correct' },
-  { id: 'ad-12', category: 'AD Time Sync', name: 'Time Sync Status', description: 'Run: w32tm /query /status\nPDC should use external NTP, other DCs sync from domain' },
+  { id: 'ad-14', category: 'AD Time Sync', name: 'NTP Source Check', description: 'Run: w32tm /query /source\nVerify time source is correct' },
+  { id: 'ad-15', category: 'AD Time Sync', name: 'Time Sync Status', description: 'Run: w32tm /query /status\nPDC should use external NTP, other DCs sync from domain' },
+  { id: 'ad-16', category: 'AD Time Sync', name: 'Time Skew Check', description: 'Verify time difference between DCs is <5 minutes (Kerberos requirement)' },
   // Event Logs
-  { id: 'ad-13', category: 'AD Events', name: 'Directory Service Log', description: 'Check Directory Service event log for NTDS errors, replication failures' },
-  { id: 'ad-14', category: 'AD Events', name: 'Kerberos Issues Check', description: 'Check event logs for Kerberos authentication issues' },
+  { id: 'ad-17', category: 'AD Events', name: 'Directory Service Log', description: 'Check Directory Service event log for NTDS errors, replication failures' },
+  { id: 'ad-18', category: 'AD Events', name: 'Kerberos Issues Check', description: 'Check event logs for Kerberos authentication issues' },
   // Services
-  { id: 'ad-15', category: 'AD Services', name: 'AD Critical Services', description: 'Run: Get-Service NTDS,DNS,DFSR,NetLogon,KDC\nConfirm all AD services are running' },
+  { id: 'ad-19', category: 'AD Services', name: 'AD Critical Services', description: 'Run: Get-Service NTDS,DNS,DFSR,NetLogon,KDC\nConfirm all AD services are running' },
   // Accounts
-  { id: 'ad-16', category: 'AD Accounts', name: 'Stale Computer Accounts', description: 'Run: Get-ADComputer -Filter * -Properties LastLogonDate | Where {$_.LastLogonDate -lt (Get-Date).AddDays(-90)}\nReview old computer objects' },
-  { id: 'ad-17', category: 'AD Accounts', name: 'Locked Accounts Check', description: 'Run: Search-ADAccount -LockedOut\nInvestigate unusual lockouts' },
+  { id: 'ad-20', category: 'AD Accounts', name: 'Stale Computer Accounts', description: 'Run: Get-ADComputer -Filter * -Properties LastLogonDate | Where {$_.LastLogonDate -lt (Get-Date).AddDays(-90)}\nReview old computer objects' },
+  { id: 'ad-21', category: 'AD Accounts', name: 'Stale User Accounts', description: 'Review user accounts not logged in >90 days. Disable if appropriate' },
+  { id: 'ad-22', category: 'AD Accounts', name: 'Locked Accounts Check', description: 'Run: Search-ADAccount -LockedOut\nInvestigate unusual lockouts' },
+  { id: 'ad-23', category: 'AD Accounts', name: 'Service Account Passwords', description: 'Review service accounts - ensure passwords not expired or expiring soon' },
+  { id: 'ad-24', category: 'AD Accounts', name: 'Admin Group Membership', description: 'Review Domain Admins, Enterprise Admins membership for unauthorized accounts' },
   // GPO
-  { id: 'ad-18', category: 'AD GPO', name: 'Group Policy Processing', description: 'Run: gpresult /r\nConfirm GPO processing works correctly' },
+  { id: 'ad-25', category: 'AD GPO', name: 'Group Policy Processing', description: 'Run: gpresult /r\nConfirm GPO processing works correctly' },
+  { id: 'ad-26', category: 'AD GPO', name: 'Unlinked GPOs', description: 'Review and clean up any unlinked GPOs in the domain' },
   // Backup
-  { id: 'ad-19', category: 'AD Backup', name: 'System State Backup', description: 'Confirm System State backup is current and successful' },
+  { id: 'ad-27', category: 'AD Backup', name: 'System State Backup', description: 'Confirm System State backup is current and successful' },
+  { id: 'ad-28', category: 'AD Backup', name: 'AD Recycle Bin', description: 'Verify AD Recycle Bin is enabled (if Forest functional level 2008 R2+)' },
+  // Sites & Subnets
+  { id: 'ad-29', category: 'AD Sites', name: 'Site Links Status', description: 'Verify AD site links are configured correctly and schedules appropriate' },
+  { id: 'ad-30', category: 'AD Sites', name: 'Subnet Assignments', description: 'Verify all network subnets are assigned to correct AD sites' },
+  // DHCP (if role installed)
+  { id: 'ad-31', category: 'AD DHCP', name: 'DHCP Scope Usage', description: 'Check DHCP scope utilization - expand if >80% used' },
+  { id: 'ad-32', category: 'AD DHCP', name: 'DHCP Failover Status', description: 'If DHCP failover configured, verify partnership is healthy' },
 ];
 
 export default function DCHealthCheck() {
