@@ -12,7 +12,7 @@ export default function SophieFloating() {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      content: "Hello! I'm Sophie, your IT assistant. I can help with troubleshooting, best practices, and answer questions about your infrastructure. How can I assist you today?"
+      content: "Hello! I'm Sophie, your IT expert assistant. I can help with:\n\n• Server & workstation troubleshooting\n• Active Directory & networking\n• PowerShell scripts & automation\n• Security best practices\n• And much more!\n\nHow can I assist you today?"
     }
   ]);
   const [input, setInput] = useState('');
