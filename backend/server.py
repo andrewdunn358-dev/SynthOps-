@@ -3356,9 +3356,12 @@ async def generate_monthly_tasks(client_id: Optional[str] = None, user: dict = D
 
 @api_router.post("/sophie/chat")
 async def sophie_chat(message: SophieMessage, user: dict = Depends(get_current_user)):
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="AI not configured")
+    # Check for available API keys (prefer OpenAI, fallback to Gemini)
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    gemini_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    
+    if not openai_key and not gemini_key:
+        raise HTTPException(status_code=500, detail="AI not configured. Set OPENAI_API_KEY or GOOGLE_API_KEY in .env")
     
     session_id = message.session_id or f"sophie-{user['id']}-{datetime.now().strftime('%Y%m%d')}"
     
@@ -3413,14 +3416,51 @@ Guidelines:
 - When discussing security, always emphasize best practices"""
 
     try:
-        chat = LlmChat(
-            api_key=api_key,
-            session_id=session_id,
-            system_message=system_message
-        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-        
-        user_message = UserMessage(text=message.message)
-        response = await chat.send_message(user_message)
+        if openai_key:
+            # Use OpenAI
+            import openai
+            client = openai.AsyncOpenAI(api_key=openai_key)
+            
+            # Get chat history for context
+            history = await db.sophie_chats.find(
+                {"session_id": session_id},
+                {"user_message": 1, "assistant_response": 1, "_id": 0}
+            ).sort("created_at", -1).limit(10).to_list(10)
+            
+            messages = [{"role": "system", "content": system_message}]
+            # Add history in chronological order
+            for h in reversed(history):
+                messages.append({"role": "user", "content": h["user_message"]})
+                messages.append({"role": "assistant", "content": h["assistant_response"]})
+            messages.append({"role": "user", "content": message.message})
+            
+            completion = await client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                max_tokens=2000
+            )
+            response = completion.choices[0].message.content
+            
+        else:
+            # Use Gemini
+            import google.generativeai as genai
+            genai.configure(api_key=gemini_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            # Get chat history for context
+            history = await db.sophie_chats.find(
+                {"session_id": session_id},
+                {"user_message": 1, "assistant_response": 1, "_id": 0}
+            ).sort("created_at", -1).limit(10).to_list(10)
+            
+            # Build conversation
+            conversation = f"{system_message}\n\n"
+            for h in reversed(history):
+                conversation += f"User: {h['user_message']}\nAssistant: {h['assistant_response']}\n\n"
+            conversation += f"User: {message.message}\nAssistant:"
+            
+            result = model.generate_content(conversation)
+            response = result.text
         
         # Store in chat history
         await db.sophie_chats.insert_one({
