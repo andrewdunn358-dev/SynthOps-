@@ -147,9 +147,9 @@ export default function Tasks() {
     try {
       const payload = {
         ...form,
-        client_id: form.client_id || null,
-        project_id: form.project_id || null,
-        assigned_to: form.assigned_to || null,
+        client_id: form.client_id === 'none' ? null : (form.client_id || null),
+        project_id: form.project_id === 'none' ? null : (form.project_id || null),
+        assigned_to: form.assigned_to === 'unassigned' ? null : (form.assigned_to || null),
         due_date: form.due_date || null,
         recurrence_end_date: form.recurrence_end_date || null
       };
@@ -509,7 +509,7 @@ export default function Tasks() {
                     <SelectValue placeholder="Select client" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {clients.map((c) => (
                       <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                     ))}
@@ -523,7 +523,7 @@ export default function Tasks() {
                     <SelectValue placeholder="Select project" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {projects.map((p) => (
                       <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                     ))}
@@ -568,7 +568,7 @@ export default function Tasks() {
                     <SelectValue placeholder="Unassigned" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Unassigned</SelectItem>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
                     {users.map((u) => (
                       <SelectItem key={u.id} value={u.id}>{u.username}</SelectItem>
                     ))}
