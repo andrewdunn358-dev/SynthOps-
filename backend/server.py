@@ -1973,6 +1973,7 @@ async def delete_document(doc_id: str, user: dict = Depends(get_current_user)):
 
 @api_router.get("/time-entries", response_model=List[TimeEntryResponse])
 async def list_time_entries(user_id: Optional[str] = None, client_id: Optional[str] = None,
+                           project_id: Optional[str] = None,
                            start_date: Optional[str] = None, end_date: Optional[str] = None,
                            user: dict = Depends(get_current_user)):
     query = {}
@@ -1982,6 +1983,8 @@ async def list_time_entries(user_id: Optional[str] = None, client_id: Optional[s
         query["user_id"] = user["id"]
     if client_id:
         query["client_id"] = client_id
+    if project_id:
+        query["project_id"] = project_id
     
     entries = await db.time_entries.find(query, {"_id": 0}).to_list(1000)
     result = []
