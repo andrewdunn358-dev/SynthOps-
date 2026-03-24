@@ -668,6 +668,12 @@ async def register(user_data: UserCreate):
                        role=user["role"], is_active=user["is_active"], totp_enabled=False,
                        created_at=datetime.fromisoformat(user["created_at"]))
 
+
+@api_router.get("/health")
+async def health_check():
+    """Simple health check endpoint for Docker"""
+    return {"status": "healthy"}
+
 @api_router.post("/auth/login", response_model=TokenResponse)
 async def login(credentials: UserLogin):
     # Case-insensitive lookup - allow login with email or username

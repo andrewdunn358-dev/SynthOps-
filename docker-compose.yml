@@ -16,9 +16,6 @@ services:
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-synthops-encryption-32bytes!!}
       - TACTICAL_RMM_API_URL=${TACTICAL_RMM_API_URL}
       - TACTICAL_RMM_API_KEY=${TACTICAL_RMM_API_KEY}
-      - ZAMMAD_API_URL=${ZAMMAD_API_URL}
-      - ZAMMAD_API_TOKEN=${ZAMMAD_API_TOKEN}
-      - EMERGENT_LLM_KEY=${EMERGENT_LLM_KEY:-}
       - MESHCENTRAL_URL=${MESHCENTRAL_URL:-}
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
       - VAULTWARDEN_URL=https://vault.synthesis-it.local
@@ -33,7 +30,7 @@ services:
     networks:
       - synthops-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/api/"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
