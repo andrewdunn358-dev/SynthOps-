@@ -10,9 +10,6 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements first for caching
 COPY requirements.txt .
 
-# Install emergent integrations first (requires special index)
-RUN pip install emergentintegrations --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
-
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
