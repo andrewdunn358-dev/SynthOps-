@@ -21,7 +21,9 @@ import httpx
 import asyncio
 from collections import defaultdict
 import time
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+# LLM imports - using OpenAI or Google Gemini directly
+import openai
+import google.generativeai as genai
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
