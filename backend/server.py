@@ -2296,19 +2296,50 @@ async def generate_health_checks(server_id: str, user: dict = Depends(get_curren
     return {"message": f"Generated {checks_created} health checks", "count": checks_created}
 
 @api_router.put("/health-checks/{check_id}")
-async def update_health_check(check_id: str, status: str = Body(...), 
-                             notes: Optional[str] = Body(None),
-                             value_recorded: Optional[str] = Body(None),
-                             user: dict = Depends(get_current_user)):
-    if status not in ["pending", "passed", "warning", "failed", "skipped"]:
+async def update_monthly_health_check(check_id: str, check_data: dict = Body(...),
+                                     user: dict = Depends(get_current_user)):
+    """Update a monthly health check (used for continuing drafts)"""
+    # Check if this is a monthly health check
+    existing = await db.monthly_health_checks.find_one({"id": check_id})
+    if existing:
+        # Update the monthly health check
+        update_data = {
+            "server_id": check_data.get("server_id"),
+            "server_name": check_data.get("server_name"),
+            "check_date": check_data.get("check_date"),
+            "signed_off_by": check_data.get("signed_off_by"),
+            "is_ad_server": check_data.get("is_ad_server", False),
+            "is_draft": check_data.get("is_draft", False),
+            "completed_count": check_data.get("completed_count", 0),
+            "total_count": check_data.get("total_count", 0),
+            "checks": check_data.get("checks", []),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        # Encrypt sensitive notes in checks
+        for check in update_data.get("checks", []):
+            if check.get("notes"):
+                check["notes"] = encrypt_field(check["notes"])
+        
+        result = await db.monthly_health_checks.update_one(
+            {"id": check_id}, 
+            {"$set": update_data}
+        )
+        if result.modified_count == 0 and result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Health check not found")
+        return {"message": "Health check updated"}
+    
+    # Fall back to old health check system
+    status = check_data.get("status")
+    if status and status not in ["pending", "passed", "warning", "failed", "skipped"]:
         raise HTTPException(status_code=400, detail="Invalid status")
     
     update_data = {
         "status": status,
         "performed_by": user["id"],
         "check_date": datetime.now(timezone.utc).isoformat(),
-        "notes": encrypt_field(notes) if notes else None,
-        "value_recorded": value_recorded
+        "notes": encrypt_field(check_data.get("notes")) if check_data.get("notes") else None,
+        "value_recorded": check_data.get("value_recorded")
     }
     result = await db.health_checks.update_one({"id": check_id}, {"$set": update_data})
     if result.modified_count == 0:
