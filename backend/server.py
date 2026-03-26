@@ -1984,38 +1984,61 @@ async def list_time_entries(user_id: Optional[str] = None, client_id: Optional[s
                            project_id: Optional[str] = None,
                            start_date: Optional[str] = None, end_date: Optional[str] = None,
                            user: dict = Depends(get_current_user)):
-    query = {}
-    if user_id:
-        query["user_id"] = user_id
-    elif user["role"] != "admin":
-        query["user_id"] = user["id"]
-    if client_id:
-        query["client_id"] = client_id
-    if project_id:
-        query["project_id"] = project_id
-    
-    entries = await db.time_entries.find(query, {"_id": 0}).to_list(1000)
-    result = []
-    for e in entries:
-        user_obj = await db.users.find_one({"id": e["user_id"]}, {"username": 1})
-        client_name = None
-        if e.get("client_id"):
-            client = await db.clients.find_one({"id": e["client_id"]}, {"name": 1})
-            client_name = client["name"] if client else None
+    try:
+        query = {}
+        if user_id:
+            query["user_id"] = user_id
+        elif user["role"] != "admin":
+            query["user_id"] = user["id"]
+        if client_id:
+            query["client_id"] = client_id
+        if project_id:
+            query["project_id"] = project_id
         
-        result.append(TimeEntryResponse(
-            id=e["id"], user_id=e["user_id"],
-            user_name=user_obj["username"] if user_obj else None,
-            client_id=e.get("client_id"), client_name=client_name,
-            task_id=e.get("task_id"), project_id=e.get("project_id"),
-            incident_id=e.get("incident_id"),
-            entry_date=datetime.fromisoformat(e["entry_date"]),
-            duration_minutes=e["duration_minutes"],
-            description=e.get("description"), is_billable=e.get("is_billable", True),
-            status=e.get("status", "draft"),
-            created_at=datetime.fromisoformat(e["created_at"])
-        ))
-    return result
+        entries = await db.time_entries.find(query, {"_id": 0}).to_list(1000)
+        result = []
+        for e in entries:
+            try:
+                user_obj = await db.users.find_one({"id": e.get("user_id")}, {"username": 1})
+                client_name = None
+                if e.get("client_id"):
+                    client = await db.clients.find_one({"id": e["client_id"]}, {"name": 1})
+                    client_name = client["name"] if client else None
+                
+                # Safely parse dates
+                entry_date = None
+                if e.get("entry_date"):
+                    try:
+                        entry_date = datetime.fromisoformat(e["entry_date"].replace('Z', '+00:00'))
+                    except:
+                        entry_date = datetime.now(timezone.utc)
+                
+                created_at = None
+                if e.get("created_at"):
+                    try:
+                        created_at = datetime.fromisoformat(e["created_at"].replace('Z', '+00:00'))
+                    except:
+                        created_at = datetime.now(timezone.utc)
+                
+                result.append(TimeEntryResponse(
+                    id=e["id"], user_id=e.get("user_id"),
+                    user_name=user_obj["username"] if user_obj else None,
+                    client_id=e.get("client_id"), client_name=client_name,
+                    task_id=e.get("task_id"), project_id=e.get("project_id"),
+                    incident_id=e.get("incident_id"),
+                    entry_date=entry_date,
+                    duration_minutes=e.get("duration_minutes", 0),
+                    description=e.get("description"), is_billable=e.get("is_billable", True),
+                    status=e.get("status", "draft"),
+                    created_at=created_at
+                ))
+            except Exception as entry_error:
+                logger.error(f"Error processing time entry {e.get('id')}: {str(entry_error)}")
+                continue
+        return result
+    except Exception as e:
+        logger.error(f"Error listing time entries: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching time entries: {str(e)}")
 
 @api_router.post("/time-entries", response_model=TimeEntryResponse)
 async def create_time_entry(entry_data: TimeEntryCreate, user: dict = Depends(get_current_user)):
