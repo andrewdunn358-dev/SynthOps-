@@ -61,6 +61,8 @@ export default function ProjectDetail() {
   const [worksheetDialogOpen, setWorksheetDialogOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
   const [editingJob, setEditingJob] = useState(null);
+  const [viewingWorkEntry, setViewingWorkEntry] = useState(null);
+  const [workEntryDialogOpen, setWorkEntryDialogOpen] = useState(false);
   
   // Forms
   const [jobForm, setJobForm] = useState({
@@ -467,11 +469,34 @@ export default function ProjectDetail() {
                       {/* Worksheets */}
                       {job.worksheets && job.worksheets.length > 0 && (
                         <div className="mt-3 pl-8 border-l-2 border-muted">
-                          <p className="text-xs font-medium text-muted-foreground mb-2">Work Log</p>
+                          <p className="text-xs font-medium text-muted-foreground mb-2">Work Log ({job.worksheets.length})</p>
                           {job.worksheets.map((ws, idx) => (
-                            <div key={idx} className="text-sm py-1 flex justify-between">
-                              <span>{ws.work_performed}</span>
-                              <span className="text-muted-foreground">{ws.hours_spent}h</span>
+                            <div 
+                              key={idx} 
+                              className="text-sm py-2 px-2 -mx-2 rounded cursor-pointer hover:bg-muted/50 transition-colors"
+                              onClick={() => {
+                                setViewingWorkEntry({ ...ws, jobTitle: job.title });
+                                setWorkEntryDialogOpen(true);
+                              }}
+                            >
+                              <div className="flex justify-between items-start">
+                                <div className="flex-1">
+                                  <span className="font-medium">{ws.work_performed}</span>
+                                  {ws.notes && (
+                                    <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                                      📝 {ws.notes}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="text-right ml-4">
+                                  <span className={`font-medium ${ws.is_billable !== false ? 'text-green-500' : 'text-muted-foreground'}`}>
+                                    {ws.hours_spent}h
+                                  </span>
+                                  {ws.logged_by_name && (
+                                    <p className="text-xs text-muted-foreground">{ws.logged_by_name}</p>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -771,6 +796,77 @@ export default function ProjectDetail() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Work Entry Detail Dialog */}
+      <Dialog open={workEntryDialogOpen} onOpenChange={setWorkEntryDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Work Entry Details
+            </DialogTitle>
+          </DialogHeader>
+          {viewingWorkEntry && (
+            <div className="space-y-4">
+              {viewingWorkEntry.jobTitle && (
+                <div>
+                  <Label className="text-muted-foreground text-xs">Job</Label>
+                  <p className="font-medium">{viewingWorkEntry.jobTitle}</p>
+                </div>
+              )}
+              
+              <div>
+                <Label className="text-muted-foreground text-xs">Work Performed</Label>
+                <p className="font-medium">{viewingWorkEntry.work_performed}</p>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <Label className="text-muted-foreground text-xs">Hours</Label>
+                  <p className="font-medium text-lg">{viewingWorkEntry.hours_spent}h</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Billable</Label>
+                  <p className={`font-medium ${viewingWorkEntry.is_billable !== false ? 'text-green-500' : 'text-muted-foreground'}`}>
+                    {viewingWorkEntry.is_billable !== false ? 'Yes' : 'No'}
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Logged By</Label>
+                  <p className="font-medium">{viewingWorkEntry.logged_by_name || 'Unknown'}</p>
+                </div>
+              </div>
+              
+              {viewingWorkEntry.logged_at && (
+                <div>
+                  <Label className="text-muted-foreground text-xs">Date Logged</Label>
+                  <p className="font-medium">
+                    {new Date(viewingWorkEntry.logged_at).toLocaleString()}
+                  </p>
+                </div>
+              )}
+              
+              {viewingWorkEntry.notes && (
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <Label className="text-muted-foreground text-xs">Notes</Label>
+                  <p className="mt-1 whitespace-pre-wrap">{viewingWorkEntry.notes}</p>
+                </div>
+              )}
+              
+              {!viewingWorkEntry.notes && (
+                <div className="p-3 bg-muted/30 rounded-lg text-center text-muted-foreground">
+                  <p className="text-sm">No notes added for this entry</p>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={() => setWorkEntryDialogOpen(false)}>
+              Close
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

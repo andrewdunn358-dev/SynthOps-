@@ -1604,8 +1604,22 @@ async def get_project_jobs(project_id: str, user: dict = Depends(get_current_use
             assignee = await db.users.find_one({"id": job["assigned_to"]}, {"username": 1})
             assigned_to_name = assignee["username"] if assignee else None
         
-        # Get worksheets
+        # Get worksheets with user names
         worksheets = await db.job_worksheets.find({"job_id": job["id"]}, {"_id": 0}).to_list(100)
+        
+        # Add logged_by_name and format logged_at for each worksheet
+        enriched_worksheets = []
+        for ws in worksheets:
+            logged_by_name = None
+            if ws.get("user_id"):
+                ws_user = await db.users.find_one({"id": ws["user_id"]}, {"username": 1})
+                logged_by_name = ws_user["username"] if ws_user else None
+            enriched_worksheets.append({
+                **ws,
+                "logged_by_name": logged_by_name,
+                "logged_at": ws.get("created_at"),
+                "is_billable": ws.get("billable", True)
+            })
         
         # Calculate actual hours
         actual_hours = sum(ws.get("hours_spent", 0) for ws in worksheets)
@@ -1614,7 +1628,7 @@ async def get_project_jobs(project_id: str, user: dict = Depends(get_current_use
             **job,
             "assigned_to_name": assigned_to_name,
             "actual_hours": actual_hours,
-            "worksheets": worksheets
+            "worksheets": enriched_worksheets
         })
     
     return result

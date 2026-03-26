@@ -154,6 +154,7 @@ export default function DCHealthCheck() {
   const [historyFilter, setHistoryFilter] = useState({ server: 'all', year: new Date().getFullYear().toString() });
   const [viewingRecord, setViewingRecord] = useState(null);
   const [activeTab, setActiveTab] = useState('new-check');
+  const [editingDraftId, setEditingDraftId] = useState(null);  // Track draft being edited
   
   const printRef = useRef();
 
@@ -264,8 +265,19 @@ export default function DCHealthCheck() {
         created_at: new Date().toISOString()
       };
 
-      await apiClient.post('/health-checks', checkData);
-      toast.success(isDraft ? 'Progress saved - you can continue later' : 'Health check completed and saved');
+      // If we're editing an existing draft, update it instead of creating new
+      if (editingDraftId) {
+        await apiClient.put(`/health-checks/${editingDraftId}`, checkData);
+        toast.success(isDraft ? 'Draft updated' : 'Health check completed');
+        
+        // If completing the draft (not saving as draft), clear the editing state
+        if (!isDraft) {
+          setEditingDraftId(null);
+        }
+      } else {
+        await apiClient.post('/health-checks', checkData);
+        toast.success(isDraft ? 'Progress saved - you can continue later' : 'Health check completed and saved');
+      }
       
       // Refresh history
       const historyRes = await apiClient.get('/health-checks');
@@ -278,6 +290,7 @@ export default function DCHealthCheck() {
         setCheckResults({});
         setCheckNotes({});
         setSignOffName('');
+        setEditingDraftId(null);
       }
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to save health check'));
@@ -287,7 +300,8 @@ export default function DCHealthCheck() {
   };
 
   const loadDraftHealthCheck = async (record) => {
-    // Load a draft to continue
+    // Load a draft to continue - track the draft ID for updating
+    setEditingDraftId(record.id);
     setSelectedServerId(record.server_id);
     const server = servers.find(s => s.id === record.server_id);
     setSelectedServer(server);
