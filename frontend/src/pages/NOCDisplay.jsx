@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '../App';
-import { Server, Ticket, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield } from 'lucide-react';
+import { Server, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield, Monitor } from 'lucide-react';
 
 export default function NOCDisplay() {
   const [stats, setStats] = useState(null);
   const [servers, setServers] = useState([]);
-  const [tickets, setTickets] = useState([]);
+  const [clients, setClients] = useState([]);
   const [incidents, setIncidents] = useState([]);
   const [securityAlerts, setSecurityAlerts] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -20,25 +20,19 @@ export default function NOCDisplay() {
         apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       }
       
-      const [statsRes, serversRes, incidentsRes] = await Promise.all([
+      const [statsRes, serversRes, clientsRes, incidentsRes] = await Promise.all([
         apiClient.get('/dashboard/stats'),
-        apiClient.get('/servers'),
+        apiClient.get('/servers?include_workstations=true'),
+        apiClient.get('/clients'),
         apiClient.get('/incidents?status=open')
       ]);
       
       setStats(statsRes.data);
       setServers(serversRes.data || []);
+      setClients(clientsRes.data || []);
       setIncidents(incidentsRes.data || []);
       setLastRefresh(new Date());
       setError(null);
-      
-      // Try to get Zammad tickets (may fail if not configured)
-      try {
-        const ticketsRes = await apiClient.get('/zammad/tickets?limit=50');
-        setTickets(ticketsRes.data?.filter(t => t.state !== 'closed') || []);
-      } catch (e) {
-        // Zammad not configured, ignore
-      }
       
       // Try to get Bitdefender security alerts
       try {
@@ -67,10 +61,9 @@ export default function NOCDisplay() {
   const onlineServers = servers.filter(s => s.status === 'online');
   const maintenanceServers = servers.filter(s => s.status === 'maintenance');
 
-  // Open tickets count
-  const openTickets = tickets.filter(t => 
-    t.state === 'new' || t.state === 'open' || t.state?.includes('pending')
-  );
+  // Separate servers vs workstations
+  const actualServers = servers.filter(s => !s.monitoring_type || s.monitoring_type === 'server');
+  const workstations = servers.filter(s => s.monitoring_type === 'workstation');
 
   if (loading) {
     return (
@@ -158,13 +151,13 @@ export default function NOCDisplay() {
           </div>
         </div>
         
-        <div className={`noc-stat ${openTickets.length > 10 ? 'warning' : 'ok'}`}>
+        <div className={`noc-stat ${securityAlerts?.has_critical ? 'offline' : securityAlerts?.has_high ? 'warning' : 'ok'}`}>
           <div className="noc-stat-icon">
-            <Ticket className="h-12 w-12" />
+            <ShieldAlert className="h-12 w-12" />
           </div>
           <div className="noc-stat-content">
-            <span className="noc-stat-number">{openTickets.length}</span>
-            <span className="noc-stat-label">Open Tickets</span>
+            <span className="noc-stat-number">{securityAlerts?.endpoint_count || 0}</span>
+            <span className="noc-stat-label">Protected Endpoints</span>
           </div>
         </div>
         
@@ -178,22 +171,12 @@ export default function NOCDisplay() {
           </div>
         </div>
         
-        <div className={`noc-stat ${securityAlerts?.has_critical ? 'offline' : securityAlerts?.has_high ? 'warning' : 'ok'}`}>
-          <div className="noc-stat-icon">
-            <ShieldAlert className="h-12 w-12" />
-          </div>
-          <div className="noc-stat-content">
-            <span className="noc-stat-number">{securityAlerts?.total || 0}</span>
-            <span className="noc-stat-label">Security Alerts</span>
-          </div>
-        </div>
-        
         <div className="noc-stat clients">
           <div className="noc-stat-icon">
             <Users className="h-12 w-12" />
           </div>
           <div className="noc-stat-content">
-            <span className="noc-stat-number">{stats?.total_clients || 0}</span>
+            <span className="noc-stat-number">{clients.length}</span>
             <span className="noc-stat-label">Clients</span>
           </div>
         </div>
@@ -213,7 +196,7 @@ export default function NOCDisplay() {
           }`}>
             {securityAlerts?.total > 0 
               ? `${securityAlerts.total} Alert${securityAlerts.total > 1 ? 's' : ''}`
-              : '✓ All Systems Protected'
+              : 'All Systems Protected'
             }
           </span>
         </h3>
@@ -233,22 +216,85 @@ export default function NOCDisplay() {
             <span>No active threats detected</span>
           </div>
         )}
+        {/* Bitdefender Agent Stats */}
+        {securityAlerts?.endpoint_count > 0 && (
+          <div className="noc-bd-stats" data-testid="noc-bitdefender-stats">
+            <div className="noc-bd-stats-row">
+              <div className="noc-bd-stat">
+                <span className="noc-bd-stat-value">{securityAlerts.endpoint_count}</span>
+                <span className="noc-bd-stat-label">Agents Installed</span>
+              </div>
+              <div className="noc-bd-stat">
+                <span className="noc-bd-stat-value">{securityAlerts.company_count || 0}</span>
+                <span className="noc-bd-stat-label">Companies</span>
+              </div>
+              <div className="noc-bd-stat">
+                <span className="noc-bd-stat-value">{securityAlerts.total || 0}</span>
+                <span className="noc-bd-stat-label">Active Alerts</span>
+              </div>
+            </div>
+            {securityAlerts.companies && securityAlerts.companies.length > 0 && (
+              <div className="noc-bd-companies">
+                {securityAlerts.companies.map((company, idx) => (
+                  <div key={company.id || idx} className="noc-bd-company">
+                    <div className={`noc-bd-company-dot ${company.is_suspended ? 'suspended' : 'active'}`} />
+                    <span className="noc-bd-company-name">{company.name}</span>
+                    <span className="noc-bd-company-count">{company.endpoints} endpoints</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Server Grid */}
+      {/* Client Overview Grid */}
+      <div className="noc-grid-container" data-testid="noc-clients-grid">
+        <h2 className="noc-section-title">
+          <Users className="h-6 w-6" />
+          Clients ({clients.length})
+        </h2>
+        <div className="noc-client-grid">
+          {clients.map(client => (
+            <div 
+              key={client.id} 
+              className="noc-client-tile"
+              title={`${client.name} - ${client.server_count || 0} servers, ${client.workstation_count || 0} workstations`}
+              data-testid={`noc-client-${client.id}`}
+            >
+              <span className="noc-client-name">{client.name}</span>
+              <div className="noc-client-counts">
+                <span className="noc-client-count-item">
+                  <Server className="h-3 w-3" />
+                  {client.server_count || 0}
+                </span>
+                <span className="noc-client-count-item">
+                  <Monitor className="h-3 w-3" />
+                  {client.workstation_count || 0}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Device Grid */}
       <div className="noc-grid-container">
         <h2 className="noc-section-title">
           <Server className="h-6 w-6" />
-          Server Status ({servers.length} devices)
+          All Devices ({servers.length} total — {actualServers.length} servers, {workstations.length} workstations)
         </h2>
         <div className="noc-server-grid">
-          {servers.slice(0, 50).map(server => (
+          {servers.map(server => (
             <div 
               key={server.id} 
-              className={`noc-server-tile ${server.status}`}
-              title={`${server.hostname} - ${server.client_name || 'Unknown'}`}
+              className={`noc-server-tile ${server.status} ${server.monitoring_type === 'workstation' ? 'workstation' : ''}`}
+              title={`${server.hostname} - ${server.client_name || 'Unknown'}${server.monitoring_type === 'workstation' ? ' (Workstation)' : ''}`}
             >
               <div className="noc-server-status-indicator" />
+              {server.monitoring_type === 'workstation' && (
+                <Monitor className="noc-device-type-icon h-3 w-3" />
+              )}
               <span className="noc-server-name">{server.hostname}</span>
               <span className="noc-server-client">{server.client_name?.substring(0, 20) || '-'}</span>
             </div>
@@ -256,7 +302,7 @@ export default function NOCDisplay() {
         </div>
       </div>
 
-      {/* Alerts & Tickets Row */}
+      {/* Alerts Row */}
       <div className="noc-bottom-row">
         {/* Offline Servers List */}
         {offlineServers.length > 0 && (
@@ -290,25 +336,6 @@ export default function NOCDisplay() {
                   <span className="noc-incident-badge">{incident.severity?.toUpperCase()}</span>
                   <span className="noc-incident-title">{incident.title}</span>
                   <span className="noc-incident-client">{incident.client_name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Recent Tickets */}
-        {openTickets.length > 0 && (
-          <div className="noc-panel tickets-panel">
-            <h3 className="noc-panel-title">
-              <Ticket className="h-5 w-5" />
-              Open Tickets ({openTickets.length})
-            </h3>
-            <div className="noc-panel-content">
-              {openTickets.slice(0, 10).map(ticket => (
-                <div key={ticket.id} className="noc-ticket-item">
-                  <span className="noc-ticket-number">#{ticket.number}</span>
-                  <span className="noc-ticket-title">{ticket.title?.substring(0, 40)}</span>
-                  <span className="noc-ticket-org">{ticket.organization?.substring(0, 20)}</span>
                 </div>
               ))}
             </div>
@@ -434,7 +461,7 @@ export default function NOCDisplay() {
           gap: 15px;
         }
 
-        @media (max-width: 1200px) {
+        @media (max-width: 1400px) {
           .noc-stats-row {
             grid-template-columns: repeat(3, 1fr);
           }
@@ -827,6 +854,137 @@ export default function NOCDisplay() {
           padding: 20px;
           color: #10b981;
           font-size: 1.1rem;
+        }
+
+        /* Bitdefender Agent Stats */
+        .noc-bd-stats {
+          margin-top: 15px;
+          padding-top: 15px;
+          border-top: 1px solid #222;
+        }
+
+        .noc-bd-stats-row {
+          display: flex;
+          gap: 30px;
+          margin-bottom: 12px;
+        }
+
+        .noc-bd-stat {
+          display: flex;
+          flex-direction: column;
+        }
+
+        .noc-bd-stat-value {
+          font-size: 1.5rem;
+          font-weight: 700;
+          font-family: 'JetBrains Mono', monospace;
+          color: #10b981;
+        }
+
+        .noc-bd-stat-label {
+          font-size: 0.75rem;
+          color: #888;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+
+        .noc-bd-companies {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+          gap: 6px;
+        }
+
+        .noc-bd-company {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 4px 8px;
+          font-size: 0.8rem;
+          color: #aaa;
+          background: #0a0a0f;
+          border-radius: 4px;
+        }
+
+        .noc-bd-company-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          flex-shrink: 0;
+        }
+
+        .noc-bd-company-dot.active {
+          background: #10b981;
+        }
+
+        .noc-bd-company-dot.suspended {
+          background: #f59e0b;
+        }
+
+        .noc-bd-company-name {
+          flex: 1;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .noc-bd-company-count {
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 0.7rem;
+          color: #666;
+          flex-shrink: 0;
+        }
+
+        /* Client Grid */
+        .noc-client-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+          gap: 8px;
+        }
+
+        .noc-client-tile {
+          background: #111118;
+          border: 1px solid #222;
+          border-radius: 6px;
+          padding: 10px 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          border-left: 3px solid #8b5cf6;
+        }
+
+        .noc-client-name {
+          font-size: 0.85rem;
+          font-weight: 600;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .noc-client-counts {
+          display: flex;
+          gap: 12px;
+        }
+
+        .noc-client-count-item {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 0.7rem;
+          color: #888;
+          font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Workstation tile differentiation */
+        .noc-server-tile.workstation {
+          border-left-color: #8b5cf6;
+          opacity: 0.85;
+        }
+
+        .noc-device-type-icon {
+          position: absolute;
+          top: 5px;
+          left: 8px;
+          color: #8b5cf6;
         }
       `}</style>
     </div>

@@ -83,7 +83,8 @@ export default function Reports() {
       }
       
       if (reportConfig.include_tickets) {
-        queries.push(apiClient.get('/zammad/tickets', { params: { limit: 100 } }).catch(() => ({ data: [] })));
+        // Zammad has been removed - tickets section returns empty
+        queries.push(Promise.resolve({ data: [] }));
       }
       
       if (reportConfig.include_incidents) {
