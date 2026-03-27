@@ -101,7 +101,23 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 
 ---
 
-## Completed This Session (December 2025)
+## Completed This Session (February 2026)
+
+### NOC Display Fixes
+1. **All Clients Visible** - NOC now fetches `/clients` to show all 42 clients (including TRMM-imported ones like PHL, ACMS, Aston Beaumont)
+2. **Bitdefender Agent Count** - Security panel now shows: Agents Installed (398), Companies (44), Active Alerts count, and per-company endpoint breakdown
+3. **Servers Only in Device Grid** - NOC shows only servers (58) in the device grid, not workstations (per user request)
+4. **Clients Grid Added** - New grid section showing all clients with server/workstation counts
+
+### Zammad Integration Fully Removed
+1. **Backend** - All Zammad endpoints removed (~400 lines): /zammad/test, /zammad/tickets, /zammad/stats, /zammad/organizations, /zammad/tickets/{id}/reply, /zammad/ticket-to-task, /zammad/sync-to-tasks
+2. **Scheduled Sync** - `scheduled_zammad_sync()` function and scheduler job removed
+3. **Sync Status** - `/sync/status` and `/sync/trigger` no longer reference Zammad
+4. **Frontend** - Reports.jsx Zammad ticket API call removed, NOCDisplay.jsx Zammad ticket fetch removed
+
+---
+
+## Completed Previous Session (December 2025)
 
 ### Customer CRM Feature
 1. **Full CRM Page at /customers**
@@ -147,13 +163,15 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 ## Remaining Tasks (Priority Order)
 
 ### P1 - High
-- [ ] Bitdefender alerts investigation
-- [ ] Proxmox VM/Container data fetch (API permissions issue)
+- [x] NOC Display - Show all clients including TRMM imports (DONE)
+- [x] NOC Display - Bitdefender agent count on security panel (DONE)
+- [x] Zammad backend code fully removed (DONE)
+- [ ] Proxmox VM/Container data fetch (confirmed working by user)
 
 ### P2 - Medium  
 - [ ] SNMP device monitoring (full data)
 - [ ] Let's Encrypt SSL
-- [ ] Complete Zammad backend code removal
+- [ ] Verify Server vs Workstation classification on live TRMM data
 
 ### P3 - Low/Future
 - [ ] Mobile application

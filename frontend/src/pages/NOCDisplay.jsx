@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '../App';
-import { Server, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield, Monitor } from 'lucide-react';
+import { Server, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield } from 'lucide-react';
 
 export default function NOCDisplay() {
   const [stats, setStats] = useState(null);
@@ -22,7 +22,7 @@ export default function NOCDisplay() {
       
       const [statsRes, serversRes, clientsRes, incidentsRes] = await Promise.all([
         apiClient.get('/dashboard/stats'),
-        apiClient.get('/servers?include_workstations=true'),
+        apiClient.get('/servers'),
         apiClient.get('/clients'),
         apiClient.get('/incidents?status=open')
       ]);
@@ -60,10 +60,6 @@ export default function NOCDisplay() {
   const offlineServers = servers.filter(s => s.status === 'offline');
   const onlineServers = servers.filter(s => s.status === 'online');
   const maintenanceServers = servers.filter(s => s.status === 'maintenance');
-
-  // Separate servers vs workstations
-  const actualServers = servers.filter(s => !s.monitoring_type || s.monitoring_type === 'server');
-  const workstations = servers.filter(s => s.monitoring_type === 'workstation');
 
   if (loading) {
     return (
@@ -269,7 +265,7 @@ export default function NOCDisplay() {
                   {client.server_count || 0}
                 </span>
                 <span className="noc-client-count-item">
-                  <Monitor className="h-3 w-3" />
+                  <Users className="h-3 w-3" />
                   {client.workstation_count || 0}
                 </span>
               </div>
@@ -278,23 +274,20 @@ export default function NOCDisplay() {
         </div>
       </div>
 
-      {/* Device Grid */}
+      {/* Server Grid */}
       <div className="noc-grid-container">
         <h2 className="noc-section-title">
           <Server className="h-6 w-6" />
-          All Devices ({servers.length} total — {actualServers.length} servers, {workstations.length} workstations)
+          Server Status ({servers.length} servers)
         </h2>
         <div className="noc-server-grid">
           {servers.map(server => (
             <div 
               key={server.id} 
-              className={`noc-server-tile ${server.status} ${server.monitoring_type === 'workstation' ? 'workstation' : ''}`}
-              title={`${server.hostname} - ${server.client_name || 'Unknown'}${server.monitoring_type === 'workstation' ? ' (Workstation)' : ''}`}
+              className={`noc-server-tile ${server.status}`}
+              title={`${server.hostname} - ${server.client_name || 'Unknown'}`}
             >
               <div className="noc-server-status-indicator" />
-              {server.monitoring_type === 'workstation' && (
-                <Monitor className="noc-device-type-icon h-3 w-3" />
-              )}
               <span className="noc-server-name">{server.hostname}</span>
               <span className="noc-server-client">{server.client_name?.substring(0, 20) || '-'}</span>
             </div>
@@ -974,18 +967,7 @@ export default function NOCDisplay() {
           font-family: 'JetBrains Mono', monospace;
         }
 
-        /* Workstation tile differentiation */
-        .noc-server-tile.workstation {
-          border-left-color: #8b5cf6;
-          opacity: 0.85;
-        }
-
-        .noc-device-type-icon {
-          position: absolute;
-          top: 5px;
-          left: 8px;
-          color: #8b5cf6;
-        }
+        /* Workstation tile differentiation - removed, servers only on NOC */
       `}</style>
     </div>
   );
