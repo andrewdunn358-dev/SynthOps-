@@ -109,6 +109,13 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 3. **Servers Only in Device Grid** - NOC shows only servers (58) in the device grid, not workstations (per user request)
 4. **Clients Grid Added** - New grid section showing all clients with server/workstation counts
 
+### NOC Auto-Cycle Feature
+1. **4 Views**: Security, Clients, Servers, Alerts - auto-rotates every 15 seconds
+2. **Manual Controls**: Previous/Next arrows, clickable view pills, Pause/Play button
+3. **Progress Bar**: Visual indicator of time until next view switch
+4. **Smooth Transitions**: Fade in/out between views
+5. **Data Refresh**: Continues fetching fresh data every 30 seconds regardless of view
+
 ### Zammad Integration Fully Removed
 1. **Backend** - All Zammad endpoints removed (~400 lines): /zammad/test, /zammad/tickets, /zammad/stats, /zammad/organizations, /zammad/tickets/{id}/reply, /zammad/ticket-to-task, /zammad/sync-to-tasks
 2. **Scheduled Sync** - `scheduled_zammad_sync()` function and scheduler job removed

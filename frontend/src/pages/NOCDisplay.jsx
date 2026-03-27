@@ -1,6 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiClient } from '../App';
-import { Server, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield } from 'lucide-react';
+import { Server, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield, Play, Pause, ChevronLeft, ChevronRight } from 'lucide-react';
+
+const VIEWS = ['security', 'clients', 'servers', 'alerts'];
+const VIEW_LABELS = { security: 'Security', clients: 'Clients', servers: 'Servers', alerts: 'Alerts' };
+const CYCLE_INTERVAL = 15000; // 15 seconds
 
 export default function NOCDisplay() {
   const [stats, setStats] = useState(null);
@@ -11,6 +15,10 @@ export default function NOCDisplay() {
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [error, setError] = useState(null);
+  const [currentView, setCurrentView] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [fading, setFading] = useState(false);
+  const cycleRef = useRef(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -55,6 +63,21 @@ export default function NOCDisplay() {
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
+
+  // Auto-cycle views
+  const changeView = useCallback((direction = 1) => {
+    setFading(true);
+    setTimeout(() => {
+      setCurrentView(prev => (prev + direction + VIEWS.length) % VIEWS.length);
+      setFading(false);
+    }, 300);
+  }, []);
+
+  useEffect(() => {
+    if (paused || loading) return;
+    cycleRef.current = setInterval(() => changeView(1), CYCLE_INTERVAL);
+    return () => clearInterval(cycleRef.current);
+  }, [paused, loading, changeView]);
 
   // Get offline servers
   const offlineServers = servers.filter(s => s.status === 'offline');
@@ -178,176 +201,223 @@ export default function NOCDisplay() {
         </div>
       </div>
 
-      {/* Security Status Panel - Always visible */}
-      <div className={`noc-alert-panel ${
-        securityAlerts?.has_critical ? 'critical' : 
-        securityAlerts?.has_high ? 'high' : 
-        securityAlerts?.total > 0 ? 'warning' : 'ok'
-      }`}>
-        <h3 className="noc-alert-title">
-          <Shield className="h-6 w-6" />
-          Bitdefender Security Status
-          <span className={`ml-auto text-sm font-normal ${
-            securityAlerts?.total > 0 ? '' : 'text-emerald-400'
+      {/* Cycling Content Area */}
+      <div className={`noc-cycle-content ${fading ? 'fade-out' : 'fade-in'}`} data-testid="noc-cycle-content">
+
+        {/* VIEW: Security */}
+        {VIEWS[currentView] === 'security' && (
+          <div className={`noc-alert-panel ${
+            securityAlerts?.has_critical ? 'critical' : 
+            securityAlerts?.has_high ? 'high' : 
+            securityAlerts?.total > 0 ? 'warning' : 'ok'
           }`}>
-            {securityAlerts?.total > 0 
-              ? `${securityAlerts.total} Alert${securityAlerts.total > 1 ? 's' : ''}`
-              : 'All Systems Protected'
-            }
-          </span>
-        </h3>
-        {securityAlerts?.alerts && securityAlerts.alerts.length > 0 ? (
-          <div className="noc-alert-list">
-            {securityAlerts.alerts.slice(0, 8).map((alert, idx) => (
-              <div key={alert.id || idx} className={`noc-alert-item ${alert.severity}`}>
-                <span className="noc-alert-type">{alert.type}</span>
-                <span className="noc-alert-title-text">{alert.title}</span>
-                <span className="noc-alert-endpoint">{alert.endpoint}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="noc-status-ok">
-            <CheckCircle className="h-8 w-8 text-emerald-400" />
-            <span>No active threats detected</span>
-          </div>
-        )}
-        {/* Bitdefender Agent Stats */}
-        {securityAlerts?.endpoint_count > 0 && (
-          <div className="noc-bd-stats" data-testid="noc-bitdefender-stats">
-            <div className="noc-bd-stats-row">
-              <div className="noc-bd-stat">
-                <span className="noc-bd-stat-value">{securityAlerts.endpoint_count}</span>
-                <span className="noc-bd-stat-label">Agents Installed</span>
-              </div>
-              <div className="noc-bd-stat">
-                <span className="noc-bd-stat-value">{securityAlerts.company_count || 0}</span>
-                <span className="noc-bd-stat-label">Companies</span>
-              </div>
-              <div className="noc-bd-stat">
-                <span className="noc-bd-stat-value">{securityAlerts.total || 0}</span>
-                <span className="noc-bd-stat-label">Active Alerts</span>
-              </div>
-            </div>
-            {securityAlerts.companies && securityAlerts.companies.length > 0 && (
-              <div className="noc-bd-companies">
-                {securityAlerts.companies.map((company, idx) => (
-                  <div key={company.id || idx} className="noc-bd-company">
-                    <div className={`noc-bd-company-dot ${company.is_suspended ? 'suspended' : 'active'}`} />
-                    <span className="noc-bd-company-name">{company.name}</span>
-                    <span className="noc-bd-company-count">{company.endpoints} endpoints</span>
+            <h3 className="noc-alert-title">
+              <Shield className="h-6 w-6" />
+              Bitdefender Security Status
+              <span className={`ml-auto text-sm font-normal ${
+                securityAlerts?.total > 0 ? '' : 'text-emerald-400'
+              }`}>
+                {securityAlerts?.total > 0 
+                  ? `${securityAlerts.total} Alert${securityAlerts.total > 1 ? 's' : ''}`
+                  : 'All Systems Protected'
+                }
+              </span>
+            </h3>
+            {securityAlerts?.alerts && securityAlerts.alerts.length > 0 ? (
+              <div className="noc-alert-list">
+                {securityAlerts.alerts.slice(0, 8).map((alert, idx) => (
+                  <div key={alert.id || idx} className={`noc-alert-item ${alert.severity}`}>
+                    <span className="noc-alert-type">{alert.type}</span>
+                    <span className="noc-alert-title-text">{alert.title}</span>
+                    <span className="noc-alert-endpoint">{alert.endpoint}</span>
                   </div>
                 ))}
+              </div>
+            ) : (
+              <div className="noc-status-ok">
+                <CheckCircle className="h-8 w-8 text-emerald-400" />
+                <span>No active threats detected</span>
+              </div>
+            )}
+            {securityAlerts?.endpoint_count > 0 && (
+              <div className="noc-bd-stats" data-testid="noc-bitdefender-stats">
+                <div className="noc-bd-stats-row">
+                  <div className="noc-bd-stat">
+                    <span className="noc-bd-stat-value">{securityAlerts.endpoint_count}</span>
+                    <span className="noc-bd-stat-label">Agents Installed</span>
+                  </div>
+                  <div className="noc-bd-stat">
+                    <span className="noc-bd-stat-value">{securityAlerts.company_count || 0}</span>
+                    <span className="noc-bd-stat-label">Companies</span>
+                  </div>
+                  <div className="noc-bd-stat">
+                    <span className="noc-bd-stat-value">{securityAlerts.total || 0}</span>
+                    <span className="noc-bd-stat-label">Active Alerts</span>
+                  </div>
+                </div>
+                {securityAlerts.companies && securityAlerts.companies.length > 0 && (
+                  <div className="noc-bd-companies">
+                    {securityAlerts.companies.map((company, idx) => (
+                      <div key={company.id || idx} className="noc-bd-company">
+                        <div className={`noc-bd-company-dot ${company.is_suspended ? 'suspended' : 'active'}`} />
+                        <span className="noc-bd-company-name">{company.name}</span>
+                        <span className="noc-bd-company-count">{company.endpoints} endpoints</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* VIEW: Clients */}
+        {VIEWS[currentView] === 'clients' && (
+          <div className="noc-grid-container" data-testid="noc-clients-grid">
+            <h2 className="noc-section-title">
+              <Users className="h-6 w-6" />
+              Clients ({clients.length})
+            </h2>
+            <div className="noc-client-grid">
+              {clients.map(client => (
+                <div 
+                  key={client.id} 
+                  className="noc-client-tile"
+                  title={`${client.name} - ${client.server_count || 0} servers, ${client.workstation_count || 0} workstations`}
+                  data-testid={`noc-client-${client.id}`}
+                >
+                  <span className="noc-client-name">{client.name}</span>
+                  <div className="noc-client-counts">
+                    <span className="noc-client-count-item">
+                      <Server className="h-3 w-3" />
+                      {client.server_count || 0}
+                    </span>
+                    <span className="noc-client-count-item">
+                      <Users className="h-3 w-3" />
+                      {client.workstation_count || 0}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: Servers */}
+        {VIEWS[currentView] === 'servers' && (
+          <div className="noc-grid-container">
+            <h2 className="noc-section-title">
+              <Server className="h-6 w-6" />
+              Server Status ({servers.length} servers)
+            </h2>
+            <div className="noc-server-grid">
+              {servers.map(server => (
+                <div 
+                  key={server.id} 
+                  className={`noc-server-tile ${server.status}`}
+                  title={`${server.hostname} - ${server.client_name || 'Unknown'}`}
+                >
+                  <div className="noc-server-status-indicator" />
+                  <span className="noc-server-name">{server.hostname}</span>
+                  <span className="noc-server-client">{server.client_name?.substring(0, 20) || '-'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: Alerts */}
+        {VIEWS[currentView] === 'alerts' && (
+          <div className="noc-bottom-row">
+            {offlineServers.length > 0 && (
+              <div className="noc-panel offline-panel">
+                <h3 className="noc-panel-title critical">
+                  <AlertTriangle className="h-5 w-5" />
+                  Offline Servers ({offlineServers.length})
+                </h3>
+                <div className="noc-panel-content">
+                  {offlineServers.map(server => (
+                    <div key={server.id} className="noc-alert-item">
+                      <Server className="h-4 w-4" />
+                      <span className="noc-alert-hostname">{server.hostname}</span>
+                      <span className="noc-alert-client">{server.client_name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {incidents.length > 0 && (
+              <div className="noc-panel incidents-panel">
+                <h3 className="noc-panel-title warning">
+                  <AlertTriangle className="h-5 w-5" />
+                  Active Incidents ({incidents.length})
+                </h3>
+                <div className="noc-panel-content">
+                  {incidents.slice(0, 10).map(incident => (
+                    <div key={incident.id} className={`noc-incident-item severity-${incident.severity}`}>
+                      <span className="noc-incident-badge">{incident.severity?.toUpperCase()}</span>
+                      <span className="noc-incident-title">{incident.title}</span>
+                      <span className="noc-incident-client">{incident.client_name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {offlineServers.length === 0 && incidents.length === 0 && (
+              <div className="noc-all-clear">
+                <CheckCircle className="h-24 w-24" />
+                <span>All Systems Operational</span>
               </div>
             )}
           </div>
         )}
       </div>
 
-      {/* Client Overview Grid */}
-      <div className="noc-grid-container" data-testid="noc-clients-grid">
-        <h2 className="noc-section-title">
-          <Users className="h-6 w-6" />
-          Clients ({clients.length})
-        </h2>
-        <div className="noc-client-grid">
-          {clients.map(client => (
-            <div 
-              key={client.id} 
-              className="noc-client-tile"
-              title={`${client.name} - ${client.server_count || 0} servers, ${client.workstation_count || 0} workstations`}
-              data-testid={`noc-client-${client.id}`}
+      {/* View Cycle Controls */}
+      <div className="noc-cycle-controls" data-testid="noc-cycle-controls">
+        <button
+          className="noc-cycle-btn"
+          onClick={() => changeView(-1)}
+          data-testid="noc-prev-view"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+        <div className="noc-cycle-dots">
+          {VIEWS.map((view, idx) => (
+            <button
+              key={view}
+              className={`noc-cycle-dot ${idx === currentView ? 'active' : ''}`}
+              onClick={() => { setFading(true); setTimeout(() => { setCurrentView(idx); setFading(false); }, 300); }}
+              data-testid={`noc-dot-${view}`}
             >
-              <span className="noc-client-name">{client.name}</span>
-              <div className="noc-client-counts">
-                <span className="noc-client-count-item">
-                  <Server className="h-3 w-3" />
-                  {client.server_count || 0}
-                </span>
-                <span className="noc-client-count-item">
-                  <Users className="h-3 w-3" />
-                  {client.workstation_count || 0}
-                </span>
-              </div>
-            </div>
+              <span className="noc-dot-label">{VIEW_LABELS[view]}</span>
+            </button>
           ))}
         </div>
-      </div>
-
-      {/* Server Grid */}
-      <div className="noc-grid-container">
-        <h2 className="noc-section-title">
-          <Server className="h-6 w-6" />
-          Server Status ({servers.length} servers)
-        </h2>
-        <div className="noc-server-grid">
-          {servers.map(server => (
-            <div 
-              key={server.id} 
-              className={`noc-server-tile ${server.status}`}
-              title={`${server.hostname} - ${server.client_name || 'Unknown'}`}
-            >
-              <div className="noc-server-status-indicator" />
-              <span className="noc-server-name">{server.hostname}</span>
-              <span className="noc-server-client">{server.client_name?.substring(0, 20) || '-'}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Alerts Row */}
-      <div className="noc-bottom-row">
-        {/* Offline Servers List */}
-        {offlineServers.length > 0 && (
-          <div className="noc-panel offline-panel">
-            <h3 className="noc-panel-title critical">
-              <AlertTriangle className="h-5 w-5" />
-              Offline Servers
-            </h3>
-            <div className="noc-panel-content">
-              {offlineServers.map(server => (
-                <div key={server.id} className="noc-alert-item">
-                  <Server className="h-4 w-4" />
-                  <span className="noc-alert-hostname">{server.hostname}</span>
-                  <span className="noc-alert-client">{server.client_name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Active Incidents */}
-        {incidents.length > 0 && (
-          <div className="noc-panel incidents-panel">
-            <h3 className="noc-panel-title warning">
-              <AlertTriangle className="h-5 w-5" />
-              Active Incidents ({incidents.length})
-            </h3>
-            <div className="noc-panel-content">
-              {incidents.slice(0, 10).map(incident => (
-                <div key={incident.id} className={`noc-incident-item severity-${incident.severity}`}>
-                  <span className="noc-incident-badge">{incident.severity?.toUpperCase()}</span>
-                  <span className="noc-incident-title">{incident.title}</span>
-                  <span className="noc-incident-client">{incident.client_name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* All Clear Message */}
-        {offlineServers.length === 0 && incidents.length === 0 && (
-          <div className="noc-all-clear">
-            <CheckCircle className="h-24 w-24" />
-            <span>All Systems Operational</span>
-          </div>
-        )}
+        <button
+          className="noc-cycle-btn"
+          onClick={() => changeView(1)}
+          data-testid="noc-next-view"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </button>
+        <button
+          className={`noc-cycle-btn pause ${paused ? 'is-paused' : ''}`}
+          onClick={() => setPaused(p => !p)}
+          data-testid="noc-pause-btn"
+        >
+          {paused ? <Play className="h-5 w-5" /> : <Pause className="h-5 w-5" />}
+        </button>
+        {/* Progress bar */}
+        {!paused && <div className="noc-cycle-progress" key={currentView}><div className="noc-cycle-progress-bar" /></div>}
       </div>
 
       {/* Footer */}
       <footer className="noc-footer">
         <span>SynthOps NOC Display • Synthesis IT Ltd</span>
-        <span>Auto-refresh: 30 seconds</span>
+        <span>Auto-cycle: {paused ? 'Paused' : '15s'} • Data refresh: 30s</span>
       </footer>
 
       <style>{`
@@ -742,6 +812,116 @@ export default function NOCDisplay() {
           border-top: 1px solid #222;
           font-size: 0.875rem;
           color: #555;
+        }
+
+        /* Cycle Content Area */
+        .noc-cycle-content {
+          flex: 1;
+          min-height: 350px;
+          transition: opacity 0.3s ease;
+        }
+
+        .noc-cycle-content.fade-out {
+          opacity: 0;
+        }
+
+        .noc-cycle-content.fade-in {
+          opacity: 1;
+        }
+
+        /* Cycle Controls */
+        .noc-cycle-controls {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+          padding: 10px 0;
+          position: relative;
+        }
+
+        .noc-cycle-btn {
+          background: #1a1a24;
+          border: 1px solid #333;
+          border-radius: 8px;
+          padding: 8px;
+          color: #888;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .noc-cycle-btn:hover {
+          background: #252530;
+          color: #ccc;
+          border-color: #555;
+        }
+
+        .noc-cycle-btn.pause {
+          margin-left: 8px;
+        }
+
+        .noc-cycle-btn.pause.is-paused {
+          border-color: #10b981;
+          color: #10b981;
+        }
+
+        .noc-cycle-dots {
+          display: flex;
+          gap: 6px;
+        }
+
+        .noc-cycle-dot {
+          background: #1a1a24;
+          border: 1px solid #333;
+          border-radius: 20px;
+          padding: 6px 16px;
+          color: #666;
+          cursor: pointer;
+          transition: all 0.2s;
+          font-size: 0.75rem;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+        }
+
+        .noc-cycle-dot:hover {
+          background: #252530;
+          color: #aaa;
+        }
+
+        .noc-cycle-dot.active {
+          background: #10b98120;
+          border-color: #10b981;
+          color: #10b981;
+        }
+
+        .noc-dot-label {
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 0.7rem;
+          font-weight: 600;
+        }
+
+        /* Progress bar */
+        .noc-cycle-progress {
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          height: 2px;
+          background: #1a1a24;
+          overflow: hidden;
+        }
+
+        .noc-cycle-progress-bar {
+          height: 100%;
+          background: linear-gradient(90deg, #10b981, #3b82f6);
+          animation: progress-fill 15s linear;
+        }
+
+        @keyframes progress-fill {
+          from { width: 0%; }
+          to { width: 100%; }
         }
 
         /* Security Alerts Panel */
