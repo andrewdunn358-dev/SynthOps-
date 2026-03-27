@@ -5312,6 +5312,62 @@ async def scheduled_trmm_sync():
                         }
                         await db.servers.insert_one(new_server)
                     stats["agents_synced"] += 1
+            
+            # === CLEANUP: Remove servers/clients no longer in TRMM ===
+            
+            # Collect all TRMM agent IDs from the sync
+            trmm_agent_ids = set()
+            if agents_resp.status_code == 200:
+                for agent in trmm_agents:
+                    aid = agent.get("agent_id")
+                    if aid:
+                        trmm_agent_ids.add(aid)
+            
+            # Find local servers with TRMM agent IDs that are no longer in TRMM
+            if trmm_agent_ids:
+                stale_servers = await db.servers.find(
+                    {"tactical_rmm_agent_id": {"$exists": True, "$ne": None, "$nin": list(trmm_agent_ids)}},
+                    {"_id": 0, "id": 1, "hostname": 1, "site_id": 1, "tactical_rmm_agent_id": 1}
+                ).to_list(1000)
+                
+                if stale_servers:
+                    stale_ids = [s["id"] for s in stale_servers]
+                    stale_hostnames = [s["hostname"] for s in stale_servers]
+                    logger.info(f"Removing {len(stale_servers)} stale TRMM servers: {stale_hostnames}")
+                    
+                    await db.servers.delete_many({"id": {"$in": stale_ids}})
+                    stats["servers_removed"] = len(stale_servers)
+            
+            # Collect all TRMM client IDs from the sync
+            trmm_client_ids = set()
+            for tc in trmm_clients:
+                cid = tc.get("id")
+                if cid:
+                    trmm_client_ids.add(cid)
+            
+            # Mark clients removed from TRMM as inactive
+            if trmm_client_ids:
+                stale_clients = await db.clients.find(
+                    {"tactical_rmm_client_id": {"$exists": True, "$ne": None, "$nin": list(trmm_client_ids)}, "is_active": True},
+                    {"_id": 0, "id": 1, "name": 1}
+                ).to_list(1000)
+                
+                if stale_clients:
+                    stale_client_ids = [c["id"] for c in stale_clients]
+                    stale_client_names = [c["name"] for c in stale_clients]
+                    logger.info(f"Deactivating {len(stale_clients)} stale TRMM clients: {stale_client_names}")
+                    
+                    await db.clients.update_many(
+                        {"id": {"$in": stale_client_ids}},
+                        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+                    )
+                    
+                    # Also deactivate their sites
+                    await db.sites.update_many(
+                        {"client_id": {"$in": stale_client_ids}},
+                        {"$set": {"is_active": False}}
+                    )
+                    stats["clients_deactivated"] = len(stale_clients)
         
         logger.info(f"TRMM sync completed: {stats}")
         
