@@ -10,7 +10,7 @@ import {
   Building2, Server, ListTodo, FolderKanban, AlertTriangle, 
   Activity, ArrowRight, CheckCircle, Clock, AlertCircle,
   RefreshCw, Wrench, WifiOff, X, Bell, Shield, ShieldAlert,
-  Network, HardDrive, Monitor, Container, Cpu, MemoryStick, Calendar, Lightbulb
+  Network, HardDrive, Monitor, Container, Cpu, MemoryStick, Calendar, Lightbulb, XCircle
 } from 'lucide-react';
 
 function formatBytes(bytes, decimals = 1) {
@@ -32,6 +32,7 @@ export default function Dashboard() {
   const [infraStatus, setInfraStatus] = useState(null);
   const [upcomingTasks, setUpcomingTasks] = useState([]);
   const [techTip, setTechTip] = useState(null);
+  const [backupStats, setBackupStats] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -83,6 +84,14 @@ export default function Dashboard() {
         setTechTip(tipRes.data);
       } catch (e) {
         // Tech tip not available
+      }
+
+      // Get backup stats
+      try {
+        const backupRes = await apiClient.get('/backups/stats');
+        setBackupStats(backupRes.data);
+      } catch (e) {
+        // Backup stats not available
       }
     } catch (error) {
       console.error('Dashboard fetch error:', error);
@@ -628,6 +637,41 @@ export default function Dashboard() {
                       </Badge>
                     ))}
                 </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Backup Status Row */}
+      {backupStats && backupStats.total_this_month > 0 && (
+        <Card className={`border-l-4 ${backupStats.failed > 0 ? 'border-l-red-500 bg-red-500/5' : 'border-l-emerald-500 bg-emerald-500/5'}`} data-testid="dashboard-backup-stats">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-full ${backupStats.failed > 0 ? 'bg-red-500/20' : 'bg-emerald-500/20'}`}>
+                  <HardDrive className={`h-6 w-6 ${backupStats.failed > 0 ? 'text-red-400' : 'text-emerald-400'}`} />
+                </div>
+                <div>
+                  <h3 className="font-semibold">Backup Status (This Month)</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {backupStats.successful} successful, {backupStats.failed} failed &middot; {backupStats.success_rate}% success rate &middot; {backupStats.total_storage_gb} GB total
+                  </p>
+                </div>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => navigate('/backups')}>
+                View All <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+            {backupStats.recent_failures?.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-border space-y-1">
+                {backupStats.recent_failures.slice(0, 3).map((f, idx) => (
+                  <div key={f.id || idx} className="flex items-center gap-2 text-sm">
+                    <XCircle className="h-4 w-4 text-red-400" />
+                    <span>{f.client_name}</span>
+                    <span className="text-muted-foreground ml-auto text-xs">{f.backup_date}</span>
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>

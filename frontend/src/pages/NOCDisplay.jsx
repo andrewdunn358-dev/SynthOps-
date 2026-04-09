@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiClient } from '../App';
-import { Server, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield, Play, Pause, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Server, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield, Play, Pause, ChevronLeft, ChevronRight, ListTodo, HardDrive, XCircle, Bell } from 'lucide-react';
 
-const VIEWS = ['security', 'clients', 'servers', 'alerts'];
-const VIEW_LABELS = { security: 'Security', clients: 'Clients', servers: 'Servers', alerts: 'Alerts' };
+const VIEWS = ['security', 'clients', 'servers', 'reminders', 'alerts'];
+const VIEW_LABELS = { security: 'Security', clients: 'Clients', servers: 'Servers', reminders: 'Reminders', alerts: 'Alerts' };
 const CYCLE_INTERVAL = 15000; // 15 seconds
 
 export default function NOCDisplay() {
@@ -12,6 +12,8 @@ export default function NOCDisplay() {
   const [clients, setClients] = useState([]);
   const [incidents, setIncidents] = useState([]);
   const [securityAlerts, setSecurityAlerts] = useState(null);
+  const [recurringTasks, setRecurringTasks] = useState([]);
+  const [backupStats, setBackupStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [error, setError] = useState(null);
@@ -48,6 +50,23 @@ export default function NOCDisplay() {
         setSecurityAlerts(securityRes.data);
       } catch (e) {
         // Bitdefender not configured, ignore
+      }
+
+      // Get recurring tasks
+      try {
+        const tasksRes = await apiClient.get('/tasks');
+        const recurring = (tasksRes.data || []).filter(t => t.is_recurring && t.status !== 'completed');
+        setRecurringTasks(recurring);
+      } catch (e) {
+        // Tasks not available
+      }
+
+      // Get backup stats
+      try {
+        const backupRes = await apiClient.get('/backups/stats');
+        setBackupStats(backupRes.data);
+      } catch (e) {
+        // Backups not available
       }
     } catch (err) {
       console.error('NOC fetch error:', err);
@@ -322,6 +341,111 @@ export default function NOCDisplay() {
                   <span className="noc-server-client">{server.client_name?.substring(0, 20) || '-'}</span>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: Reminders - Recurring Tasks & Backup Status */}
+        {VIEWS[currentView] === 'reminders' && (
+          <div className="noc-reminders-view" data-testid="noc-reminders-view">
+            <div className="noc-reminders-grid">
+              {/* Recurring Tasks */}
+              <div className="noc-reminder-panel">
+                <h3 className="noc-panel-title">
+                  <ListTodo className="h-5 w-5" />
+                  Recurring Tasks ({recurringTasks.length})
+                </h3>
+                <div className="noc-panel-content">
+                  {recurringTasks.length === 0 ? (
+                    <div className="noc-status-ok">
+                      <CheckCircle className="h-6 w-6 text-emerald-400" />
+                      <span>No recurring tasks pending</span>
+                    </div>
+                  ) : (
+                    recurringTasks.slice(0, 12).map(task => (
+                      <div key={task.id} className={`noc-reminder-item priority-${task.priority}`}>
+                        <div className="noc-reminder-priority" />
+                        <div className="noc-reminder-content">
+                          <span className="noc-reminder-title">{task.title}</span>
+                          <span className="noc-reminder-meta">
+                            {task.recurrence_pattern} &middot; {task.status}
+                            {task.client_name ? ` &middot; ${task.client_name}` : ''}
+                          </span>
+                        </div>
+                        <span className={`noc-reminder-badge ${task.status === 'overdue' ? 'overdue' : ''}`}>
+                          {task.recurrence_pattern}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Backup Status */}
+              <div className="noc-reminder-panel">
+                <h3 className="noc-panel-title">
+                  <HardDrive className="h-5 w-5" />
+                  Backup Status (This Month)
+                </h3>
+                <div className="noc-panel-content">
+                  {backupStats ? (
+                    <>
+                      <div className="noc-backup-stats-grid">
+                        <div className="noc-backup-stat success">
+                          <CheckCircle className="h-5 w-5" />
+                          <span className="noc-backup-stat-num">{backupStats.successful}</span>
+                          <span className="noc-backup-stat-label">Successful</span>
+                        </div>
+                        <div className={`noc-backup-stat ${backupStats.failed > 0 ? 'failed' : 'ok'}`}>
+                          <XCircle className="h-5 w-5" />
+                          <span className="noc-backup-stat-num">{backupStats.failed}</span>
+                          <span className="noc-backup-stat-label">Failed</span>
+                        </div>
+                        <div className="noc-backup-stat info">
+                          <HardDrive className="h-5 w-5" />
+                          <span className="noc-backup-stat-num">{backupStats.total_storage_gb} GB</span>
+                          <span className="noc-backup-stat-label">Total Size</span>
+                        </div>
+                        <div className="noc-backup-stat info">
+                          <Bell className="h-5 w-5" />
+                          <span className="noc-backup-stat-num">{backupStats.success_rate}%</span>
+                          <span className="noc-backup-stat-label">Success Rate</span>
+                        </div>
+                      </div>
+                      {backupStats.recent_failures?.length > 0 && (
+                        <div className="noc-backup-failures">
+                          <h4 className="noc-backup-failures-title">Recent Failures</h4>
+                          {backupStats.recent_failures.map((f, idx) => (
+                            <div key={f.id || idx} className="noc-backup-failure-item">
+                              <XCircle className="h-4 w-4 text-red-400 shrink-0" />
+                              <span className="noc-backup-failure-client">{f.client_name}</span>
+                              <span className="noc-backup-failure-date">{f.backup_date}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {backupStats.clients_without_backups?.length > 0 && (
+                        <div className="noc-backup-missing">
+                          <h4 className="noc-backup-failures-title">No Backups This Month ({backupStats.clients_without_backups.length} clients)</h4>
+                          <div className="noc-backup-missing-list">
+                            {backupStats.clients_without_backups.slice(0, 8).map(c => (
+                              <span key={c.id} className="noc-backup-missing-client">{c.name}</span>
+                            ))}
+                            {backupStats.clients_without_backups.length > 8 && (
+                              <span className="noc-backup-missing-more">+{backupStats.clients_without_backups.length - 8} more</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="noc-status-ok">
+                      <HardDrive className="h-6 w-6 text-muted-foreground" />
+                      <span>No backup data yet</span>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -1148,6 +1272,189 @@ export default function NOCDisplay() {
         }
 
         /* Workstation tile differentiation - removed, servers only on NOC */
+
+        /* Reminders View */
+        .noc-reminders-view {
+          height: 100%;
+        }
+
+        .noc-reminders-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+          height: 100%;
+        }
+
+        @media (max-width: 1200px) {
+          .noc-reminders-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        .noc-reminder-panel {
+          background: #0a0a10;
+          border: 1px solid #222;
+          border-radius: 8px;
+          overflow: hidden;
+        }
+
+        .noc-reminder-item {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 8px 12px;
+          border-bottom: 1px solid #1a1a24;
+        }
+
+        .noc-reminder-priority {
+          width: 4px;
+          height: 28px;
+          border-radius: 2px;
+          flex-shrink: 0;
+        }
+
+        .noc-reminder-item.priority-high .noc-reminder-priority,
+        .noc-reminder-item.priority-critical .noc-reminder-priority {
+          background: #ef4444;
+        }
+
+        .noc-reminder-item.priority-medium .noc-reminder-priority {
+          background: #f59e0b;
+        }
+
+        .noc-reminder-item.priority-low .noc-reminder-priority {
+          background: #3b82f6;
+        }
+
+        .noc-reminder-content {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .noc-reminder-title {
+          display: block;
+          font-size: 0.85rem;
+          font-weight: 500;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .noc-reminder-meta {
+          display: block;
+          font-size: 0.7rem;
+          color: #666;
+        }
+
+        .noc-reminder-badge {
+          font-size: 0.65rem;
+          padding: 2px 8px;
+          border-radius: 10px;
+          background: #1a1a24;
+          color: #888;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          flex-shrink: 0;
+          font-family: 'JetBrains Mono', monospace;
+        }
+
+        .noc-reminder-badge.overdue {
+          background: #ef444420;
+          color: #ef4444;
+        }
+
+        /* Backup Stats on NOC */
+        .noc-backup-stats-grid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 10px;
+          padding: 12px;
+        }
+
+        .noc-backup-stat {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 4px;
+          padding: 12px 8px;
+          background: #111118;
+          border-radius: 6px;
+        }
+
+        .noc-backup-stat.success { color: #10b981; }
+        .noc-backup-stat.failed { color: #ef4444; }
+        .noc-backup-stat.ok { color: #666; }
+        .noc-backup-stat.info { color: #3b82f6; }
+
+        .noc-backup-stat-num {
+          font-size: 1.3rem;
+          font-weight: 700;
+          font-family: 'JetBrains Mono', monospace;
+        }
+
+        .noc-backup-stat-label {
+          font-size: 0.65rem;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: #888;
+        }
+
+        .noc-backup-failures {
+          padding: 8px 12px;
+          border-top: 1px solid #222;
+        }
+
+        .noc-backup-failures-title {
+          font-size: 0.75rem;
+          color: #888;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          margin-bottom: 6px;
+        }
+
+        .noc-backup-failure-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 4px 0;
+          font-size: 0.8rem;
+        }
+
+        .noc-backup-failure-client {
+          flex: 1;
+        }
+
+        .noc-backup-failure-date {
+          color: #666;
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 0.7rem;
+        }
+
+        .noc-backup-missing {
+          padding: 8px 12px;
+          border-top: 1px solid #222;
+        }
+
+        .noc-backup-missing-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px;
+        }
+
+        .noc-backup-missing-client {
+          font-size: 0.7rem;
+          padding: 2px 8px;
+          background: #f59e0b15;
+          border: 1px solid #f59e0b30;
+          border-radius: 4px;
+          color: #f59e0b;
+        }
+
+        .noc-backup-missing-more {
+          font-size: 0.7rem;
+          padding: 2px 8px;
+          color: #666;
+        }
       `}</style>
     </div>
   );

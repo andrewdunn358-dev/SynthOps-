@@ -4124,6 +4124,130 @@ async def export_client_report(client_id: str, user: dict = Depends(get_current_
     )
 
 
+# ==================== BACKUP TRACKING ====================
+
+class BackupLogCreate(BaseModel):
+    client_id: str
+    backup_date: str
+    backup_type: str = "full"  # full, incremental, differential
+    status: str = "success"  # success, failed, partial
+    storage_size_gb: Optional[float] = None
+    destination: Optional[str] = None  # local, cloud, offsite
+    notes: Optional[str] = None
+
+class BackupLogUpdate(BaseModel):
+    backup_date: Optional[str] = None
+    backup_type: Optional[str] = None
+    status: Optional[str] = None
+    storage_size_gb: Optional[float] = None
+    destination: Optional[str] = None
+    notes: Optional[str] = None
+
+@api_router.get("/backups")
+async def get_backup_logs(
+    client_id: Optional[str] = None,
+    status: Optional[str] = None,
+    month: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """Get backup logs with optional filters"""
+    query = {}
+    if client_id:
+        query["client_id"] = client_id
+    if status:
+        query["status"] = status
+    if month:
+        query["backup_date"] = {"$regex": f"^{month}"}
+    
+    logs = await db.backup_logs.find(query, {"_id": 0}).sort("backup_date", -1).to_list(500)
+    
+    # Enrich with client names
+    for log in logs:
+        client = await db.clients.find_one({"id": log["client_id"]}, {"_id": 0, "name": 1})
+        log["client_name"] = client["name"] if client else "Unknown"
+    
+    return logs
+
+@api_router.post("/backups")
+async def create_backup_log(data: BackupLogCreate, user: dict = Depends(get_current_user)):
+    """Create a new backup log entry"""
+    log = {
+        "id": str(uuid.uuid4()),
+        "client_id": data.client_id,
+        "backup_date": data.backup_date,
+        "backup_type": data.backup_type,
+        "status": data.status,
+        "storage_size_gb": data.storage_size_gb,
+        "destination": data.destination,
+        "notes": data.notes,
+        "created_by": user["id"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.backup_logs.insert_one(log)
+    log.pop("_id", None)
+    return log
+
+@api_router.put("/backups/{log_id}")
+async def update_backup_log(log_id: str, data: BackupLogUpdate, user: dict = Depends(get_current_user)):
+    """Update a backup log entry"""
+    update_data = {k: v for k, v in data.dict().items() if v is not None}
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    result = await db.backup_logs.update_one({"id": log_id}, {"$set": update_data})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Backup log not found")
+    return {"message": "Updated"}
+
+@api_router.delete("/backups/{log_id}")
+async def delete_backup_log(log_id: str, user: dict = Depends(get_current_user)):
+    """Delete a backup log entry"""
+    result = await db.backup_logs.delete_one({"id": log_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Backup log not found")
+    return {"message": "Deleted"}
+
+@api_router.get("/backups/stats")
+async def get_backup_stats(user: dict = Depends(get_current_user)):
+    """Get backup statistics summary"""
+    now = datetime.now(timezone.utc)
+    current_month = now.strftime("%Y-%m")
+    
+    # This month's stats
+    month_logs = await db.backup_logs.find(
+        {"backup_date": {"$regex": f"^{current_month}"}}, {"_id": 0}
+    ).to_list(5000)
+    
+    total_this_month = len(month_logs)
+    successful = len([l for l in month_logs if l["status"] == "success"])
+    failed = len([l for l in month_logs if l["status"] == "failed"])
+    partial = len([l for l in month_logs if l["status"] == "partial"])
+    total_storage = sum(l.get("storage_size_gb", 0) or 0 for l in month_logs)
+    
+    # Get clients with no backups this month
+    all_clients = await db.clients.find({"is_active": {"$ne": False}}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+    clients_with_backups = set(l["client_id"] for l in month_logs)
+    clients_without_backups = [c for c in all_clients if c["id"] not in clients_with_backups]
+    
+    # Recent failures
+    recent_failures = await db.backup_logs.find(
+        {"status": "failed"}, {"_id": 0}
+    ).sort("backup_date", -1).to_list(10)
+    for f in recent_failures:
+        client = await db.clients.find_one({"id": f["client_id"]}, {"_id": 0, "name": 1})
+        f["client_name"] = client["name"] if client else "Unknown"
+    
+    return {
+        "current_month": current_month,
+        "total_this_month": total_this_month,
+        "successful": successful,
+        "failed": failed,
+        "partial": partial,
+        "success_rate": round((successful / total_this_month * 100), 1) if total_this_month > 0 else 0,
+        "total_storage_gb": round(total_storage, 2),
+        "clients_without_backups": clients_without_backups[:20],
+        "recent_failures": recent_failures[:5]
+    }
+
+
 # ==================== BITDEFENDER GRAVITYZONE INTEGRATION ====================
 
 async def bitdefender_api_call(method: str, endpoint: str, params: dict = None):
