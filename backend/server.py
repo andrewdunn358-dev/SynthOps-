@@ -4387,6 +4387,156 @@ async def get_altaro_backup_status(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Altaro API connection error: {str(e)}")
 
 
+# ==================== AHSAY CBS BACKUP INTEGRATION ====================
+
+@api_router.get("/backups/ahsay/status")
+async def get_ahsay_backup_status(user: dict = Depends(get_current_user)):
+    """Fetch live backup user status from AhsayCBS API"""
+    cbs_url = os.environ.get("AHSAY_CBS_URL", "").rstrip("/")
+    sys_user = os.environ.get("AHSAY_SYS_USER", "")
+    sys_pwd = os.environ.get("AHSAY_SYS_PWD", "")
+
+    if not cbs_url or not sys_user or not sys_pwd:
+        raise HTTPException(status_code=400, detail="AhsayCBS API not configured")
+
+    try:
+        async with httpx.AsyncClient(verify=False) as http_client:
+            resp = await http_client.post(
+                f"{cbs_url}/obs/api/json/2/ListUsers.do",
+                json={"SysUser": sys_user, "SysPwd": sys_pwd},
+                headers={"Content-Type": "application/json"},
+                timeout=30.0,
+            )
+
+            if resp.status_code != 200:
+                cached = await db.ahsay_cache.find_one({"type": "latest"}, {"_id": 0})
+                if cached:
+                    cached["from_cache"] = True
+                    return cached
+                raise HTTPException(status_code=resp.status_code, detail=f"AhsayCBS API error: {resp.status_code}")
+
+            data = resp.json()
+            if data.get("Status") != "OK":
+                raise HTTPException(status_code=500, detail=data.get("Message", "AhsayCBS API error"))
+
+            users_raw = data.get("User", [])
+            now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+            users = []
+            total_data_bytes = 0
+            total_quota_bytes = 0
+            stale_users = []
+            active_count = 0
+
+            for u in users_raw:
+                login = u.get("LoginName", "")
+                alias = u.get("Alias", "") or login
+                status = u.get("Status", "UNKNOWN")
+                client_type = u.get("ClientType", "")
+                data_size = u.get("DataSize", 0) or 0
+                last_backup_ms = u.get("LastBackupDate", 0) or 0
+                online = u.get("Online", False)
+                total_data_bytes += data_size
+
+                # Get quota from DestinationQuotaList or Quota field
+                quota = 0
+                dq_list = u.get("DestinationQuotaList") or u.get("QuotaList") or []
+                for dq in dq_list:
+                    if dq.get("Enabled"):
+                        quota = dq.get("Quota", 0) or 0
+                        break
+                if quota == 0:
+                    quota = u.get("Quota", 0) or 0
+                total_quota_bytes += quota
+
+                # Calculate last backup age
+                if last_backup_ms > 0:
+                    age_hours = (now_ms - last_backup_ms) / (1000 * 60 * 60)
+                    last_backup_iso = datetime.fromtimestamp(last_backup_ms / 1000, tz=timezone.utc).isoformat()
+                else:
+                    age_hours = -1
+                    last_backup_iso = None
+
+                # Determine backup health
+                if age_hours < 0:
+                    backup_status = "never"
+                elif age_hours <= 26:
+                    backup_status = "success"
+                    active_count += 1
+                elif age_hours <= 72:
+                    backup_status = "warning"
+                    active_count += 1
+                else:
+                    backup_status = "stale"
+
+                user_info = {
+                    "login_name": login,
+                    "alias": alias,
+                    "status": status,
+                    "client_type": client_type,
+                    "data_size_bytes": data_size,
+                    "data_size_gb": round(data_size / (1024**3), 2) if data_size > 0 else 0,
+                    "quota_bytes": quota,
+                    "quota_gb": round(quota / (1024**3), 2) if quota > 0 else 0,
+                    "quota_used_pct": round((data_size / quota * 100), 1) if quota > 0 else 0,
+                    "last_backup": last_backup_iso,
+                    "last_backup_age_hours": round(age_hours, 1) if age_hours >= 0 else None,
+                    "backup_status": backup_status,
+                    "online": online,
+                }
+                users.append(user_info)
+
+                if backup_status == "stale":
+                    stale_users.append({
+                        "login_name": login,
+                        "alias": alias,
+                        "last_backup": last_backup_iso,
+                        "age_hours": round(age_hours, 1),
+                    })
+
+            # Sort: stale first, then warning, then success, then never
+            status_order = {"stale": 0, "warning": 1, "never": 2, "success": 3}
+            users.sort(key=lambda x: status_order.get(x["backup_status"], 4))
+
+            success_count = len([u for u in users if u["backup_status"] == "success"])
+            warning_count = len([u for u in users if u["backup_status"] == "warning"])
+            stale_count = len([u for u in users if u["backup_status"] == "stale"])
+            never_count = len([u for u in users if u["backup_status"] == "never"])
+
+            result = {
+                "users": users,
+                "summary": {
+                    "total_users": len(users),
+                    "active": active_count,
+                    "successful": success_count,
+                    "warning": warning_count,
+                    "stale": stale_count,
+                    "never": never_count,
+                    "total_data_gb": round(total_data_bytes / (1024**3), 2),
+                    "total_quota_gb": round(total_quota_bytes / (1024**3), 2),
+                    "health_rate": round((success_count / len(users) * 100), 1) if len(users) > 0 else 0,
+                },
+                "stale_users": stale_users,
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+                "from_cache": False,
+            }
+
+            # Cache the result
+            await db.ahsay_cache.update_one(
+                {"type": "latest"},
+                {"$set": {**result, "type": "latest"}},
+                upsert=True,
+            )
+
+            return result
+
+    except httpx.RequestError as e:
+        cached = await db.ahsay_cache.find_one({"type": "latest"}, {"_id": 0})
+        if cached:
+            cached["from_cache"] = True
+            return cached
+        raise HTTPException(status_code=500, detail=f"AhsayCBS API connection error: {str(e)}")
+
+
 # ==================== BITDEFENDER GRAVITYZONE INTEGRATION ====================
 
 async def bitdefender_api_call(method: str, endpoint: str, params: dict = None):

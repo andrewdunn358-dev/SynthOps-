@@ -46,12 +46,15 @@ export default function Backups() {
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
   const [altaro, setAltaro] = useState(null);
   const [altaroLoading, setAltaroLoading] = useState(false);
+  const [ahsay, setAhsay] = useState(null);
+  const [ahsayLoading, setAhsayLoading] = useState(false);
   const [expandedCustomers, setExpandedCustomers] = useState({});
   const [activeTab, setActiveTab] = useState('altaro');
 
   useEffect(() => {
     fetchData();
     fetchAltaro();
+    fetchAhsay();
   }, [filterClient, filterStatus, filterMonth]);
 
   const fetchData = async () => {
@@ -85,6 +88,18 @@ export default function Backups() {
       // Altaro not configured or rate limited
     } finally {
       setAltaroLoading(false);
+    }
+  };
+
+  const fetchAhsay = async () => {
+    setAhsayLoading(true);
+    try {
+      const res = await apiClient.get('/backups/ahsay/status');
+      setAhsay(res.data);
+    } catch (e) {
+      // Ahsay not configured
+    } finally {
+      setAhsayLoading(false);
     }
   };
 
@@ -196,9 +211,13 @@ export default function Backups() {
             <HardDrive className="h-8 w-8 text-primary" />
             BACKUP TRACKING
           </h1>
-          <p className="text-muted-foreground">Live Altaro backup status and manual backup logs</p>
+          <p className="text-muted-foreground">Live Altaro & Ahsay backup status and manual backup logs</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={fetchAhsay} disabled={ahsayLoading} data-testid="refresh-ahsay">
+            <RefreshCw className={`h-4 w-4 mr-2 ${ahsayLoading ? 'animate-spin' : ''}`} />
+            Refresh Ahsay
+          </Button>
           <Button variant="outline" onClick={fetchAltaro} disabled={altaroLoading} data-testid="refresh-altaro">
             <RefreshCw className={`h-4 w-4 mr-2 ${altaroLoading ? 'animate-spin' : ''}`} />
             Refresh Altaro
@@ -278,6 +297,7 @@ export default function Backups() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="altaro" data-testid="tab-altaro">Altaro Live Status</TabsTrigger>
+          <TabsTrigger value="ahsay" data-testid="tab-ahsay">Ahsay CBS Status</TabsTrigger>
           <TabsTrigger value="manual" data-testid="tab-manual">Manual Logs</TabsTrigger>
         </TabsList>
 
@@ -370,6 +390,172 @@ export default function Backups() {
             <Card><CardContent className="p-8 text-center text-muted-foreground">
               <Database className="h-8 w-8 mx-auto mb-2 opacity-50" />
               Altaro backup data not available. Check API configuration.
+            </CardContent></Card>
+          )}
+        </TabsContent>
+
+        {/* Ahsay CBS Tab */}
+        <TabsContent value="ahsay" className="space-y-4">
+          {ahsayLoading ? (
+            <Card><CardContent className="p-8 text-center text-muted-foreground"><RefreshCw className="h-8 w-8 mx-auto mb-2 animate-spin" />Loading Ahsay data...</CardContent></Card>
+          ) : ahsay?.users ? (
+            <>
+              {ahsay.from_cache && (
+                <div className="text-xs text-amber-400 flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> Showing cached data
+                  {ahsay.fetched_at && <span> &middot; Last fetched: {new Date(ahsay.fetched_at).toLocaleString()}</span>}
+                </div>
+              )}
+              {/* Ahsay Summary */}
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-4" data-testid="ahsay-summary">
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <p className="text-2xl font-bold font-mono">{ahsay.summary.total_users}</p>
+                    <p className="text-xs text-muted-foreground">Total Users</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-l-4 border-l-emerald-500">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-2xl font-bold font-mono text-emerald-400">{ahsay.summary.successful}</p>
+                    <p className="text-xs text-muted-foreground">Healthy (&lt;26h)</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-l-4 border-l-amber-500">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-2xl font-bold font-mono text-amber-400">{ahsay.summary.warning}</p>
+                    <p className="text-xs text-muted-foreground">Warning (26-72h)</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-l-4 border-l-red-500">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-2xl font-bold font-mono text-red-400">{ahsay.summary.stale}</p>
+                    <p className="text-xs text-muted-foreground">Stale (&gt;72h)</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <p className="text-2xl font-bold font-mono">{ahsay.summary.total_data_gb} GB</p>
+                    <p className="text-xs text-muted-foreground">Total Data</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <p className="text-2xl font-bold font-mono">{ahsay.summary.health_rate}%</p>
+                    <p className="text-xs text-muted-foreground">Health Rate</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Stale Users Alert */}
+              {ahsay.stale_users?.length > 0 && (
+                <Card className="border-red-500/50 bg-red-500/5" data-testid="ahsay-stale-alert">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2 text-red-400">
+                      <XCircle className="h-4 w-4" />
+                      Stale Backups ({ahsay.stale_users.length}) - No backup in 72+ hours
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-1">
+                      {ahsay.stale_users.map((u, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-sm p-2 bg-red-500/10 rounded">
+                          <span className="font-medium">{u.alias || u.login_name}</span>
+                          <span className="text-muted-foreground text-xs">{u.last_backup ? `${Math.floor(u.age_hours / 24)}d ago` : 'Never'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Ahsay Users Table */}
+              <Card>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left p-3 font-medium text-muted-foreground">User</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Type</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Status</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Last Backup</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Data Size</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Quota Used</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Online</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ahsay.users.map(u => {
+                          const statusColors = {
+                            success: 'bg-emerald-500/20 text-emerald-400',
+                            warning: 'bg-amber-500/20 text-amber-400',
+                            stale: 'bg-red-500/20 text-red-400',
+                            never: 'bg-gray-500/20 text-gray-400',
+                          };
+                          const statusLabels = {
+                            success: 'Healthy',
+                            warning: 'Warning',
+                            stale: 'Stale',
+                            never: 'Never',
+                          };
+                          const StatusIcon = u.backup_status === 'success' ? CheckCircle : u.backup_status === 'stale' ? XCircle : AlertTriangle;
+                          return (
+                            <tr key={u.login_name} className="border-b border-border/50 hover:bg-muted/30" data-testid={`ahsay-user-${u.login_name}`}>
+                              <td className="p-3">
+                                <div className="font-medium">{u.alias || u.login_name}</div>
+                                {u.alias && u.alias !== u.login_name && <div className="text-xs text-muted-foreground">{u.login_name}</div>}
+                              </td>
+                              <td className="p-3">
+                                <Badge variant="outline" className="text-xs">{u.client_type}</Badge>
+                              </td>
+                              <td className="p-3">
+                                <Badge className={statusColors[u.backup_status]}>
+                                  <StatusIcon className="h-3 w-3 mr-1" />
+                                  {statusLabels[u.backup_status]}
+                                </Badge>
+                              </td>
+                              <td className="p-3 text-xs">
+                                {u.last_backup ? (
+                                  <div>
+                                    <div>{timeAgo(u.last_backup)}</div>
+                                    <div className="text-muted-foreground">{new Date(u.last_backup).toLocaleDateString()}</div>
+                                  </div>
+                                ) : (
+                                  <span className="text-muted-foreground">Never</span>
+                                )}
+                              </td>
+                              <td className="p-3 font-mono text-xs">{u.data_size_gb} GB</td>
+                              <td className="p-3">
+                                {u.quota_gb > 0 ? (
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
+                                      <div
+                                        className={`h-full rounded-full ${u.quota_used_pct > 90 ? 'bg-red-500' : u.quota_used_pct > 70 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                                        style={{ width: `${Math.min(u.quota_used_pct, 100)}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-xs font-mono">{u.quota_used_pct}%</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">Unlimited</span>
+                                )}
+                              </td>
+                              <td className="p-3">
+                                {u.online ? <Badge className="bg-emerald-500/20 text-emerald-400 text-xs">Online</Badge> : <span className="text-xs text-muted-foreground">Offline</span>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <Card><CardContent className="p-8 text-center text-muted-foreground">
+              <Database className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              Ahsay CBS data not available. Check API configuration.
             </CardContent></Card>
           )}
         </TabsContent>

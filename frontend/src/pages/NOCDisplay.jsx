@@ -14,6 +14,7 @@ export default function NOCDisplay() {
   const [securityAlerts, setSecurityAlerts] = useState(null);
   const [recurringTasks, setRecurringTasks] = useState([]);
   const [backupStats, setBackupStats] = useState(null);
+  const [ahsayStats, setAhsayStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [error, setError] = useState(null);
@@ -79,6 +80,19 @@ export default function NOCDisplay() {
         } catch (e2) {
           // Backups not available
         }
+      }
+
+      // Get Ahsay CBS backup stats
+      try {
+        const ahsayRes = await apiClient.get('/backups/ahsay/status');
+        if (ahsayRes.data?.summary) {
+          setAhsayStats({
+            ...ahsayRes.data.summary,
+            stale_users: ahsayRes.data.stale_users || [],
+          });
+        }
+      } catch (e) {
+        // Ahsay not available
       }
     } catch (err) {
       console.error('NOC fetch error:', err);
@@ -393,11 +407,11 @@ export default function NOCDisplay() {
                 </div>
               </div>
 
-              {/* Backup Status */}
+              {/* Backup Status - Altaro */}
               <div className="noc-reminder-panel">
                 <h3 className="noc-panel-title">
                   <HardDrive className="h-5 w-5" />
-                  Backup Status (This Month)
+                  Altaro Backup Status
                 </h3>
                 <div className="noc-panel-content">
                   {backupStats ? (
@@ -440,7 +454,60 @@ export default function NOCDisplay() {
                   ) : (
                     <div className="noc-status-ok">
                       <HardDrive className="h-6 w-6 text-muted-foreground" />
-                      <span>No backup data yet</span>
+                      <span>No Altaro data</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Backup Status - Ahsay CBS */}
+              <div className="noc-reminder-panel">
+                <h3 className="noc-panel-title">
+                  <HardDrive className="h-5 w-5" />
+                  Ahsay CBS Status
+                </h3>
+                <div className="noc-panel-content">
+                  {ahsayStats ? (
+                    <>
+                      <div className="noc-backup-stats-grid">
+                        <div className="noc-backup-stat success">
+                          <CheckCircle className="h-5 w-5" />
+                          <span className="noc-backup-stat-num">{ahsayStats.successful}</span>
+                          <span className="noc-backup-stat-label">Healthy</span>
+                        </div>
+                        <div className={`noc-backup-stat ${ahsayStats.stale > 0 ? 'failed' : 'ok'}`}>
+                          <XCircle className="h-5 w-5" />
+                          <span className="noc-backup-stat-num">{ahsayStats.stale}</span>
+                          <span className="noc-backup-stat-label">Stale</span>
+                        </div>
+                        <div className="noc-backup-stat info">
+                          <HardDrive className="h-5 w-5" />
+                          <span className="noc-backup-stat-num">{ahsayStats.total_data_gb} GB</span>
+                          <span className="noc-backup-stat-label">Total Data</span>
+                        </div>
+                        <div className="noc-backup-stat info">
+                          <Bell className="h-5 w-5" />
+                          <span className="noc-backup-stat-num">{ahsayStats.health_rate}%</span>
+                          <span className="noc-backup-stat-label">Health Rate</span>
+                        </div>
+                      </div>
+                      {ahsayStats.stale_users?.length > 0 && (
+                        <div className="noc-backup-failures">
+                          <h4 className="noc-backup-failures-title">Stale Backups ({ahsayStats.stale_users.length})</h4>
+                          {ahsayStats.stale_users.slice(0, 8).map((u, idx) => (
+                            <div key={idx} className="noc-backup-failure-item">
+                              <XCircle className="h-4 w-4 text-red-400 shrink-0" />
+                              <span className="noc-backup-failure-client">{u.alias || u.login_name}</span>
+                              <span className="noc-backup-failure-date">{u.last_backup ? `${Math.floor(u.age_hours / 24)}d ago` : 'Never'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="noc-status-ok">
+                      <HardDrive className="h-6 w-6 text-muted-foreground" />
+                      <span>No Ahsay data</span>
                     </div>
                   )}
                 </div>
