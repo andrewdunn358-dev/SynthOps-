@@ -116,6 +116,19 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 4. **Smooth Transitions**: Fade in/out between views
 5. **Data Refresh**: Continues fetching fresh data every 30 seconds regardless of view
 
+### Backup Tracking System
+1. **Backend CRUD**: `/api/backups` - Create, Read, Update, Delete backup logs with client enrichment
+2. **Backup Stats**: `/api/backups/stats` - Monthly summary with success rate, storage totals, clients without backups, recent failures
+3. **Frontend Page**: `/backups` - Full page with stat cards, failure alerts, month/client/status filters, data table with edit/delete
+4. **Dashboard Integration**: Backup status card shows monthly summary with failure alerts on main dashboard
+5. **NOC Integration**: Reminders view shows backup stats and recent failures on the NOC cycle
+
+### NOC Reminders View
+1. Added 5th view "Reminders" to NOC auto-cycle (Security → Clients → Servers → Reminders → Alerts)
+2. Shows recurring tasks with priority indicators and frequency badges
+3. Shows backup status with stats grid and recent failures
+4. Shows clients without backups this month
+
 ### Bug Fixes (This Session)
 1. **Task Assignment Dropdown** - Users fetch separated from Promise.all so it doesn't fail silently when other requests fail
 2. **Login Auth Detection** - Login page now redirects to dashboard if user is already authenticated
