@@ -3634,6 +3634,50 @@ async def get_recent_activity(limit: int = 20, user: dict = Depends(get_current_
     activities.sort(key=lambda x: x["timestamp"], reverse=True)
     return activities[:limit]
 
+@api_router.get("/dashboard/tech-tip")
+async def get_daily_tech_tip(user: dict = Depends(get_current_user)):
+    """Get a daily tech tip - rotates through curated MSP/IT tips"""
+    tips = [
+        {"category": "Security", "tip": "Enable MFA on all admin accounts. It blocks 99.9% of automated attacks and is the single most effective security measure you can implement.", "source": "NIST SP 800-63B"},
+        {"category": "Backup", "tip": "Follow the 3-2-1 backup rule: 3 copies of data, on 2 different media types, with 1 copy offsite. Test restores monthly.", "source": "US-CERT"},
+        {"category": "Networking", "tip": "Segment your network with VLANs. If ransomware hits one subnet, proper segmentation prevents lateral movement across the entire network.", "source": "CIS Controls v8"},
+        {"category": "Windows", "tip": "Use Group Policy to disable SMBv1 across all endpoints. It's the protocol exploited by WannaCry and EternalBlue.", "source": "Microsoft Security Advisory"},
+        {"category": "Monitoring", "tip": "Set up SNMP traps for disk space alerts at 80% and 90%. Most server outages are caused by full disks that could have been caught early.", "source": "Best Practice"},
+        {"category": "PowerShell", "tip": "Use 'Get-EventLog -LogName System -EntryType Error -Newest 20' to quickly check recent system errors on a Windows server without opening Event Viewer.", "source": "SysAdmin Tip"},
+        {"category": "Active Directory", "tip": "Run 'dcdiag /v' monthly on all domain controllers. It catches replication issues, DNS problems, and trust relationship failures before they cascade.", "source": "Microsoft TechNet"},
+        {"category": "Security", "tip": "Audit local admin accounts quarterly. Disable any that aren't needed. Every local admin account is a potential lateral movement path for attackers.", "source": "CIS Benchmark"},
+        {"category": "Patching", "tip": "Patch critical vulnerabilities within 14 days of release. Automate where possible, but always test on a pilot group first.", "source": "CISA BOD 22-01"},
+        {"category": "DNS", "tip": "Implement DNS filtering (e.g., Quad9, OpenDNS) as an easy first layer of defence. It blocks known malicious domains before they even resolve.", "source": "NCSC Guidance"},
+        {"category": "Email", "tip": "Configure SPF, DKIM, and DMARC for all client domains. It dramatically reduces email spoofing and improves deliverability.", "source": "Google/Microsoft Best Practice"},
+        {"category": "RMM", "tip": "Create automated maintenance tasks in your RMM for disk cleanup, temp file removal, and Windows Update checks. Proactive beats reactive every time.", "source": "MSP Best Practice"},
+        {"category": "Documentation", "tip": "Document every network change with date, who, what, and why. Future you (or the next tech) will thank present you during an outage at 2am.", "source": "ITIL v4"},
+        {"category": "Virtualization", "tip": "Never allocate more than 80% of host RAM to VMs. Leave headroom for the hypervisor and unexpected memory spikes.", "source": "VMware/Proxmox Best Practice"},
+        {"category": "SSL", "tip": "Set calendar reminders 30 days before SSL certificate expiry. Better yet, use Let's Encrypt with auto-renewal and never worry about it again.", "source": "Best Practice"},
+        {"category": "Firewall", "tip": "Review firewall rules quarterly. Remove any 'temporary' rules that are older than 90 days. Temporary rules have a habit of becoming permanent vulnerabilities.", "source": "CIS Controls"},
+        {"category": "Password", "tip": "Use a password manager for all client credentials. Never store passwords in spreadsheets, sticky notes, or email. Vaultwarden is a great self-hosted option.", "source": "NIST SP 800-63B"},
+        {"category": "Endpoint", "tip": "Enable BitLocker (or equivalent) on all laptops. If a device is lost or stolen, full-disk encryption is the difference between a minor incident and a data breach.", "source": "ICO Guidance"},
+        {"category": "Linux", "tip": "Use 'fail2ban' on all internet-facing Linux servers. It automatically blocks IPs after repeated failed login attempts.", "source": "SysAdmin Tip"},
+        {"category": "Cloud", "tip": "Enable audit logging in M365/Google Workspace for all client tenants. When an incident happens, logs are the first thing you need and the last thing people configure.", "source": "Microsoft 365 Security"},
+        {"category": "Disaster Recovery", "tip": "Run a tabletop DR exercise with your team once a year. Walk through a scenario: 'Client X's server is encrypted with ransomware. What do we do first?'", "source": "NIST CSF"},
+        {"category": "Performance", "tip": "Check server uptime regularly with 'systeminfo | find \"Boot Time\"' on Windows or 'uptime' on Linux. Servers that haven't rebooted in months are probably missing critical patches.", "source": "Best Practice"},
+        {"category": "Networking", "tip": "Label every network cable and port. Document switch port assignments. During an outage, you don't want to be tracing cables with a torch.", "source": "Structured Cabling Standard"},
+        {"category": "Security", "tip": "Implement application whitelisting on critical servers. If an executable isn't on the approved list, it doesn't run. Simple and devastatingly effective against malware.", "source": "ASD Essential Eight"},
+        {"category": "Automation", "tip": "If you do something more than 3 times, script it. PowerShell, Python, or bash - pick one and invest time in automation. Your future self will have more time for complex problems.", "source": "DevOps Principle"},
+        {"category": "Client Management", "tip": "Send monthly reports to clients showing uptime, patches applied, and threats blocked. It demonstrates value and justifies your managed service fees.", "source": "MSP Growth Strategy"},
+        {"category": "Hardware", "tip": "Check server RAID array health weekly. A degraded RAID with no alert is one drive failure away from total data loss.", "source": "Storage Best Practice"},
+        {"category": "Windows", "tip": "Use 'sfc /scannow' and 'DISM /Online /Cleanup-Image /RestoreHealth' when Windows starts behaving oddly. Corrupted system files cause more issues than people realise.", "source": "Microsoft Support"},
+        {"category": "Backup", "tip": "Test a bare-metal restore at least once a quarter. A backup that can't be restored is not a backup - it's a false sense of security.", "source": "ISO 27001"},
+        {"category": "Remote Access", "tip": "Never expose RDP directly to the internet. Use a VPN or RDP Gateway. Open port 3389 is the #1 target for brute-force attacks and ransomware.", "source": "CISA Alert AA20-073A"},
+    ]
+    
+    # Use day of year to rotate tips (one per day, cycles through all)
+    day_of_year = datetime.now(timezone.utc).timetuple().tm_yday
+    tip_index = day_of_year % len(tips)
+    tip = tips[tip_index]
+    tip["day"] = day_of_year
+    tip["total_tips"] = len(tips)
+    return tip
+
 @api_router.get("/staff/activity")
 async def get_staff_activity(user: dict = Depends(get_current_user)):
     users = await db.users.find({"is_active": True}, {"_id": 0, "password_hash": 0, "totp_secret": 0}).to_list(100)

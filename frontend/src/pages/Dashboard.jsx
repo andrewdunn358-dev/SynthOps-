@@ -10,7 +10,7 @@ import {
   Building2, Server, ListTodo, FolderKanban, AlertTriangle, 
   Activity, ArrowRight, CheckCircle, Clock, AlertCircle,
   RefreshCw, Wrench, WifiOff, X, Bell, Shield, ShieldAlert,
-  Network, HardDrive, Monitor, Container, Cpu, MemoryStick, Calendar
+  Network, HardDrive, Monitor, Container, Cpu, MemoryStick, Calendar, Lightbulb
 } from 'lucide-react';
 
 function formatBytes(bytes, decimals = 1) {
@@ -31,6 +31,7 @@ export default function Dashboard() {
   const [securityAlerts, setSecurityAlerts] = useState(null);
   const [infraStatus, setInfraStatus] = useState(null);
   const [upcomingTasks, setUpcomingTasks] = useState([]);
+  const [techTip, setTechTip] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -74,6 +75,14 @@ export default function Dashboard() {
         setUpcomingTasks(upcomingRes.data);
       } catch (e) {
         // Upcoming tasks endpoint not available
+      }
+
+      // Get daily tech tip
+      try {
+        const tipRes = await apiClient.get('/dashboard/tech-tip');
+        setTechTip(tipRes.data);
+      } catch (e) {
+        // Tech tip not available
       }
     } catch (error) {
       console.error('Dashboard fetch error:', error);
@@ -320,6 +329,27 @@ export default function Dashboard() {
           Refresh
         </Button>
       </div>
+
+      {/* Daily Tech Tip */}
+      {techTip && (
+        <Card className="border-l-4 border-l-cyan-500 bg-gradient-to-r from-cyan-500/5 to-transparent" data-testid="daily-tech-tip">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-full bg-cyan-500/20 mt-0.5 shrink-0">
+                <Lightbulb className="h-5 w-5 text-cyan-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-semibold text-sm text-cyan-400">Daily Tech Tip</span>
+                  <Badge variant="outline" className="text-xs">{techTip.category}</Badge>
+                </div>
+                <p className="text-sm leading-relaxed">{techTip.tip}</p>
+                <p className="text-xs text-muted-foreground mt-1">Source: {techTip.source}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Security Status Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

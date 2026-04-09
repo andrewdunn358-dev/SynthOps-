@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../App';
 import { toast } from 'sonner';
@@ -13,7 +13,7 @@ import { Loader2, Eye, EyeOff } from 'lucide-react';
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login, register } = useAuth();
+  const { login, register, token, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   
@@ -21,6 +21,13 @@ export default function Login() {
   const [registerForm, setRegisterForm] = useState({ email: '', username: '', password: '', confirmPassword: '' });
 
   const from = location.state?.from?.pathname || '/';
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (!authLoading && token) {
+      navigate(from, { replace: true });
+    }
+  }, [token, authLoading, navigate, from]);
 
   const handleLogin = async (e) => {
     e.preventDefault();

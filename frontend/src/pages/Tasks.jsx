@@ -80,18 +80,24 @@ export default function Tasks() {
 
   const fetchData = async () => {
     try {
-      const [tasksRes, kanbanRes, clientsRes, projectsRes, usersRes] = await Promise.all([
+      const [tasksRes, kanbanRes, clientsRes, projectsRes] = await Promise.all([
         apiClient.get('/tasks'),
         apiClient.get('/tasks/kanban'),
         apiClient.get('/clients'),
-        apiClient.get('/projects'),
-        apiClient.get('/users')
+        apiClient.get('/projects')
       ]);
       setTasks(tasksRes.data);
       setKanban(kanbanRes.data);
       setClients(clientsRes.data);
       setProjects(projectsRes.data);
-      setUsers(usersRes.data);
+      
+      // Fetch users separately so a failure doesn't break everything
+      try {
+        const usersRes = await apiClient.get('/users');
+        setUsers(usersRes.data || []);
+      } catch (userErr) {
+        console.error('Failed to load users for assignment:', userErr);
+      }
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to load tasks'));
     } finally {

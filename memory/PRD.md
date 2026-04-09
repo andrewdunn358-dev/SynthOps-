@@ -116,7 +116,10 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 4. **Smooth Transitions**: Fade in/out between views
 5. **Data Refresh**: Continues fetching fresh data every 30 seconds regardless of view
 
-### Zammad Integration Fully Removed
+### Bug Fixes (This Session)
+1. **Task Assignment Dropdown** - Users fetch separated from Promise.all so it doesn't fail silently when other requests fail
+2. **Login Auth Detection** - Login page now redirects to dashboard if user is already authenticated
+3. **Daily Tech Tips** - 30 curated MSP/IT tech tips rotate daily on the Dashboard (DNS, Security, Backup, PowerShell, etc.)
 1. **Backend** - All Zammad endpoints removed (~400 lines): /zammad/test, /zammad/tickets, /zammad/stats, /zammad/organizations, /zammad/tickets/{id}/reply, /zammad/ticket-to-task, /zammad/sync-to-tasks
 2. **Scheduled Sync** - `scheduled_zammad_sync()` function and scheduler job removed
 3. **Sync Status** - `/sync/status` and `/sync/trigger` no longer reference Zammad
