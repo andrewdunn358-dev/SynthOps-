@@ -116,6 +116,14 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 4. **Smooth Transitions**: Fade in/out between views
 5. **Data Refresh**: Continues fetching fresh data every 30 seconds regardless of view
 
+### Altaro Backup API Integration
+1. **Live backup data**: Pulls real-time VM backup status from Altaro/Hornetsecurity API (19 customers, 41 VMs)
+2. **Smart caching**: Results cached in MongoDB; falls back to cache when API rate-limited (5 min cooldown)
+3. **Customer breakdown**: Per-customer VM counts, success/fail badges, expandable VM details
+4. **Failed backup alerts**: Highlighted at top of page with customer and VM name
+5. **NOC Integration**: Reminders view shows live Altaro stats (28 success, 5 failed, 206 GB, 68.3% rate)
+6. **Tabbed UI**: "Altaro Live Status" tab for auto data + "Manual Logs" tab for manual entries
+
 ### Backup Tracking System
 1. **Backend CRUD**: `/api/backups` - Create, Read, Update, Delete backup logs with client enrichment
 2. **Backup Stats**: `/api/backups/stats` - Monthly summary with success rate, storage totals, clients without backups, recent failures

@@ -61,12 +61,24 @@ export default function NOCDisplay() {
         // Tasks not available
       }
 
-      // Get backup stats
+      // Get backup stats - use Altaro if available
       try {
-        const backupRes = await apiClient.get('/backups/stats');
-        setBackupStats(backupRes.data);
+        const altaroRes = await apiClient.get('/backups/altaro/status');
+        if (altaroRes.data?.summary) {
+          setBackupStats({
+            ...altaroRes.data.summary,
+            recent_failures: altaroRes.data.failed_vms || [],
+            from_altaro: true,
+          });
+        }
       } catch (e) {
-        // Backups not available
+        // Fall back to manual backup stats
+        try {
+          const backupRes = await apiClient.get('/backups/stats');
+          setBackupStats(backupRes.data);
+        } catch (e2) {
+          // Backups not available
+        }
       }
     } catch (err) {
       console.error('NOC fetch error:', err);
@@ -403,7 +415,7 @@ export default function NOCDisplay() {
                         </div>
                         <div className="noc-backup-stat info">
                           <HardDrive className="h-5 w-5" />
-                          <span className="noc-backup-stat-num">{backupStats.total_storage_gb} GB</span>
+                          <span className="noc-backup-stat-num">{backupStats.total_size_gb} GB</span>
                           <span className="noc-backup-stat-label">Total Size</span>
                         </div>
                         <div className="noc-backup-stat info">
@@ -414,27 +426,14 @@ export default function NOCDisplay() {
                       </div>
                       {backupStats.recent_failures?.length > 0 && (
                         <div className="noc-backup-failures">
-                          <h4 className="noc-backup-failures-title">Recent Failures</h4>
-                          {backupStats.recent_failures.map((f, idx) => (
-                            <div key={f.id || idx} className="noc-backup-failure-item">
+                          <h4 className="noc-backup-failures-title">Failed Backups ({backupStats.recent_failures.length})</h4>
+                          {backupStats.recent_failures.slice(0, 8).map((f, idx) => (
+                            <div key={idx} className="noc-backup-failure-item">
                               <XCircle className="h-4 w-4 text-red-400 shrink-0" />
-                              <span className="noc-backup-failure-client">{f.client_name}</span>
-                              <span className="noc-backup-failure-date">{f.backup_date}</span>
+                              <span className="noc-backup-failure-client">{f.customer || f.client_name}</span>
+                              <span className="noc-backup-failure-date">{f.vm || ''}</span>
                             </div>
                           ))}
-                        </div>
-                      )}
-                      {backupStats.clients_without_backups?.length > 0 && (
-                        <div className="noc-backup-missing">
-                          <h4 className="noc-backup-failures-title">No Backups This Month ({backupStats.clients_without_backups.length} clients)</h4>
-                          <div className="noc-backup-missing-list">
-                            {backupStats.clients_without_backups.slice(0, 8).map(c => (
-                              <span key={c.id} className="noc-backup-missing-client">{c.name}</span>
-                            ))}
-                            {backupStats.clients_without_backups.length > 8 && (
-                              <span className="noc-backup-missing-more">+{backupStats.clients_without_backups.length - 8} more</span>
-                            )}
-                          </div>
                         </div>
                       )}
                     </>

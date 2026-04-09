@@ -4248,6 +4248,145 @@ async def get_backup_stats(user: dict = Depends(get_current_user)):
     }
 
 
+# ==================== ALTARO BACKUP INTEGRATION ====================
+
+@api_router.get("/backups/altaro/status")
+async def get_altaro_backup_status(user: dict = Depends(get_current_user)):
+    """Fetch live backup status from Altaro/Hornetsecurity API"""
+    api_url = os.environ.get("ALTARO_API_URL", "")
+    api_key = os.environ.get("ALTARO_API_KEY", "")
+    
+    if not api_url or not api_key:
+        raise HTTPException(status_code=400, detail="Altaro API not configured")
+    
+    try:
+        async with httpx.AsyncClient() as http_client:
+            resp = await http_client.get(
+                api_url,
+                headers={"X-API-KEY": api_key},
+                timeout=30.0
+            )
+            if resp.status_code == 403:
+                # Rate limited - return cached data
+                cached = await db.altaro_cache.find_one({"type": "latest"}, {"_id": 0})
+                if cached:
+                    cached["from_cache"] = True
+                    return cached
+                raise HTTPException(status_code=429, detail="Altaro API rate limited (max 1 request per 5 min). No cached data available.")
+            
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail=f"Altaro API error: {resp.status_code}")
+            
+            raw_data = resp.json()
+            
+            # Parse the Altaro response into a clean format
+            customers = []
+            total_vms = 0
+            total_success = 0
+            total_failed = 0
+            total_unknown = 0
+            total_size_bytes = 0
+            failed_vms = []
+            
+            for customer in raw_data:
+                customer_name = customer.get("customerName", "Unknown")
+                customer_vms = []
+                
+                for installation in customer.get("installationStatusReports", []):
+                    for host in installation.get("hostStatusReports", []):
+                        host_name = host.get("name", "")
+                        host_type = host.get("hostTypeName", "")
+                        
+                        for vm in host.get("virtualMachinesStatus", []):
+                            total_vms += 1
+                            result = vm.get("lastOnsiteBackupResult", 0)
+                            result_name = vm.get("lastOnsiteBackupResultName", "Unknown")
+                            size_bytes = vm.get("lastOnsiteBackupProcessedTransferSize", 0) or 0
+                            total_size_bytes += size_bytes
+                            
+                            if result == 1:
+                                total_success += 1
+                                status = "success"
+                            elif result == 2:
+                                total_failed += 1
+                                status = "failed"
+                            else:
+                                total_unknown += 1
+                                status = "unknown"
+                            
+                            vm_info = {
+                                "name": vm.get("name", ""),
+                                "status": status,
+                                "result_name": result_name,
+                                "last_backup_time": vm.get("lastOnsiteBackupTime"),
+                                "duration_seconds": vm.get("lastOnsiteBackupDuration", 0),
+                                "size_bytes": size_bytes,
+                                "size_gb": round(size_bytes / (1024**3), 2) if size_bytes > 0 else 0,
+                                "offsite_status": vm.get("lastOffsiteCopyResultName", "Unknown"),
+                                "offsite_time": vm.get("lastOffsiteCopyTime"),
+                                "cdp_enabled": vm.get("cdpEnabled", False),
+                                "host": host_name,
+                                "host_type": host_type,
+                            }
+                            customer_vms.append(vm_info)
+                            
+                            if status == "failed":
+                                failed_vms.append({
+                                    "customer": customer_name,
+                                    "vm": vm.get("name", ""),
+                                    "last_backup": vm.get("lastOnsiteBackupTime"),
+                                    "host": host_name,
+                                })
+                
+                if customer_vms:
+                    customer_success = len([v for v in customer_vms if v["status"] == "success"])
+                    customer_failed = len([v for v in customer_vms if v["status"] == "failed"])
+                    customer_total_size = sum(v["size_bytes"] for v in customer_vms)
+                    
+                    customers.append({
+                        "name": customer_name,
+                        "vms": customer_vms,
+                        "total_vms": len(customer_vms),
+                        "successful": customer_success,
+                        "failed": customer_failed,
+                        "unknown": len(customer_vms) - customer_success - customer_failed,
+                        "total_size_gb": round(customer_total_size / (1024**3), 2) if customer_total_size > 0 else 0,
+                        "status": "failed" if customer_failed > 0 else ("success" if customer_success > 0 else "unknown"),
+                    })
+            
+            result = {
+                "customers": customers,
+                "summary": {
+                    "total_customers": len(customers),
+                    "total_vms": total_vms,
+                    "successful": total_success,
+                    "failed": total_failed,
+                    "unknown": total_unknown,
+                    "total_size_gb": round(total_size_bytes / (1024**3), 2),
+                    "success_rate": round((total_success / total_vms * 100), 1) if total_vms > 0 else 0,
+                },
+                "failed_vms": failed_vms,
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+                "from_cache": False,
+            }
+            
+            # Cache the result
+            await db.altaro_cache.update_one(
+                {"type": "latest"},
+                {"$set": {**result, "type": "latest"}},
+                upsert=True
+            )
+            
+            return result
+    except httpx.RequestError as e:
+        # Try cached data on network error
+        cached = await db.altaro_cache.find_one({"type": "latest"}, {"_id": 0})
+        if cached:
+            cached["from_cache"] = True
+            return cached
+        raise HTTPException(status_code=500, detail=f"Altaro API connection error: {str(e)}")
+
+
 # ==================== BITDEFENDER GRAVITYZONE INTEGRATION ====================
 
 async def bitdefender_api_call(method: str, endpoint: str, params: dict = None):

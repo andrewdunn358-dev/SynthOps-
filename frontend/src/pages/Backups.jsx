@@ -10,9 +10,11 @@ import { Badge } from '../components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Textarea } from '../components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { 
   HardDrive, Plus, CheckCircle, XCircle, AlertTriangle, 
-  Calendar, Filter, Trash2, Edit, Database
+  Calendar, Filter, Trash2, Edit, Database, RefreshCw, 
+  Cloud, Server, Clock, ChevronDown, ChevronRight
 } from 'lucide-react';
 
 const STATUS_CONFIG = {
@@ -42,9 +44,14 @@ export default function Backups() {
   const [filterClient, setFilterClient] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [altaro, setAltaro] = useState(null);
+  const [altaroLoading, setAltaroLoading] = useState(false);
+  const [expandedCustomers, setExpandedCustomers] = useState({});
+  const [activeTab, setActiveTab] = useState('altaro');
 
   useEffect(() => {
     fetchData();
+    fetchAltaro();
   }, [filterClient, filterStatus, filterMonth]);
 
   const fetchData = async () => {
@@ -67,6 +74,48 @@ export default function Backups() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchAltaro = async () => {
+    setAltaroLoading(true);
+    try {
+      const res = await apiClient.get('/backups/altaro/status');
+      setAltaro(res.data);
+    } catch (e) {
+      // Altaro not configured or rate limited
+    } finally {
+      setAltaroLoading(false);
+    }
+  };
+
+  const toggleCustomer = (name) => {
+    setExpandedCustomers(prev => ({ ...prev, [name]: !prev[name] }));
+  };
+
+  const formatSize = (bytes) => {
+    if (!bytes || bytes === 0) return '-';
+    const gb = bytes / (1024 ** 3);
+    return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / (1024 ** 2)).toFixed(0)} MB`;
+  };
+
+  const formatDuration = (seconds) => {
+    if (!seconds) return '-';
+    if (seconds < 60) return `${seconds}s`;
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}m ${secs}s`;
+  };
+
+  const timeAgo = (dateStr) => {
+    if (!dateStr) return 'Never';
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffHours = Math.floor((now - d) / (1000 * 60 * 60));
+    if (diffHours < 1) return 'Just now';
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 30) return `${diffDays}d ago`;
+    return `${Math.floor(diffDays / 30)}mo ago`;
   };
 
   const handleSubmit = async () => {
@@ -147,66 +196,78 @@ export default function Backups() {
             <HardDrive className="h-8 w-8 text-primary" />
             BACKUP TRACKING
           </h1>
-          <p className="text-muted-foreground">Record and monitor client backup status</p>
+          <p className="text-muted-foreground">Live Altaro backup status and manual backup logs</p>
         </div>
-        <Button onClick={openNew} data-testid="add-backup-btn">
-          <Plus className="h-4 w-4 mr-2" />
-          Log Backup
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={fetchAltaro} disabled={altaroLoading} data-testid="refresh-altaro">
+            <RefreshCw className={`h-4 w-4 mr-2 ${altaroLoading ? 'animate-spin' : ''}`} />
+            Refresh Altaro
+          </Button>
+          <Button onClick={openNew} data-testid="add-backup-btn">
+            <Plus className="h-4 w-4 mr-2" />
+            Log Backup
+          </Button>
+        </div>
       </div>
 
-      {/* Stats */}
-      {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      {/* Altaro Summary Stats */}
+      {altaro?.summary && (
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4" data-testid="altaro-summary">
           <Card>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold font-mono">{stats.total_this_month}</p>
-              <p className="text-xs text-muted-foreground">This Month</p>
+              <p className="text-2xl font-bold font-mono">{altaro.summary.total_customers}</p>
+              <p className="text-xs text-muted-foreground">Customers</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-2xl font-bold font-mono">{altaro.summary.total_vms}</p>
+              <p className="text-xs text-muted-foreground">Total VMs</p>
             </CardContent>
           </Card>
           <Card className="border-l-4 border-l-emerald-500">
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold font-mono text-emerald-400">{stats.successful}</p>
+              <p className="text-2xl font-bold font-mono text-emerald-400">{altaro.summary.successful}</p>
               <p className="text-xs text-muted-foreground">Successful</p>
             </CardContent>
           </Card>
           <Card className="border-l-4 border-l-red-500">
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold font-mono text-red-400">{stats.failed}</p>
+              <p className="text-2xl font-bold font-mono text-red-400">{altaro.summary.failed}</p>
               <p className="text-xs text-muted-foreground">Failed</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold font-mono">{stats.success_rate}%</p>
+              <p className="text-2xl font-bold font-mono">{altaro.summary.success_rate}%</p>
               <p className="text-xs text-muted-foreground">Success Rate</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold font-mono">{stats.total_storage_gb} GB</p>
-              <p className="text-xs text-muted-foreground">Total Storage</p>
+              <p className="text-2xl font-bold font-mono">{altaro.summary.total_size_gb} GB</p>
+              <p className="text-xs text-muted-foreground">Total Backed Up</p>
             </CardContent>
           </Card>
         </div>
       )}
 
-      {/* Recent Failures Alert */}
-      {stats?.recent_failures?.length > 0 && (
-        <Card className="border-red-500/50 bg-red-500/5">
+      {/* Failed VMs Alert */}
+      {altaro?.failed_vms?.length > 0 && (
+        <Card className="border-red-500/50 bg-red-500/5" data-testid="altaro-failures">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2 text-red-400">
               <XCircle className="h-4 w-4" />
-              Recent Failures
+              Failed Backups ({altaro.failed_vms.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              {stats.recent_failures.map(f => (
-                <div key={f.id} className="flex items-center justify-between text-sm p-2 bg-red-500/10 rounded">
-                  <span className="font-medium">{f.client_name}</span>
-                  <span className="text-muted-foreground">{f.backup_date}</span>
-                  <span className="text-muted-foreground text-xs">{f.notes || 'No details'}</span>
+              {altaro.failed_vms.map((f, idx) => (
+                <div key={idx} className="flex items-center justify-between text-sm p-2 bg-red-500/10 rounded">
+                  <span className="font-medium">{f.customer}</span>
+                  <span className="text-muted-foreground">{f.vm}</span>
+                  <span className="text-muted-foreground text-xs">{f.last_backup ? timeAgo(f.last_backup) : 'Never'}</span>
                 </div>
               ))}
             </div>
@@ -214,111 +275,214 @@ export default function Backups() {
         </Card>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-center" data-testid="backup-filters">
-        <Filter className="h-4 w-4 text-muted-foreground" />
-        <Select value={filterMonth} onValueChange={setFilterMonth}>
-          <SelectTrigger className="w-[160px]">
-            <Calendar className="h-4 w-4 mr-2" />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {Array.from({ length: 12 }, (_, i) => {
-              const d = new Date();
-              d.setMonth(d.getMonth() - i);
-              const val = d.toISOString().slice(0, 7);
-              return <SelectItem key={val} value={val}>{d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</SelectItem>;
-            })}
-          </SelectContent>
-        </Select>
-        <Select value={filterClient} onValueChange={setFilterClient}>
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="All Clients" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Clients</SelectItem>
-            {clients.map(c => (
-              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={filterStatus} onValueChange={setFilterStatus}>
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="All Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="success">Success</SelectItem>
-            <SelectItem value="failed">Failed</SelectItem>
-            <SelectItem value="partial">Partial</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="altaro" data-testid="tab-altaro">Altaro Live Status</TabsTrigger>
+          <TabsTrigger value="manual" data-testid="tab-manual">Manual Logs</TabsTrigger>
+        </TabsList>
 
-      {/* Backup Log Table */}
-      <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left p-3 font-medium text-muted-foreground">Date</th>
-                  <th className="text-left p-3 font-medium text-muted-foreground">Client</th>
-                  <th className="text-left p-3 font-medium text-muted-foreground">Type</th>
-                  <th className="text-left p-3 font-medium text-muted-foreground">Status</th>
-                  <th className="text-left p-3 font-medium text-muted-foreground">Size</th>
-                  <th className="text-left p-3 font-medium text-muted-foreground">Destination</th>
-                  <th className="text-left p-3 font-medium text-muted-foreground">Notes</th>
-                  <th className="text-right p-3 font-medium text-muted-foreground">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="text-center p-8 text-muted-foreground">
-                      <Database className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                      No backup logs found for this period
-                    </td>
-                  </tr>
-                ) : (
-                  logs.map(log => {
-                    const statusConf = STATUS_CONFIG[log.status] || STATUS_CONFIG.success;
-                    const StatusIcon = statusConf.icon;
-                    return (
-                      <tr key={log.id} className="border-b border-border/50 hover:bg-muted/30" data-testid={`backup-row-${log.id}`}>
-                        <td className="p-3 font-mono text-xs">{log.backup_date}</td>
-                        <td className="p-3 font-medium">{log.client_name}</td>
-                        <td className="p-3">
-                          <Badge variant="outline" className="capitalize">{log.backup_type}</Badge>
-                        </td>
-                        <td className="p-3">
-                          <Badge className={statusConf.color}>
-                            <StatusIcon className="h-3 w-3 mr-1" />
-                            {statusConf.label}
-                          </Badge>
-                        </td>
-                        <td className="p-3 font-mono text-xs">{log.storage_size_gb ? `${log.storage_size_gb} GB` : '-'}</td>
-                        <td className="p-3 capitalize text-xs">{log.destination || '-'}</td>
-                        <td className="p-3 text-xs text-muted-foreground max-w-[200px] truncate">{log.notes || '-'}</td>
-                        <td className="p-3 text-right">
-                          <div className="flex gap-1 justify-end">
-                            <Button size="icon" variant="ghost" onClick={() => handleEdit(log)} data-testid={`edit-backup-${log.id}`}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button size="icon" variant="ghost" className="text-red-400" onClick={() => handleDelete(log.id)} data-testid={`delete-backup-${log.id}`}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
+        {/* Altaro Tab */}
+        <TabsContent value="altaro" className="space-y-4">
+          {altaroLoading ? (
+            <Card><CardContent className="p-8 text-center text-muted-foreground"><RefreshCw className="h-8 w-8 mx-auto mb-2 animate-spin" />Loading Altaro data...</CardContent></Card>
+          ) : altaro?.customers ? (
+            <>
+              {altaro.from_cache && (
+                <div className="text-xs text-amber-400 flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> Showing cached data (API rate limited to 1 request per 5 min)
+                  {altaro.fetched_at && <span> &middot; Last fetched: {new Date(altaro.fetched_at).toLocaleString()}</span>}
+                </div>
+              )}
+              <Card>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left p-3 font-medium text-muted-foreground w-8"></th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Customer</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">VMs</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Status</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Size</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {altaro.customers.map(customer => (
+                          <React.Fragment key={customer.name}>
+                            <tr 
+                              className="border-b border-border/50 hover:bg-muted/30 cursor-pointer"
+                              onClick={() => toggleCustomer(customer.name)}
+                              data-testid={`altaro-customer-${customer.name}`}
+                            >
+                              <td className="p-3">
+                                {expandedCustomers[customer.name] ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                              </td>
+                              <td className="p-3 font-medium">{customer.name}</td>
+                              <td className="p-3 font-mono text-xs">{customer.total_vms}</td>
+                              <td className="p-3">
+                                <div className="flex gap-1">
+                                  {customer.successful > 0 && <Badge className="bg-emerald-500/20 text-emerald-400"><CheckCircle className="h-3 w-3 mr-1" />{customer.successful}</Badge>}
+                                  {customer.failed > 0 && <Badge className="bg-red-500/20 text-red-400"><XCircle className="h-3 w-3 mr-1" />{customer.failed}</Badge>}
+                                  {customer.unknown > 0 && <Badge variant="outline" className="text-xs">{customer.unknown} unknown</Badge>}
+                                </div>
+                              </td>
+                              <td className="p-3 font-mono text-xs">{customer.total_size_gb} GB</td>
+                            </tr>
+                            {expandedCustomers[customer.name] && customer.vms.map((vm, vIdx) => (
+                              <tr key={`${customer.name}-${vIdx}`} className="border-b border-border/30 bg-muted/10">
+                                <td className="p-2"></td>
+                                <td className="p-2 pl-8 text-xs">
+                                  <div className="flex items-center gap-2">
+                                    <Server className="h-3 w-3 text-muted-foreground" />
+                                    <span>{vm.name}</span>
+                                    <span className="text-muted-foreground">({vm.host} - {vm.host_type})</span>
+                                  </div>
+                                </td>
+                                <td className="p-2 text-xs text-muted-foreground">
+                                  {vm.last_backup_time ? timeAgo(vm.last_backup_time) : 'Never'}
+                                </td>
+                                <td className="p-2">
+                                  <div className="flex items-center gap-2">
+                                    <Badge className={vm.status === 'success' ? 'bg-emerald-500/20 text-emerald-400' : vm.status === 'failed' ? 'bg-red-500/20 text-red-400' : 'bg-gray-500/20 text-gray-400'}>
+                                      {vm.status === 'success' ? <CheckCircle className="h-3 w-3 mr-1" /> : vm.status === 'failed' ? <XCircle className="h-3 w-3 mr-1" /> : <AlertTriangle className="h-3 w-3 mr-1" />}
+                                      {vm.result_name}
+                                    </Badge>
+                                    {vm.offsite_status === 'Success' && (
+                                      <Badge variant="outline" className="text-xs"><Cloud className="h-3 w-3 mr-1" />Offsite OK</Badge>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="p-2 font-mono text-xs">
+                                  {vm.size_gb > 0 ? `${vm.size_gb} GB` : '-'}
+                                  {vm.duration_seconds > 0 && <span className="text-muted-foreground ml-2">({formatDuration(vm.duration_seconds)})</span>}
+                                </td>
+                              </tr>
+                            ))}
+                          </React.Fragment>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <Card><CardContent className="p-8 text-center text-muted-foreground">
+              <Database className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              Altaro backup data not available. Check API configuration.
+            </CardContent></Card>
+          )}
+        </TabsContent>
+
+        {/* Manual Logs Tab */}
+        <TabsContent value="manual" className="space-y-4">
+          {/* Filters */}
+          <div className="flex flex-wrap gap-3 items-center" data-testid="backup-filters">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Select value={filterMonth} onValueChange={setFilterMonth}>
+              <SelectTrigger className="w-[160px]">
+                <Calendar className="h-4 w-4 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 12 }, (_, i) => {
+                  const d = new Date();
+                  d.setMonth(d.getMonth() - i);
+                  const val = d.toISOString().slice(0, 7);
+                  return <SelectItem key={val} value={val}>{d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</SelectItem>;
+                })}
+              </SelectContent>
+            </Select>
+            <Select value={filterClient} onValueChange={setFilterClient}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="All Clients" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Clients</SelectItem>
+                {clients.map(c => (
+                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="All Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="success">Success</SelectItem>
+                <SelectItem value="failed">Failed</SelectItem>
+                <SelectItem value="partial">Partial</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Backup Log Table */}
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left p-3 font-medium text-muted-foreground">Date</th>
+                      <th className="text-left p-3 font-medium text-muted-foreground">Client</th>
+                      <th className="text-left p-3 font-medium text-muted-foreground">Type</th>
+                      <th className="text-left p-3 font-medium text-muted-foreground">Status</th>
+                      <th className="text-left p-3 font-medium text-muted-foreground">Size</th>
+                      <th className="text-left p-3 font-medium text-muted-foreground">Destination</th>
+                      <th className="text-left p-3 font-medium text-muted-foreground">Notes</th>
+                      <th className="text-right p-3 font-medium text-muted-foreground">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logs.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="text-center p-8 text-muted-foreground">
+                          <Database className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                          No backup logs found for this period
                         </td>
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                    ) : (
+                      logs.map(log => {
+                        const statusConf = STATUS_CONFIG[log.status] || STATUS_CONFIG.success;
+                        const StatusIcon = statusConf.icon;
+                        return (
+                          <tr key={log.id} className="border-b border-border/50 hover:bg-muted/30" data-testid={`backup-row-${log.id}`}>
+                            <td className="p-3 font-mono text-xs">{log.backup_date}</td>
+                            <td className="p-3 font-medium">{log.client_name}</td>
+                            <td className="p-3">
+                              <Badge variant="outline" className="capitalize">{log.backup_type}</Badge>
+                            </td>
+                            <td className="p-3">
+                              <Badge className={statusConf.color}>
+                                <StatusIcon className="h-3 w-3 mr-1" />
+                                {statusConf.label}
+                              </Badge>
+                            </td>
+                            <td className="p-3 font-mono text-xs">{log.storage_size_gb ? `${log.storage_size_gb} GB` : '-'}</td>
+                            <td className="p-3 capitalize text-xs">{log.destination || '-'}</td>
+                            <td className="p-3 text-xs text-muted-foreground max-w-[200px] truncate">{log.notes || '-'}</td>
+                            <td className="p-3 text-right">
+                              <div className="flex gap-1 justify-end">
+                                <Button size="icon" variant="ghost" onClick={() => handleEdit(log)} data-testid={`edit-backup-${log.id}`}>
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button size="icon" variant="ghost" className="text-red-400" onClick={() => handleDelete(log.id)} data-testid={`delete-backup-${log.id}`}>
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Create/Edit Dialog */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
