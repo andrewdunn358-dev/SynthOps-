@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## April 2026
+
+### AhsayCBS Backup API Integration
+- Integrated AhsayCBS REST API (cloudbackup.synthesis-it.co.uk) via `/obs/api/json/2/ListUsers.do`
+- Backend endpoint: `GET /api/backups/ahsay/status` - proxies to AhsayCBS, caches in MongoDB
+- 16 backup users with health classification: Healthy (<26h), Warning (26-72h), Stale (>72h)
+- New "Ahsay CBS Status" tab on Backups page with summary cards, stale alerts, and user table
+- NOC Display Reminders view updated with separate Altaro and Ahsay backup panels
+- Added env vars: AHSAY_CBS_URL, AHSAY_SYS_USER, AHSAY_SYS_PWD to docker-compose.yml
+
 ## February 2026
 
 ### NOC Display Fixes

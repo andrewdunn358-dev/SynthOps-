@@ -2,7 +2,7 @@
 ## Product Requirements Document
 
 **Company:** Synthesis IT Ltd  
-**Last Updated:** March 2025
+**Last Updated:** April 2026
 
 ---
 
@@ -55,139 +55,64 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 - [x] MeshCentral (Connect button)
 - [x] Vaultwarden (Docker integration)
 - [x] Microsoft Teams (webhook alerts)
-- [x] Sophie AI Assistant (Claude)
+- [x] Sophie AI Assistant (Gemini)
 - [x] Bitdefender GravityZone (security alerts)
 - [x] Proxmox (API monitoring)
+- [x] Altaro Backup API (live VM backup status)
+- [x] **AhsayCBS Backup API** (live backup user status)
 - [x] ~~Zammad~~ **REMOVED**
 
 ---
 
-## Completed Previous Sessions (March 2025)
+## Completed (April 2026)
 
-### Task System Enhancements
-1. **Recurring Tasks**
-   - Added `is_recurring`, `recurrence_pattern`, `recurrence_interval`, `recurrence_end_date` fields
-   - Pattern options: daily, weekly, monthly, yearly
-   - Toggle switch in task creation form
+### AhsayCBS Backup API Integration
+1. **Live user data**: Pulls real-time backup user status from AhsayCBS REST API (16 users via /obs/api/json/2/ListUsers.do)
+2. **Backup health detection**: Classifies users as Healthy (<26h), Warning (26-72h), Stale (>72h), Never
+3. **Stale backup alerts**: Highlighted at top with user name and days since last backup (3 stale detected)
+4. **User table**: Login name, alias, client type (ACB/OBM), backup status, data size, quota usage bar, online status
+5. **Smart caching**: Results cached in MongoDB ahsay_cache; falls back to cache on API errors
+6. **NOC Integration**: Reminders view shows separate Ahsay panel (12 healthy, 3 stale, 1907 GB, 75% health rate)
+7. **Tabbed UI**: 3 tabs — "Altaro Live Status", "Ahsay CBS Status", "Manual Logs"
 
-2. **Task Notes**
-   - All authenticated users can add notes to any task
-   - Notes show author name and timestamp
-   - Note creators (or admins) can delete their notes
-   - Notes count badge on task list
-
-3. **Task Detail View**
-   - Click any task to open detail dialog
-   - Shows all task info, assigned user, client, project
-   - Notes section with ability to add new notes
-   - Edit button to modify task
-
-4. **Dashboard Upcoming Tasks**
-   - Alert card shows tasks due in next 2 days
-   - Shows task title, client, priority, recurrence pattern
-   - Link to view all tasks
-
-### Zammad Removal
-- Removed Tickets page and route
-- Removed from sidebar navigation
-- Removed from Dashboard
-- Removed from ClientDetail page
-- Removed Zammad status from Admin page
-
-### Other Fixes
-- Rate limiter now only limits login attempts (prevents 429 errors)
-- Engineers can view user list (for task assignment)
-- Fixed Ticket reference error in ClientDetail
-
----
-
-## Completed This Session (February 2026)
+## Completed (February 2026)
 
 ### NOC Display Fixes
-1. **All Clients Visible** - NOC now fetches `/clients` to show all 42 clients (including TRMM-imported ones like PHL, ACMS, Aston Beaumont)
-2. **Bitdefender Agent Count** - Security panel now shows: Agents Installed (398), Companies (44), Active Alerts count, and per-company endpoint breakdown
-3. **Servers Only in Device Grid** - NOC shows only servers (58) in the device grid, not workstations (per user request)
+1. **All Clients Visible** - NOC now fetches `/clients` to show all 42 clients
+2. **Bitdefender Agent Count** - Security panel shows: Agents Installed (398), Companies (44), Active Alerts
+3. **Servers Only in Device Grid** - NOC shows only servers (58) in the device grid
 4. **Clients Grid Added** - New grid section showing all clients with server/workstation counts
 
 ### NOC Auto-Cycle Feature
-1. **4 Views**: Security, Clients, Servers, Alerts - auto-rotates every 15 seconds
+1. **5 Views**: Security, Clients, Servers, Reminders, Alerts - auto-rotates every 15 seconds
 2. **Manual Controls**: Previous/Next arrows, clickable view pills, Pause/Play button
 3. **Progress Bar**: Visual indicator of time until next view switch
-4. **Smooth Transitions**: Fade in/out between views
-5. **Data Refresh**: Continues fetching fresh data every 30 seconds regardless of view
 
 ### Altaro Backup API Integration
 1. **Live backup data**: Pulls real-time VM backup status from Altaro/Hornetsecurity API (19 customers, 41 VMs)
-2. **Smart caching**: Results cached in MongoDB; falls back to cache when API rate-limited (5 min cooldown)
+2. **Smart caching**: Results cached in MongoDB; falls back to cache when API rate-limited
 3. **Customer breakdown**: Per-customer VM counts, success/fail badges, expandable VM details
 4. **Failed backup alerts**: Highlighted at top of page with customer and VM name
-5. **NOC Integration**: Reminders view shows live Altaro stats (28 success, 5 failed, 206 GB, 68.3% rate)
-6. **Tabbed UI**: "Altaro Live Status" tab for auto data + "Manual Logs" tab for manual entries
 
 ### Backup Tracking System
-1. **Backend CRUD**: `/api/backups` - Create, Read, Update, Delete backup logs with client enrichment
-2. **Backup Stats**: `/api/backups/stats` - Monthly summary with success rate, storage totals, clients without backups, recent failures
-3. **Frontend Page**: `/backups` - Full page with stat cards, failure alerts, month/client/status filters, data table with edit/delete
-4. **Dashboard Integration**: Backup status card shows monthly summary with failure alerts on main dashboard
-5. **NOC Integration**: Reminders view shows backup stats and recent failures on the NOC cycle
+1. **Backend CRUD**: `/api/backups` - Create, Read, Update, Delete backup logs
+2. **Backup Stats**: `/api/backups/stats` - Monthly summary
+3. **Frontend Page**: `/backups` - Full page with stat cards, filters, data table
+4. **Dashboard & NOC Integration**: Backup stats on dashboard and NOC reminders
 
-### NOC Reminders View
-1. Added 5th view "Reminders" to NOC auto-cycle (Security → Clients → Servers → Reminders → Alerts)
-2. Shows recurring tasks with priority indicators and frequency badges
-3. Shows backup status with stats grid and recent failures
-4. Shows clients without backups this month
+### Bug Fixes (February 2026)
+1. **Task Assignment Dropdown** - Decoupled API fetches
+2. **Login Auth Detection** - Redirect if authenticated
+3. **Daily Tech Tips** - 30 curated MSP/IT tips on Dashboard
+4. **Zammad Full Removal** - All backend/frontend code removed
 
-### Bug Fixes (This Session)
-1. **Task Assignment Dropdown** - Users fetch separated from Promise.all so it doesn't fail silently when other requests fail
-2. **Login Auth Detection** - Login page now redirects to dashboard if user is already authenticated
-3. **Daily Tech Tips** - 30 curated MSP/IT tech tips rotate daily on the Dashboard (DNS, Security, Backup, PowerShell, etc.)
-1. **Backend** - All Zammad endpoints removed (~400 lines): /zammad/test, /zammad/tickets, /zammad/stats, /zammad/organizations, /zammad/tickets/{id}/reply, /zammad/ticket-to-task, /zammad/sync-to-tasks
-2. **Scheduled Sync** - `scheduled_zammad_sync()` function and scheduler job removed
-3. **Sync Status** - `/sync/status` and `/sync/trigger` no longer reference Zammad
-4. **Frontend** - Reports.jsx Zammad ticket API call removed, NOCDisplay.jsx Zammad ticket fetch removed
-
----
-
-## Completed Previous Session (December 2025)
-
-### Customer CRM Feature
-1. **Full CRM Page at /customers**
-   - Stats cards: Total Customers, Active, Total Contract Value, With Notes
-   - Search and filter by status
-   - Customer table with contact info, contract details, server count
-   
-2. **Customer Management**
-   - Add/Edit customer dialog with tabbed interface (Basic Info, Contract, Other)
-   - Link customers to TRMM clients
-   - Contract tracking: type, value, start/end dates
-   - Account manager assignment
-   
-3. **Customer Notes**
-   - Activity notes with timestamps
-   - Any user can add notes
-   - Note count displayed on table
-
-### Stock & Asset Management Feature
-1. **Full Asset Page at /stock**
-   - Stats cards: Total Assets, In Stock, Deployed, Total Value
-   - Warranty expiry alerts
-   - Search and filter by type/status
-
-2. **Asset Types**
-   - Server, Laptop, Desktop, Network, Storage, Other
-   - Status: In Stock, In Refurb, Deployed, Disposed, Sold
-   - Condition: New, Refurbished, Used
-
-3. **Asset Details**
-   - Manufacturer, Model, Serial Number, Specifications
-   - Purchase date, cost, supplier
-   - Warranty end date with expiry tracking
-   - Assign to customer and location
-
-### Monthly Health Check Enhancements
-1. **Server List Sorting** - Alphabetically by client name
-2. **Save Progress/Draft** - Save without sign-off, resume later
-3. **Continue Button** - History tab shows drafts with Continue button
+## Completed (December 2025)
+- Customer CRM Feature
+- Stock & Asset Management
+- Monthly Health Check Enhancements
+- Sophie AI Migration to Gemini
+- Project Work Logs UI enhancement
+- Various bug fixes
 
 ---
 
@@ -197,12 +122,14 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 - [x] NOC Display - Show all clients including TRMM imports (DONE)
 - [x] NOC Display - Bitdefender agent count on security panel (DONE)
 - [x] Zammad backend code fully removed (DONE)
-- [ ] Proxmox VM/Container data fetch (confirmed working by user)
+- [x] AhsayCBS Backup API Integration (DONE)
+- [ ] Proxmox VM/Container data fetch (pending user token permissions)
 
 ### P2 - Medium  
 - [ ] SNMP device monitoring (full data)
 - [ ] Let's Encrypt SSL
 - [ ] Verify Server vs Workstation classification on live TRMM data
+- [ ] Scheduled daily Altaro/Ahsay sync to DB
 
 ### P3 - Low/Future
 - [ ] Mobile application
@@ -210,7 +137,16 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 
 ---
 
-## API Endpoints Added
+## API Endpoints
+
+### Backup Integrations
+- `GET /api/backups/altaro/status` - Live Altaro/Hornetsecurity backup status
+- `GET /api/backups/ahsay/status` - Live AhsayCBS backup user status
+- `GET /api/backups` - List manual backup logs
+- `POST /api/backups` - Create backup log
+- `PUT /api/backups/{id}` - Update backup log
+- `DELETE /api/backups/{id}` - Delete backup log
+- `GET /api/backups/stats` - Monthly backup statistics
 
 ### Customer CRM
 - `GET /api/customers` - List all customers
@@ -229,85 +165,13 @@ Build a self-hosted IT Operations Portal named "SynthOps" - a "one-stop-shop" to
 - `PUT /api/assets/{id}` - Update asset
 - `DELETE /api/assets/{id}` - Delete asset
 
-### Task Notes
+### Tasks
+- `GET /api/tasks` - List tasks
+- `GET /api/tasks/{task_id}` - Get single task
+- `GET /api/tasks/upcoming?days=2` - Get upcoming tasks
 - `GET /api/tasks/{task_id}/notes` - List task notes
 - `POST /api/tasks/{task_id}/notes` - Add note
 - `DELETE /api/tasks/{task_id}/notes/{note_id}` - Delete note
-
-### Task Detail
-- `GET /api/tasks/{task_id}` - Get single task with full details
-
-### Upcoming Tasks
-- `GET /api/tasks/upcoming?days=2` - Get tasks due within X days
-
----
-
-## Database Schema Changes
-
-### customers collection - New
-```
-id: uuid
-name: string
-trmm_client_id: uuid (optional, links to clients)
-contact_name, contact_email, contact_phone: string
-address, website: string
-contract_type: string (monthly, annual, project, adhoc)
-contract_value: float
-contract_start, contract_end: datetime
-account_manager: uuid (user id)
-notes: encrypted string
-tags: array
-is_active: boolean
-created_at, updated_at: datetime
-```
-
-### customer_notes collection - New
-```
-id: uuid
-customer_id: uuid
-content: encrypted string
-created_by: uuid
-created_at: datetime
-```
-
-### assets collection - New
-```
-id: uuid
-name: string
-asset_type: string (server, laptop, desktop, network, storage, other)
-manufacturer, model, serial_number: string
-specifications: encrypted string
-purchase_date: datetime
-purchase_cost: float
-warranty_end: datetime
-supplier: string
-status: string (in_stock, in_refurb, deployed, disposed, sold)
-condition: string (new, refurbished, used)
-assigned_customer_id: uuid
-location: string
-notes: encrypted string
-tags: array
-created_by: uuid
-created_at, updated_at: datetime
-```
-
-### tasks collection - New Fields
-```
-is_recurring: boolean (default: false)
-recurrence_pattern: string ("daily", "weekly", "monthly", "yearly")
-recurrence_interval: number (default: 1)
-recurrence_end_date: datetime (optional)
-reminder_days: number (default: 0)
-```
-
-### task_notes collection - New
-```
-id: uuid
-task_id: uuid
-content: encrypted string
-created_by: uuid
-created_at: datetime
-```
 
 ---
 
