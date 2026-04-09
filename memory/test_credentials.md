@@ -1,9 +1,13 @@
 # Test Credentials
 
-## Admin Account
+## Admin Account (Preview/Dev)
 - Email: admin@test.com
 - Password: Test123!
 - Role: admin
+
+## Production Admin Account
+- Email: Andrewdunn@synthesis-it.co.uk
+- Password: Frankie358
 
 ## Engineer Account
 - Email: test@example.com
