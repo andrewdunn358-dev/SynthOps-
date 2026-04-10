@@ -50,6 +50,10 @@ export default function Backups() {
   const [ahsayLoading, setAhsayLoading] = useState(false);
   const [expandedCustomers, setExpandedCustomers] = useState({});
   const [activeTab, setActiveTab] = useState('altaro');
+  const [history, setHistory] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyDays, setHistoryDays] = useState(30);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -100,6 +104,31 @@ export default function Backups() {
       // Ahsay not configured
     } finally {
       setAhsayLoading(false);
+    }
+  };
+
+  const fetchHistory = async (days) => {
+    setHistoryLoading(true);
+    try {
+      const res = await apiClient.get(`/backups/history/summaries?days=${days || historyDays}`);
+      setHistory(res.data);
+    } catch (e) {
+      // History not available yet
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const triggerSync = async () => {
+    setSyncing(true);
+    try {
+      await apiClient.post('/backups/history/sync-now');
+      toast.success('Backup sync started — results will appear shortly');
+      setTimeout(() => fetchHistory(historyDays), 5000);
+    } catch (e) {
+      toast.error(getErrorMessage(e, 'Failed to trigger sync'));
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -298,6 +327,7 @@ export default function Backups() {
         <TabsList>
           <TabsTrigger value="altaro" data-testid="tab-altaro">Altaro Live Status</TabsTrigger>
           <TabsTrigger value="ahsay" data-testid="tab-ahsay">Ahsay CBS Status</TabsTrigger>
+          <TabsTrigger value="history" data-testid="tab-history" onClick={() => { if (!history) fetchHistory(); }}>History & Reports</TabsTrigger>
           <TabsTrigger value="manual" data-testid="tab-manual">Manual Logs</TabsTrigger>
         </TabsList>
 
@@ -557,6 +587,111 @@ export default function Backups() {
               <Database className="h-8 w-8 mx-auto mb-2 opacity-50" />
               Ahsay CBS data not available. Check API configuration.
             </CardContent></Card>
+          )}
+        </TabsContent>
+
+        {/* History & Reports Tab */}
+        <TabsContent value="history" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Select value={String(historyDays)} onValueChange={(v) => { setHistoryDays(Number(v)); fetchHistory(Number(v)); }}>
+                <SelectTrigger className="w-[140px]" data-testid="history-days-select">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7">Last 7 days</SelectItem>
+                  <SelectItem value="30">Last 30 days</SelectItem>
+                  <SelectItem value="90">Last 90 days</SelectItem>
+                  <SelectItem value="180">Last 6 months</SelectItem>
+                  <SelectItem value="365">Last 12 months</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="sm" onClick={() => fetchHistory()} disabled={historyLoading} data-testid="refresh-history">
+                <RefreshCw className={`h-4 w-4 mr-2 ${historyLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
+            <Button onClick={triggerSync} disabled={syncing} data-testid="sync-now-btn">
+              <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing...' : 'Sync Now'}
+            </Button>
+          </div>
+
+          {historyLoading ? (
+            <Card><CardContent className="p-8 text-center text-muted-foreground"><RefreshCw className="h-8 w-8 mx-auto mb-2 animate-spin" />Loading history...</CardContent></Card>
+          ) : history?.summaries?.length > 0 ? (
+            <>
+              {/* Summary Table */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Calendar className="h-4 w-4" />
+                    Daily Backup History ({history.count} days)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-background z-10">
+                        <tr className="border-b border-border">
+                          <th className="text-left p-3 font-medium text-muted-foreground">Date</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Provider</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Successful</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Failed/Stale</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Total Size</th>
+                          <th className="text-left p-3 font-medium text-muted-foreground">Success Rate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {history.summaries.map((s, idx) => {
+                          const isAltaro = s.provider === 'altaro';
+                          const success = isAltaro ? s.successful : s.healthy;
+                          const fail = isAltaro ? s.failed : s.stale;
+                          const rate = isAltaro ? s.success_rate : s.health_rate;
+                          const size = isAltaro ? s.total_size_gb : s.total_data_gb;
+                          return (
+                            <tr key={`${s.date}-${s.provider}`} className="border-b border-border/50 hover:bg-muted/30" data-testid={`history-row-${idx}`}>
+                              <td className="p-3 font-mono text-xs">{s.date}</td>
+                              <td className="p-3">
+                                <Badge variant="outline" className={`text-xs ${isAltaro ? 'border-blue-500/50 text-blue-400' : 'border-purple-500/50 text-purple-400'}`}>
+                                  {isAltaro ? 'Altaro' : 'Ahsay'}
+                                </Badge>
+                              </td>
+                              <td className="p-3">
+                                <span className="text-emerald-400 font-mono">{success || 0}</span>
+                              </td>
+                              <td className="p-3">
+                                <span className={`font-mono ${(fail || 0) > 0 ? 'text-red-400' : 'text-muted-foreground'}`}>{fail || 0}</span>
+                              </td>
+                              <td className="p-3 font-mono text-xs">{size || 0} GB</td>
+                              <td className="p-3">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full ${(rate || 0) >= 90 ? 'bg-emerald-500' : (rate || 0) >= 70 ? 'bg-amber-500' : 'bg-red-500'}`}
+                                      style={{ width: `${Math.min(rate || 0, 100)}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-xs font-mono">{rate || 0}%</span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <Card>
+              <CardContent className="p-8 text-center text-muted-foreground">
+                <Database className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>No backup history yet.</p>
+                <p className="text-xs mt-1">Click "Sync Now" to capture today's backup status, or wait for the daily 7 AM GMT auto-sync.</p>
+              </CardContent>
+            </Card>
           )}
         </TabsContent>
 

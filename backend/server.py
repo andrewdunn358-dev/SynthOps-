@@ -26,6 +26,7 @@ import openai
 import google.generativeai as genai
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -5583,8 +5584,8 @@ async def get_activity_log(
     return logs
 
 
-# Include the router
-app.include_router(api_router)
+# Include the router - moved to end of file after all routes defined
+# app.include_router(api_router)
 
 # Add security middlewares
 app.add_middleware(RateLimitMiddleware)
@@ -5847,6 +5848,240 @@ async def scheduled_trmm_sync():
             "created_at": datetime.now(timezone.utc).isoformat()
         })
 
+
+# ==================== SCHEDULED BACKUP SYNC ====================
+
+async def scheduled_backup_sync():
+    """Daily sync: fetch Altaro + Ahsay backup data, store individual records + summary"""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    logger.info(f"Starting daily backup sync for {today}...")
+
+    # ---- ALTARO SYNC ----
+    altaro_records = []
+    altaro_summary = {"provider": "altaro", "date": today, "successful": 0, "failed": 0, "total_vms": 0, "total_size_gb": 0, "customers": 0}
+    try:
+        altaro_url = os.environ.get("ALTARO_API_URL", "")
+        altaro_key = os.environ.get("ALTARO_API_KEY", "")
+        if altaro_url and altaro_key:
+            async with httpx.AsyncClient(verify=False) as http_client:
+                resp = await http_client.get(altaro_url, headers={"accept": "application/json"}, params={"code": altaro_key}, timeout=30.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    customers = {}
+                    for entry in data if isinstance(data, list) else data.get("data", []):
+                        cust = entry.get("CustomerName", "Unknown")
+                        vm = entry.get("ComputerName", "Unknown")
+                        status = entry.get("LastBackupStatus", "Unknown")
+                        size = entry.get("LastBackupSizeInGB", 0) or 0
+                        last_session = entry.get("LastBackupSessionDate", "")
+                        is_success = status.lower() in ["completed", "success"] if status else False
+
+                        altaro_records.append({
+                            "provider": "altaro",
+                            "date": today,
+                            "customer": cust,
+                            "entity_name": vm,
+                            "entity_type": "vm",
+                            "status": "success" if is_success else "failed",
+                            "raw_status": status,
+                            "size_gb": round(size, 2),
+                            "last_session": last_session,
+                            "logged_at": datetime.now(timezone.utc).isoformat(),
+                        })
+                        customers[cust] = True
+                        altaro_summary["total_vms"] += 1
+                        altaro_summary["total_size_gb"] += size
+                        if is_success:
+                            altaro_summary["successful"] += 1
+                        else:
+                            altaro_summary["failed"] += 1
+
+                    altaro_summary["customers"] = len(customers)
+                    altaro_summary["total_size_gb"] = round(altaro_summary["total_size_gb"], 2)
+                    altaro_summary["success_rate"] = round((altaro_summary["successful"] / altaro_summary["total_vms"] * 100), 1) if altaro_summary["total_vms"] > 0 else 0
+                    logger.info(f"Altaro sync: {altaro_summary['total_vms']} VMs, {altaro_summary['successful']} success, {altaro_summary['failed']} failed")
+    except Exception as e:
+        logger.error(f"Altaro daily sync error: {e}")
+        altaro_summary["error"] = str(e)
+
+    # ---- AHSAY SYNC ----
+    ahsay_records = []
+    ahsay_summary = {"provider": "ahsay", "date": today, "healthy": 0, "warning": 0, "stale": 0, "never": 0, "total_users": 0, "total_data_gb": 0}
+    try:
+        cbs_url = os.environ.get("AHSAY_CBS_URL", "").rstrip("/")
+        sys_user = os.environ.get("AHSAY_SYS_USER", "")
+        sys_pwd = os.environ.get("AHSAY_SYS_PWD", "")
+        if cbs_url and sys_user and sys_pwd:
+            async with httpx.AsyncClient(verify=False) as http_client:
+                resp = await http_client.post(
+                    f"{cbs_url}/obs/api/json/2/ListUsers.do",
+                    json={"SysUser": sys_user, "SysPwd": sys_pwd},
+                    headers={"Content-Type": "application/json"},
+                    timeout=30.0,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("Status") == "OK":
+                        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+                        for u in data.get("User", []):
+                            login = u.get("LoginName", "")
+                            alias = u.get("Alias", "") or login
+                            data_size = u.get("DataSize", 0) or 0
+                            last_backup_ms = u.get("LastBackupDate", 0) or 0
+
+                            if last_backup_ms > 0:
+                                age_hours = (now_ms - last_backup_ms) / (1000 * 60 * 60)
+                                last_iso = datetime.fromtimestamp(last_backup_ms / 1000, tz=timezone.utc).isoformat()
+                            else:
+                                age_hours = -1
+                                last_iso = None
+
+                            if age_hours < 0:
+                                bstatus = "never"
+                            elif age_hours <= 26:
+                                bstatus = "healthy"
+                            elif age_hours <= 72:
+                                bstatus = "warning"
+                            else:
+                                bstatus = "stale"
+
+                            ahsay_records.append({
+                                "provider": "ahsay",
+                                "date": today,
+                                "customer": alias,
+                                "entity_name": login,
+                                "entity_type": u.get("ClientType", ""),
+                                "status": bstatus,
+                                "size_gb": round(data_size / (1024**3), 2) if data_size > 0 else 0,
+                                "last_session": last_iso,
+                                "age_hours": round(age_hours, 1) if age_hours >= 0 else None,
+                                "logged_at": datetime.now(timezone.utc).isoformat(),
+                            })
+                            ahsay_summary["total_users"] += 1
+                            ahsay_summary["total_data_gb"] += data_size
+                            ahsay_summary[bstatus] = ahsay_summary.get(bstatus, 0) + 1
+
+                        ahsay_summary["total_data_gb"] = round(ahsay_summary["total_data_gb"] / (1024**3), 2)
+                        ahsay_summary["health_rate"] = round((ahsay_summary["healthy"] / ahsay_summary["total_users"] * 100), 1) if ahsay_summary["total_users"] > 0 else 0
+                        logger.info(f"Ahsay sync: {ahsay_summary['total_users']} users, {ahsay_summary['healthy']} healthy, {ahsay_summary['stale']} stale")
+    except Exception as e:
+        logger.error(f"Ahsay daily sync error: {e}")
+        ahsay_summary["error"] = str(e)
+
+    # ---- STORE RECORDS ----
+    all_records = altaro_records + ahsay_records
+    if all_records:
+        # Remove existing records for today to avoid duplicates on re-run
+        await db.backup_daily_records.delete_many({"date": today})
+        await db.backup_daily_records.insert_many(all_records)
+
+    # Store summaries
+    for summary in [altaro_summary, ahsay_summary]:
+        await db.backup_daily_summaries.update_one(
+            {"provider": summary["provider"], "date": today},
+            {"$set": {**summary, "updated_at": datetime.now(timezone.utc).isoformat()}},
+            upsert=True,
+        )
+
+    # ---- RETENTION CLEANUP (12 months) ----
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=365)).strftime("%Y-%m-%d")
+    del_records = await db.backup_daily_records.delete_many({"date": {"$lt": cutoff}})
+    del_summaries = await db.backup_daily_summaries.delete_many({"date": {"$lt": cutoff}})
+    if del_records.deleted_count or del_summaries.deleted_count:
+        logger.info(f"Backup retention cleanup: removed {del_records.deleted_count} records and {del_summaries.deleted_count} summaries older than {cutoff}")
+
+    # Log the sync
+    await db.sync_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "sync_type": "backup_daily",
+        "date": today,
+        "altaro_vms": altaro_summary.get("total_vms", 0),
+        "ahsay_users": ahsay_summary.get("total_users", 0),
+        "status": "success",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    logger.info(f"Daily backup sync complete for {today}")
+
+
+# ---- Backup History API ----
+
+@api_router.get("/backups/history/summaries")
+async def get_backup_history_summaries(days: int = 30, provider: str = None, user: dict = Depends(get_current_user)):
+    """Get daily backup summaries for the last N days"""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    query = {"date": {"$gte": cutoff}}
+    if provider:
+        query["provider"] = provider
+    summaries = await db.backup_daily_summaries.find(query, {"_id": 0}).sort("date", -1).to_list(length=365)
+    return {"summaries": summaries, "days": days, "count": len(summaries)}
+
+
+@api_router.get("/backups/history/records")
+async def get_backup_history_records(date: str = None, provider: str = None, status: str = None, user: dict = Depends(get_current_user)):
+    """Get individual backup records for a specific date"""
+    if not date:
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    query = {"date": date}
+    if provider:
+        query["provider"] = provider
+    if status:
+        query["status"] = status
+    records = await db.backup_daily_records.find(query, {"_id": 0}).to_list(length=500)
+    return {"records": records, "date": date, "count": len(records)}
+
+
+@api_router.post("/backups/history/sync-now")
+async def trigger_backup_sync(user: dict = Depends(get_current_user)):
+    """Manually trigger a backup sync"""
+    if user.get("role") not in ["admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Only admins can trigger manual sync")
+    asyncio.create_task(scheduled_backup_sync())
+    return {"status": "ok", "message": "Backup sync started in background"}
+
+
+@api_router.get("/backups/history/report")
+async def get_backup_compliance_report(months: int = 1, user: dict = Depends(get_current_user)):
+    """Generate a monthly backup compliance report"""
+    now = datetime.now(timezone.utc)
+    start = (now - timedelta(days=months * 30)).strftime("%Y-%m-%d")
+    end = now.strftime("%Y-%m-%d")
+
+    summaries = await db.backup_daily_summaries.find(
+        {"date": {"$gte": start, "$lte": end}},
+        {"_id": 0}
+    ).sort("date", 1).to_list(length=1000)
+
+    altaro_days = [s for s in summaries if s.get("provider") == "altaro"]
+    ahsay_days = [s for s in summaries if s.get("provider") == "ahsay"]
+
+    def calc_report(days, provider):
+        if not days:
+            return {"provider": provider, "days_tracked": 0}
+        total_success = sum(d.get("successful", d.get("healthy", 0)) for d in days)
+        total_fail = sum(d.get("failed", d.get("stale", 0)) for d in days)
+        total_entities = total_success + total_fail
+        avg_rate = round(sum(d.get("success_rate", d.get("health_rate", 0)) for d in days) / len(days), 1) if days else 0
+        return {
+            "provider": provider,
+            "days_tracked": len(days),
+            "total_backups_checked": total_entities,
+            "total_successful": total_success,
+            "total_failed": total_fail,
+            "average_success_rate": avg_rate,
+            "best_day": max(days, key=lambda d: d.get("success_rate", d.get("health_rate", 0))).get("date") if days else None,
+            "worst_day": min(days, key=lambda d: d.get("success_rate", d.get("health_rate", 0))).get("date") if days else None,
+        }
+
+    return {
+        "period": {"start": start, "end": end, "months": months},
+        "altaro": calc_report(altaro_days, "altaro"),
+        "ahsay": calc_report(ahsay_days, "ahsay"),
+        "total_days_tracked": len(set(s["date"] for s in summaries)),
+    }
+
+# Include the router after all routes are defined
+app.include_router(api_router)
+
 @app.on_event("startup")
 async def start_scheduler():
     """Start the background scheduler on app startup"""
@@ -5859,6 +6094,15 @@ async def start_scheduler():
         scheduled_trmm_sync,
         IntervalTrigger(minutes=sync_interval),
         id="trmm_sync",
+        replace_existing=True,
+        max_instances=1
+    )
+
+    # Add daily backup sync job - 7:00 AM GMT
+    scheduler.add_job(
+        scheduled_backup_sync,
+        CronTrigger(hour=7, minute=0, timezone="Europe/London"),
+        id="backup_daily_sync",
         replace_existing=True,
         max_instances=1
     )
