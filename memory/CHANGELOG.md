@@ -10,6 +10,15 @@
 - NOC Display Reminders view updated with separate Altaro and Ahsay backup panels
 - Added env vars: AHSAY_CBS_URL, AHSAY_SYS_USER, AHSAY_SYS_PWD to docker-compose.yml
 
+### Scheduled Daily Backup Sync & History
+- Daily auto-sync at 7:00 AM GMT (Europe/London) via APScheduler CronTrigger
+- Fetches Altaro + Ahsay data, stores individual per-user/VM records + daily summaries
+- 12-month retention with auto-cleanup of old records
+- "Sync Now" button for manual trigger (admin only)
+- History & Reports tab on Backups page with daily summary table
+- Compliance report API: `GET /api/backups/history/report?months=1`
+- Collections: `backup_daily_records`, `backup_daily_summaries`
+
 ## February 2026
 
 ### NOC Display Fixes
