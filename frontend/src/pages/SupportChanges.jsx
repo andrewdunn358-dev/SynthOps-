@@ -384,12 +384,13 @@ export default function SupportChanges() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-sm font-medium mb-1 block">Client *</label>
-                <Select value={form.client_id} onValueChange={v => setForm(f => ({ ...f, client_id: v }))}>
+                <Select value={form.client_id || "none"} onValueChange={v => setForm(f => ({ ...f, client_id: v === "none" ? "" : v }))}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select client..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {clients.map(c => (
+                    <SelectItem value="none" disabled>Select client...</SelectItem>
+                  {clients.map(c => (
                       <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                     ))}
                   </SelectContent>

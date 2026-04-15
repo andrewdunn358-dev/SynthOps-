@@ -281,7 +281,7 @@ export default function SupportTab({ clientId, clientName }) {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium mb-1 block">Support Type</label>
-                <Select value={editSupportType} onValueChange={setEditSupportType}>
+                <Select value={editSupportType || "none"} onValueChange={v => setEditSupportType(v === "none" ? "" : v)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select type..." />
                   </SelectTrigger>
