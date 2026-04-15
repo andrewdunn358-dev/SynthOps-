@@ -260,23 +260,23 @@ export default function SupportChanges() {
             onChange={e => setSearchText(e.target.value)}
           />
         </div>
-        <Select value={filterClient} onValueChange={setFilterClient}>
+        <Select value={filterClient || "all"} onValueChange={v => setFilterClient(v === "all" ? "" : v)}>
           <SelectTrigger className="w-52">
             <SelectValue placeholder="All clients" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All clients</SelectItem>
+            <SelectItem value="all">All clients</SelectItem>
             {clients.map(c => (
               <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <Select value={filterMonth} onValueChange={setFilterMonth}>
+        <Select value={filterMonth || "all"} onValueChange={v => setFilterMonth(v === "all" ? "" : v)}>
           <SelectTrigger className="w-44">
             <SelectValue placeholder="All months" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All months</SelectItem>
+            <SelectItem value="all">All months</SelectItem>
             {monthOptions.map(m => (
               <SelectItem key={m.val} value={m.val}>{m.label}</SelectItem>
             ))}
