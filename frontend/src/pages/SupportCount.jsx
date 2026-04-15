@@ -423,7 +423,7 @@ export default function SupportCount() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-6 text-xs px-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="h-6 text-xs px-2 text-muted-foreground hover:text-foreground"
                         onClick={() => startEdit(row)}
                       >
                         <Edit className="h-3 w-3" />
