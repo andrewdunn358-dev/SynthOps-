@@ -190,7 +190,7 @@ def normalise_company(name: str) -> str:
     return " ".join(str(name).split()).strip().lower()
 
 
-def parse_support_count(wb) -> tuple[dict, dict]:
+def parse_support_count(wb) -> tuple:
     """
     Returns:
         products_seen: set of product names encountered
@@ -454,7 +454,7 @@ def resolve_client_ids(monthly_data: dict, existing_clients: list) -> dict:
     return mapping
 
 
-def build_snapshots_and_profiles(monthly_data: dict, client_id_map: dict) -> tuple[list, dict]:
+def build_snapshots_and_profiles(monthly_data: dict, client_id_map: dict) -> tuple:
     """Build snapshot records and final profiles (from latest month)"""
     snapshots = []
     # Track latest profile per client
