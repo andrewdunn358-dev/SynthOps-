@@ -1,0 +1,58 @@
+# Environment files - NEVER commit these
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# Build outputs
+/build
+dist/
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+
+# Testing
+/coverage
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+.eggs/
+
+# Backup files
+*.bak
+*.backup
+
+# SSL certs (generated locally)
+ssl/
+
+# Logs
+*.log
+logs/
+
+# Package manager
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Emergent
+.emergent/

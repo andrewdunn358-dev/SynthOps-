@@ -1,0 +1,174 @@
+{
+  "identity": {
+    "name": "SynthOps",
+    "description": "Tactical IT Operations Portal for Synthesis IT Ltd.",
+    "tone": "Authoritative, Precise, High-Speed, Cyber-Physical",
+    "emotional_archetype": "The Performance Pro (Archetype 2) mixed with Swiss High-Contrast (Archetype 4)",
+    "target_audience": "Stressed Sysadmins, MSP Engineers, IT Managers"
+  },
+  "typography": {
+    "primary_font": "IBM Plex Sans, sans-serif",
+    "heading_font": "Barlow Condensed, sans-serif",
+    "mono_font": "JetBrains Mono, monospace",
+    "scale": {
+      "h1": "text-4xl md:text-5xl font-bold tracking-tight uppercase",
+      "h2": "text-3xl font-semibold tracking-tight",
+      "h3": "text-2xl font-medium",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm text-muted-foreground",
+      "mono": "font-mono text-sm tracking-wide"
+    },
+    "imports": [
+      "@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');"
+    ]
+  },
+  "colors": {
+    "theme": "dark",
+    "palette": {
+      "background": "#09090b",
+      "foreground": "#fafafa",
+      "card": "#18181b",
+      "card_foreground": "#fafafa",
+      "popover": "#18181b",
+      "popover_foreground": "#fafafa",
+      "primary": "#6366f1",
+      "primary_foreground": "#fafafa",
+      "secondary": "#27272a",
+      "secondary_foreground": "#fafafa",
+      "muted": "#27272a",
+      "muted_foreground": "#a1a1aa",
+      "accent": "#27272a",
+      "accent_foreground": "#fafafa",
+      "destructive": "#ef4444",
+      "destructive_foreground": "#fafafa",
+      "border": "#27272a",
+      "input": "#27272a",
+      "ring": "#6366f1",
+      "chart_1": "#6366f1",
+      "chart_2": "#0ea5e9",
+      "chart_3": "#10b981",
+      "chart_4": "#f59e0b",
+      "chart_5": "#ef4444"
+    },
+    "special_colors": {
+      "sophie_ai": "#0ea5e9",
+      "server_online": "#10b981",
+      "server_offline": "#ef4444",
+      "server_maintenance": "#f59e0b"
+    }
+  },
+  "visual_enhancers": {
+    "border_radius": "rounded-sm",
+    "shadows": "shadow-none",
+    "glassmorphism": "bg-black/40 backdrop-blur-md border border-white/10",
+    "grid_background": "bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]",
+    "scanlines": "bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))]",
+    "tracing_beam": "animate-border-beam"
+  },
+  "component_rules": {
+    "cards": {
+      "style": "flat_bordered",
+      "classes": "bg-card border-border rounded-sm hover:border-primary/50 transition-colors duration-200"
+    },
+    "buttons": {
+      "style": "sharp_technical",
+      "classes": "rounded-sm font-medium tracking-wide uppercase text-xs h-9 px-4"
+    },
+    "inputs": {
+      "style": "understated",
+      "classes": "bg-background border-input focus:ring-1 focus:ring-primary rounded-sm font-mono text-sm"
+    },
+    "tables": {
+      "style": "dense_data",
+      "classes": "w-full text-sm font-mono border-collapse [&_tr]:border-b [&_tr]:border-border/50 [&_th]:uppercase [&_th]:text-xs [&_th]:text-muted-foreground [&_th]:tracking-wider [&_td]:p-2"
+    }
+  },
+  "layout_strategies": {
+    "dashboard": "bento_grid_dense",
+    "sidebar": "collapsible_icon_only_mode",
+    "spacing": {
+      "container_padding": "p-6 md:p-8",
+      "grid_gap": "gap-4 md:gap-6",
+      "section_gap": "gap-8"
+    }
+  },
+  "motion": {
+    "transitions": "transition-all duration-200 ease-out",
+    "hover_effects": "hover:bg-accent/50",
+    "entrance": "animate-in fade-in slide-in-from-bottom-4 duration-500",
+    "sophie_typing": "animate-pulse"
+  },
+  "image_urls": {
+    "login_background": {
+      "url": "https://images.unsplash.com/photo-1660836814985-8523a0d713b5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMGN5YmVyJTIwbmV0d29yayUyMG5vZGVzJTIwZGFyayUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzczMzQ4MzMzfDA&ixlib=rb-4.1.0&q=85",
+      "description": "Abstract cyber network nodes dark background - Use for Login/Auth pages background with overlay"
+    },
+    "sophie_avatar": {
+      "url": "https://images.unsplash.com/photo-1732020858816-93c130ab8f49?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwxfHxmdXR1cmlzdGljJTIwYWklMjBmZW1hbGUlMjBhdmF0YXIlMjBwb3J0cmFpdCUyMGFic3RyYWN0JTIwZGlnaXRhbHxlbnwwfHx8fDE3NzMzNDgzNDV8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Glass sculpture of woman - The 'Sophie' AI Avatar. Use in Chat interface and Dashboard widget."
+    },
+    "server_header": {
+      "url": "https://images.unsplash.com/photo-1680992046626-418f7e910589?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODF8MHwxfHNlYXJjaHwzfHxtb2Rlcm4lMjBzZXJ2ZXIlMjByb29tJTIwZGF0YWNlbnRlciUyMGJsdWUlMjBsaWdodHN8ZW58MHx8fHwxNzczMzQ4MzM0fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Rack of electronic equipment - Use for Servers Page Header"
+    },
+    "server_detail": {
+      "url": "https://images.unsplash.com/photo-1680992044138-ce4864c2b962?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODF8MHwxfHNlYXJjaHw0fHxtb2Rlcm4lMjBzZXJ2ZXIlMjByb29tJTIwZGF0YWNlbnRlciUyMGJsdWUlMjBsaWdodHN8ZW58MHx8fHwxNzczMzQ4MzM0fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Close up of server - Use for individual server detail pages"
+    },
+    "card_abstract": {
+      "url": "https://images.unsplash.com/photo-1647356191320-d7a1f80ca777?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMGN5YmVyJTIwbmV0d29yayUyMG5vZGVzJTIwZGFyayUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzczMzQ4MzMzfDA&ixlib=rb-4.1.0&q=85",
+      "description": "Purple/Blue abstract pattern - Use for Project or Client card backgrounds (with overlay)"
+    }
+  },
+  "instructions_to_main_agent": {
+    "general": [
+      "CRITICAL: Override the default tailwind colors in 'index.css' with the palette provided above immediately.",
+      "CRITICAL: Install 'lucide-react' and 'recharts' if not present.",
+      "Always use 'data-testid' on interactive elements.",
+      "Implement a global Theme Toggle (Light/Dark) in the settings or sidebar, but default to DARK.",
+      "Use 'Barlow Condensed' for all H1-H6 headings. Use 'IBM Plex Sans' for body. Use 'JetBrains Mono' for anything data-related (IPs, Status, IDs)."
+    ],
+    "dashboard": [
+      "Implement the 'Bento Grid' layout (Mode B: High Density).",
+      "Top row: Key Metrics (Servers Online, Open Incidents, Active Projects) - Use 'Card' component.",
+      "Main area: Server Status Map (Left 2/3) + Sophie AI Quick Chat (Right 1/3).",
+      "Bottom area: Recent Activity Log (Full width)."
+    ],
+    "sophie_ai": [
+      "The AI interface should look like a 'Terminal' or 'Command Center' chat.",
+      "Use the 'Sophie Avatar' image with a pulsing ring animation when active.",
+      "Messages should appear with a 'typewriter' effect."
+    ],
+    "clients_servers": [
+      "Use 'Table' components with dense styling for lists.",
+      "Add 'Status Indicators' (Green/Red/Amber dots) next to server names.",
+      "Server Detail page should look like a 'datasheet' or 'technical spec' document."
+    ],
+    "charts": [
+      "Use 'Recharts' for all data visualization.",
+      "Style charts to match the dark theme (remove white backgrounds, use theme colors for lines/bars).",
+      "Add a 'ReferenceArea' or 'Grid' to charts to make them look technical."
+    ]
+  },
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. In frontend design, this creates what users call the 'AI slop' aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy",
+    "Use glass-morphism effects with backdrop filters (12-24px blur)",
+    "You MUST NOT apply universal transition. Eg: 'transition: all'. This results in breaking transforms. Always add transitions for specific interactive elements like button, input excluding transforms",
+    "You MUST NOT center align the app container, ie do not add '.App { text-align: center; }' in the css file. This disrupts the human natural reading flow of text",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠💭💡🔮 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.",
+    "Main agent relies on these image URLs. Missing categories (especially sponsor logos) = main agent will use placeholder text which is FORBIDDEN",
+    "Prioritize using pre-existing components from src/components/ui when applicable",
+    "Create new components that match the style and conventions of existing components when needed",
+    "Examine existing components to understand the project's component patterns before creating new ones",
+    "Components MUST use named exports (export const ComponentName = ...)",
+    "Pages MUST use default exports (export default function PageName() {...})",
+    "Use 'sonner' for toasts. Sonner component are located in '/app/src/components/ui/sonner.tsx'"
+  ]
+}

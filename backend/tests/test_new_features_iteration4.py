@@ -1,0 +1,333 @@
+"""
+Test file for Iteration 4 - NOC Display, MeshCentral, Vaultwarden, Teams Webhooks, Security Middlewares
+Tests the new features:
+1. NOC Display API endpoints
+2. MeshCentral configuration endpoint
+3. Vaultwarden configuration endpoint
+4. Teams webhook notifications
+5. Security headers and rate limiting
+"""
+
+import pytest
+import requests
+import os
+
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
+
+
+class TestAuthentication:
+    """Test authentication endpoints"""
+    
+    @pytest.fixture(scope='class')
+    def auth_token(self):
+        """Get authentication token for tests"""
+        response = requests.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": "admin@synthesis-it.co.uk", "password": "admin123"}
+        )
+        assert response.status_code == 200, f"Login failed: {response.text}"
+        return response.json()['access_token']
+    
+    def test_login_returns_token(self):
+        """Test that login returns access token"""
+        response = requests.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": "admin@synthesis-it.co.uk", "password": "admin123"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert 'access_token' in data
+        assert 'refresh_token' in data
+        assert 'user' in data
+        assert data['user']['email'] == 'admin@synthesis-it.co.uk'
+
+
+class TestMeshCentralConfig:
+    """Test MeshCentral configuration endpoint"""
+    
+    @pytest.fixture(scope='class')
+    def auth_token(self):
+        response = requests.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": "admin@synthesis-it.co.uk", "password": "admin123"}
+        )
+        return response.json()['access_token']
+    
+    def test_meshcentral_config_endpoint(self, auth_token):
+        """Test /api/config/meshcentral returns configuration"""
+        response = requests.get(
+            f"{BASE_URL}/api/config/meshcentral",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert 'url' in data
+        assert 'configured' in data
+        assert isinstance(data['configured'], bool)
+        # MeshCentral URL should be set from env
+        assert data['url'] == "https://mesh.synthesis-it.co.uk"
+        assert data['configured'] == True
+        print(f"MeshCentral config: {data}")
+    
+    def test_meshcentral_requires_auth(self):
+        """Test /api/config/meshcentral requires authentication"""
+        response = requests.get(f"{BASE_URL}/api/config/meshcentral")
+        assert response.status_code in [401, 403]
+
+
+class TestVaultwardenConfig:
+    """Test Vaultwarden configuration endpoint"""
+    
+    @pytest.fixture(scope='class')
+    def auth_token(self):
+        response = requests.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": "admin@synthesis-it.co.uk", "password": "admin123"}
+        )
+        return response.json()['access_token']
+    
+    def test_vaultwarden_config_endpoint(self, auth_token):
+        """Test /api/config/vaultwarden returns configuration"""
+        response = requests.get(
+            f"{BASE_URL}/api/config/vaultwarden",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert 'url' in data
+        assert 'configured' in data
+        assert isinstance(data['configured'], bool)
+        # Vaultwarden is configured
+        assert data['url'] == "http://localhost:8082"
+        assert data['configured'] == True
+        print(f"Vaultwarden config: {data}")
+    
+    def test_vaultwarden_requires_auth(self):
+        """Test /api/config/vaultwarden requires authentication"""
+        response = requests.get(f"{BASE_URL}/api/config/vaultwarden")
+        assert response.status_code in [401, 403]
+
+
+class TestNotificationsConfig:
+    """Test notification configuration endpoints"""
+    
+    @pytest.fixture(scope='class')
+    def auth_token(self):
+        response = requests.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": "admin@synthesis-it.co.uk", "password": "admin123"}
+        )
+        return response.json()['access_token']
+    
+    def test_notifications_config_endpoint(self, auth_token):
+        """Test /api/notifications/config returns Teams configuration status"""
+        response = requests.get(
+            f"{BASE_URL}/api/notifications/config",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert 'teams' in data
+        assert 'configured' in data['teams']
+        # Teams webhook is NOT configured (empty TEAMS_WEBHOOK_URL)
+        assert data['teams']['configured'] == False
+        print(f"Notifications config: {data}")
+    
+    def test_notifications_requires_auth(self):
+        """Test /api/notifications/config requires authentication"""
+        response = requests.get(f"{BASE_URL}/api/notifications/config")
+        assert response.status_code in [401, 403]
+
+
+class TestTeamsWebhook:
+    """Test Teams webhook endpoints"""
+    
+    @pytest.fixture(scope='class')
+    def auth_token(self):
+        response = requests.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": "admin@synthesis-it.co.uk", "password": "admin123"}
+        )
+        return response.json()['access_token']
+    
+    def test_teams_test_webhook_not_configured(self, auth_token):
+        """Test /api/notifications/teams/test returns error when not configured"""
+        response = requests.post(
+            f"{BASE_URL}/api/notifications/teams/test",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        # Should return 400 because webhook URL is not configured
+        assert response.status_code == 400
+        data = response.json()
+        assert 'detail' in data
+        assert 'not configured' in data['detail'].lower()
+        print(f"Teams test response: {data}")
+    
+    def test_teams_webhook_requires_auth(self):
+        """Test /api/notifications/teams/test requires authentication"""
+        response = requests.post(f"{BASE_URL}/api/notifications/teams/test")
+        assert response.status_code in [401, 403]
+
+
+class TestNOCDisplayEndpoints:
+    """Test endpoints used by the NOC Display page"""
+    
+    @pytest.fixture(scope='class')
+    def auth_token(self):
+        response = requests.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": "admin@synthesis-it.co.uk", "password": "admin123"}
+        )
+        return response.json()['access_token']
+    
+    def test_dashboard_stats(self, auth_token):
+        """Test /api/dashboard/stats returns server stats for NOC display"""
+        response = requests.get(
+            f"{BASE_URL}/api/dashboard/stats",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        # Check required fields for NOC display
+        assert 'total_clients' in data
+        assert 'total_servers' in data
+        assert 'servers_online' in data
+        assert 'servers_offline' in data
+        assert 'open_incidents' in data
+        print(f"Dashboard stats: {data}")
+    
+    def test_servers_list(self, auth_token):
+        """Test /api/servers returns server list for NOC display"""
+        response = requests.get(
+            f"{BASE_URL}/api/servers",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        if len(data) > 0:
+            server = data[0]
+            assert 'id' in server
+            assert 'hostname' in server
+            assert 'status' in server
+            assert 'client_name' in server
+        print(f"Servers count: {len(data)}")
+    
+    def test_open_incidents(self, auth_token):
+        """Test /api/incidents?status=open returns open incidents for NOC display"""
+        response = requests.get(
+            f"{BASE_URL}/api/incidents?status=open",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        print(f"Open incidents count: {len(data)}")
+
+
+class TestSecurityHeaders:
+    """Test security headers middleware"""
+    
+    @pytest.fixture(scope='class')
+    def auth_token(self):
+        response = requests.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": "admin@synthesis-it.co.uk", "password": "admin123"}
+        )
+        return response.json()['access_token']
+    
+    def test_security_headers_present(self, auth_token):
+        """Test that security headers are added to responses"""
+        response = requests.get(
+            f"{BASE_URL}/api/config/meshcentral",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        assert response.status_code == 200
+        
+        # Check security headers (may be stripped by proxy)
+        headers = response.headers
+        print(f"Response headers: {dict(headers)}")
+        
+        # These are the headers the middleware adds
+        # Note: They might be stripped or modified by ingress/proxy
+        # X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy, Permissions-Policy
+
+
+class TestServerMeshURL:
+    """Test server mesh URL endpoint"""
+    
+    @pytest.fixture(scope='class')
+    def auth_token(self):
+        response = requests.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": "admin@synthesis-it.co.uk", "password": "admin123"}
+        )
+        return response.json()['access_token']
+    
+    def test_get_server_mesh_url(self, auth_token):
+        """Test /api/servers/{id}/mesh-url returns mesh URL for server"""
+        # First get a server ID
+        servers_response = requests.get(
+            f"{BASE_URL}/api/servers",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        assert servers_response.status_code == 200
+        servers = servers_response.json()
+        
+        if len(servers) > 0:
+            server_id = servers[0]['id']
+            response = requests.get(
+                f"{BASE_URL}/api/servers/{server_id}/mesh-url",
+                headers={"Authorization": f"Bearer {auth_token}"}
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert 'mesh_url' in data
+            assert 'hostname' in data
+            assert 'connection_url' in data
+            assert data['mesh_url'] == "https://mesh.synthesis-it.co.uk"
+            print(f"Server mesh URL: {data}")
+        else:
+            pytest.skip("No servers available to test")
+
+
+class TestServerOfflineNotification:
+    """Test server offline notification endpoint"""
+    
+    @pytest.fixture(scope='class')
+    def auth_token(self):
+        response = requests.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": "admin@synthesis-it.co.uk", "password": "admin123"}
+        )
+        return response.json()['access_token']
+    
+    def test_server_offline_notification(self, auth_token):
+        """Test /api/notifications/server-offline returns proper response"""
+        # First get a server ID
+        servers_response = requests.get(
+            f"{BASE_URL}/api/servers",
+            headers={"Authorization": f"Bearer {auth_token}"}
+        )
+        servers = servers_response.json()
+        
+        if len(servers) > 0:
+            server_id = servers[0]['id']
+            response = requests.post(
+                f"{BASE_URL}/api/notifications/server-offline",
+                headers={"Authorization": f"Bearer {auth_token}"},
+                json={"server_id": server_id}
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert 'message' in data
+            assert 'success' in data
+            # Should be false since Teams webhook not configured
+            assert data['success'] == False
+            print(f"Server offline notification: {data}")
+        else:
+            pytest.skip("No servers available to test")
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

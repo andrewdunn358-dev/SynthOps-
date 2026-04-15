@@ -1,0 +1,102 @@
+services:
+  # SynthOps Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: synthops-backend
+    restart: unless-stopped
+    environment:
+      - MONGO_URL=mongodb://mongo:27017
+      - DB_NAME=synthops
+      - JWT_SECRET=${JWT_SECRET:-synthops-jwt-secret-change-me}
+      - JWT_ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - REFRESH_TOKEN_EXPIRE_DAYS=7
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-synthops-encryption-32bytes!!}
+      - TACTICAL_RMM_API_URL=${TACTICAL_RMM_API_URL}
+      - TACTICAL_RMM_API_KEY=${TACTICAL_RMM_API_KEY}
+      - MESHCENTRAL_URL=${MESHCENTRAL_URL:-}
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
+      - VAULTWARDEN_URL=https://vault.synthesis-it.local
+      - BITDEFENDER_API_URL=${BITDEFENDER_API_URL:-https://cloudgz.gravityzone.bitdefender.com/api}
+      - BITDEFENDER_API_KEY=${BITDEFENDER_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ALTARO_API_URL=${ALTARO_API_URL:-}
+      - ALTARO_API_KEY=${ALTARO_API_KEY:-}
+      - AHSAY_CBS_URL=${AHSAY_CBS_URL:-}
+      - AHSAY_SYS_USER=${AHSAY_SYS_USER:-}
+      - AHSAY_SYS_PWD=${AHSAY_SYS_PWD:-}
+      - CORS_ORIGINS=*
+      - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-15}
+    depends_on:
+      - mongo
+    networks:
+      - synthops-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # SynthOps Frontend with SSL
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - REACT_APP_BACKEND_URL=https://synthops.synthesis-it.local
+    container_name: synthops-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+    networks:
+      - synthops-network
+
+  # MongoDB Database
+  mongo:
+    image: mongo:7
+    container_name: synthops-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+      - mongo-config:/data/configdb
+    networks:
+      - synthops-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Vaultwarden - Password Manager (accessed via /vault path)
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: synthops-vaultwarden
+    restart: unless-stopped
+    environment:
+      - DOMAIN=https://vault.synthesis-it.local
+      - ADMIN_TOKEN=${VAULTWARDEN_ADMIN_TOKEN:-}
+      - SIGNUPS_ALLOWED=true
+      - INVITATIONS_ALLOWED=true
+      - SHOW_PASSWORD_HINT=false
+      - WEBSOCKET_ENABLED=true
+    volumes:
+      - vaultwarden-data:/data
+    networks:
+      - synthops-network
+
+networks:
+  synthops-network:
+    driver: bridge
+
+volumes:
+  mongo-data:
+  mongo-config:
+  vaultwarden-data:
