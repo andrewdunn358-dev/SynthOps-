@@ -21,14 +21,14 @@ const CATEGORY_LABELS = {
 };
 
 const CATEGORY_COLOURS = {
-  security:     'bg-red-50 text-red-800',
-  backup:       'bg-orange-50 text-orange-800',
-  devices:      'bg-blue-50 text-blue-800',
-  onsite:       'bg-indigo-50 text-indigo-800',
-  connectivity: 'bg-cyan-50 text-cyan-800',
-  hosting:      'bg-teal-50 text-teal-800',
-  office365:    'bg-purple-50 text-purple-800',
-  other:        'bg-gray-50 text-gray-800',
+  security:     'bg-red-100/50 dark:bg-red-900/30 text-red-800 dark:text-red-300',
+  backup:       'bg-orange-100/50 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300',
+  devices:      'bg-blue-100/50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300',
+  onsite:       'bg-indigo-100/50 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-300',
+  connectivity: 'bg-cyan-100/50 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-300',
+  hosting:      'bg-teal-100/50 dark:bg-teal-900/30 text-teal-800 dark:text-teal-300',
+  office365:    'bg-purple-100/50 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300',
+  other:        'bg-gray-100/50 dark:bg-gray-800/50 text-gray-800 dark:text-gray-300',
 };
 
 export default function SupportCount() {
@@ -199,7 +199,7 @@ export default function SupportCount() {
   }
 
   return (
-    <div className="space-y-4 bg-background min-h-screen p-1">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -252,7 +252,7 @@ export default function SupportCount() {
               onClick={() => toggleCategory(cat)}
               className={`text-xs px-2 py-1 rounded-full border transition-opacity ${
                 hiddenCategories[cat] ? 'opacity-40' : ''
-              } ${CATEGORY_COLOURS[cat] || 'bg-gray-50 text-gray-800'}`}
+              } ${CATEGORY_COLOURS[cat] || 'bg-gray-100/50 dark:bg-gray-800/50 text-gray-800 dark:text-gray-300'}`}
             >
               {CATEGORY_LABELS[cat]} ({prods.length})
             </button>
@@ -261,15 +261,15 @@ export default function SupportCount() {
       </div>
 
       {/* Spreadsheet table */}
-      <div className="overflow-auto rounded-lg border bg-white" style={{ maxHeight: 'calc(100vh - 260px)' }}>
+      <div className="overflow-auto rounded-lg border bg-background" style={{ maxHeight: 'calc(100vh - 260px)' }}>
         <table className="text-xs border-collapse w-full">
-          <thead className="sticky top-0 z-20 bg-white">
+          <thead className="sticky top-0 z-20 bg-background">
             {/* Category header row */}
             <tr className="border-b">
-              <th className="sticky left-0 z-30 bg-white border-r px-3 py-2 text-left font-semibold min-w-52 text-sm" rowSpan={2}>
+              <th className="sticky left-0 z-30 bg-background border-r px-3 py-2 text-left font-semibold min-w-52 text-sm" rowSpan={2}>
                 Client
               </th>
-              <th className="sticky left-52 z-30 bg-white border-r px-2 py-2 text-center font-semibold min-w-28 text-xs" rowSpan={2}>
+              <th className="sticky left-52 z-30 bg-background border-r px-2 py-2 text-center font-semibold min-w-28 text-xs" rowSpan={2}>
                 Support Type
               </th>
               {Object.entries(productsByCategory).map(([cat, prods]) => {
@@ -287,10 +287,10 @@ export default function SupportCount() {
               <th className="px-3 py-2 text-left font-semibold min-w-32 text-xs bg-gray-50" rowSpan={2}>
                 Remarks
               </th>
-              <th className="px-2 py-2 bg-white" rowSpan={2} />
+              <th className="px-2 py-2 bg-background" rowSpan={2} />
             </tr>
             {/* Product name row */}
-            <tr className="border-b bg-gray-50">
+            <tr className="border-b bg-muted/50">
               {visibleProducts.map(p => (
                 <th
                   key={p.id}
@@ -316,12 +316,12 @@ export default function SupportCount() {
               return (
                 <tr
                   key={row.client_id}
-                  className={`border-b hover:bg-blue-50/30 transition-colors group ${
-                    idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'
-                  } ${isEditing ? '!bg-blue-50' : ''}`}
+                  className={`border-b hover:bg-accent/30 transition-colors group ${
+                    idx % 2 === 0 ? 'bg-background' : 'bg-muted/30'
+                  } ${isEditing ? '!bg-accent' : ''}`}
                 >
                   {/* Client name */}
-                  <td className={`sticky left-0 z-10 border-r px-3 py-1.5 font-medium min-w-52 ${isEditing ? "bg-blue-50" : idx % 2 === 0 ? "bg-white" : "bg-slate-50"}`}>
+                  <td className={`sticky left-0 z-10 border-r px-3 py-1.5 font-medium min-w-52 ${isEditing ? "bg-accent" : idx % 2 === 0 ? "bg-background" : "bg-muted/30"}`}>
                     <div className="flex items-center gap-2">
                       <span className="truncate max-w-48" title={row.client_name}>
                         {row.client_name}
@@ -333,7 +333,7 @@ export default function SupportCount() {
                   </td>
 
                   {/* Support type */}
-                  <td className={`sticky left-52 z-10 border-r px-2 py-1.5 text-center min-w-28 ${isEditing ? "bg-blue-50" : idx % 2 === 0 ? "bg-white" : "bg-slate-50"}`}>
+                  <td className={`sticky left-52 z-10 border-r px-2 py-1.5 text-center min-w-28 ${isEditing ? "bg-accent" : idx % 2 === 0 ? "bg-background" : "bg-muted/30"}`}>
                     {isEditing ? (
                       <select
                         className="text-xs border rounded px-1 py-0.5 w-full"

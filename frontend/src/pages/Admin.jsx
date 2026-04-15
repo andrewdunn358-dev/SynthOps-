@@ -506,6 +506,157 @@ export default function Admin() {
         </Card>
       </div>
 
+      {/* ── Support Product Catalogue ── */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="h-5 w-5" />
+                Support Product Catalogue
+              </CardTitle>
+              <CardDescription className="mt-1">
+                Manage the products and services shown on client support profiles. Add new products as your offering grows.
+              </CardDescription>
+            </div>
+            <Button size="sm" onClick={openNewProduct}>
+              <Plus className="h-4 w-4 mr-1" /> Add Product
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Product Name</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Unit</TableHead>
+                <TableHead>Monthly Cost</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {products.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
+                    No products yet. Add your first product above.
+                  </TableCell>
+                </TableRow>
+              ) : products.map(p => (
+                <TableRow key={p.id} className={!p.active ? 'opacity-50' : ''}>
+                  <TableCell className="font-medium">{p.name}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground capitalize">{p.category}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{p.unit}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {p.unit_cost ? `£${p.unit_cost}/unit` : '—'}
+                  </TableCell>
+                  <TableCell>
+                    {p.active
+                      ? <Badge variant="outline" className="text-green-600 border-green-600 text-xs">Active</Badge>
+                      : <Badge variant="outline" className="text-muted-foreground text-xs">Inactive</Badge>
+                    }
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => openEditProduct(p)}>
+                        <Edit className="h-3.5 w-3.5" />
+                      </Button>
+                      {p.active ? (
+                        <Button variant="ghost" size="sm" className="text-destructive" onClick={() => deactivateProduct(p.id)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      ) : (
+                        <Button variant="ghost" size="sm" className="text-green-600" onClick={() => reactivateProduct(p)}>
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Add/Edit Product Dialog */}
+      <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editingProduct ? 'Edit Product' : 'Add Product'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>Product Name *</Label>
+              <Input
+                className="mt-1"
+                placeholder="e.g. Exchange Online Plan 2"
+                value={productForm.name}
+                onChange={e => setProductForm(f => ({ ...f, name: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Category</Label>
+                <Select value={productForm.category} onValueChange={v => setProductForm(f => ({ ...f, category: v }))}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[
+                      { value: 'security', label: 'Security' },
+                      { value: 'backup', label: 'Backup' },
+                      { value: 'devices', label: 'Devices' },
+                      { value: 'onsite', label: 'Onsite Devices' },
+                      { value: 'connectivity', label: 'Connectivity' },
+                      { value: 'hosting', label: 'Hosting' },
+                      { value: 'office365', label: 'Office 365' },
+                      { value: 'other', label: 'Other' },
+                    ].map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Unit Type</Label>
+                <Select value={productForm.unit} onValueChange={v => setProductForm(f => ({ ...f, unit: v }))}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[
+                      { value: 'count', label: 'Count' },
+                      { value: 'licences', label: 'Licences' },
+                      { value: 'gb', label: 'GB' },
+                      { value: 'yes/no', label: 'Yes / No' },
+                      { value: 'text', label: 'Free text' },
+                    ].map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label>Monthly Cost per Unit (£) <span className="text-muted-foreground text-xs font-normal">— optional</span></Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                className="mt-1"
+                placeholder="0.00"
+                value={productForm.unit_cost ?? ''}
+                onChange={e => setProductForm(f => ({ ...f, unit_cost: e.target.value === '' ? null : parseFloat(e.target.value) }))}
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setProductDialogOpen(false)}>Cancel</Button>
+            <Button onClick={saveProduct} disabled={savingProduct}>
+              {savingProduct ? 'Saving...' : editingProduct ? 'Save Changes' : 'Add Product'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Create User Dialog */}
       <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
         <DialogContent className="max-w-md">
