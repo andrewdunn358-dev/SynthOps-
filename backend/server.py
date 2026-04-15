@@ -6479,6 +6479,32 @@ async def get_monthly_support_count(
     # Sort rows by client name
     rows.sort(key=lambda r: (r.get("client_name") or "").lower())
 
+    # Build hierarchy - group sites under parent clients
+    # Get all mappings to know which rows are sites
+    all_mappings = await db.support_mappings.find({}, {"_id": 0}).to_list(500)
+    site_lookup = {
+        m.get("mapped_id"): m for m in all_mappings if m.get("mapped_type") == "site"
+    }
+
+    # Add site_id and parent info to rows that have it
+    for row in rows:
+        if row.get("site_id"):
+            # This row is a site — find parent client name
+            parent = client_map.get(row["client_id"], "")
+            row["parent_client_name"] = parent
+            row["is_site"] = True
+        else:
+            row["is_site"] = False
+
+    # Re-sort: parent clients first, then their sites grouped together
+    def sort_key(r):
+        if r.get("is_site"):
+            parent = (r.get("parent_client_name") or r.get("client_name") or "").lower()
+            return (parent, "1", (r.get("display_name") or r.get("client_name") or "").lower())
+        return ((r.get("client_name") or "").lower(), "0", "")
+
+    rows.sort(key=sort_key)
+
     # Get available months list
     pipeline = [
         {"$group": {"_id": "$month"}},
@@ -6538,6 +6564,124 @@ async def update_monthly_support_count(
         )
 
     return {"message": "Updated"}
+
+# ── Support Name Mappings ──────────────────────────────────
+# Links spreadsheet names to SynthOps clients or sites
+
+@api_router.get("/support/mappings")
+async def list_support_mappings(current_user: dict = Depends(get_current_user)):
+    """List all name mappings (resolved and unresolved)"""
+    # Get all unique client_ids from snapshots that start with UNRESOLVED:
+    pipeline = [
+        {"$match": {"client_id": {"$regex": "^UNRESOLVED:"}}},
+        {"$group": {"_id": "$client_id", "raw_name": {"$first": "$client_id"}}},
+        {"$sort": {"_id": 1}},
+    ]
+    unresolved = [doc["_id"] async for doc in db.client_support_snapshots.aggregate(pipeline)]
+
+    # Also get from profiles
+    profile_unresolved = await db.client_support_profiles.distinct(
+        "client_id", {"client_id": {"$regex": "^UNRESOLVED:"}}
+    )
+
+    all_unresolved = sorted(set(unresolved + profile_unresolved))
+
+    # Get existing mappings
+    mappings = await db.support_mappings.find({}, {"_id": 0}).to_list(500)
+    mapping_lookup = {m["raw_name"]: m for m in mappings}
+
+    result = []
+    for raw_id in all_unresolved:
+        raw_name = raw_id.replace("UNRESOLVED:", "")
+        existing = mapping_lookup.get(raw_id, {})
+        result.append({
+            "raw_id": raw_id,
+            "raw_name": raw_name,
+            "mapped_type": existing.get("mapped_type"),   # "client" or "site"
+            "mapped_id": existing.get("mapped_id"),
+            "mapped_name": existing.get("mapped_name"),
+            "parent_client_id": existing.get("parent_client_id"),
+            "parent_client_name": existing.get("parent_client_name"),
+        })
+
+    return result
+
+@api_router.post("/support/mappings")
+async def save_support_mapping(
+    mapping: dict = Body(...),
+    admin: dict = Depends(require_admin)
+):
+    """
+    Save a name mapping and update all snapshot/profile records.
+    mapping: { raw_id, mapped_type, mapped_id, mapped_name, parent_client_id, parent_client_name }
+    """
+    raw_id = mapping.get("raw_id")
+    if not raw_id:
+        raise HTTPException(status_code=400, detail="raw_id is required")
+
+    mapped_id = mapping.get("mapped_id")
+    mapped_type = mapping.get("mapped_type")  # "client" or "site"
+
+    # Save the mapping
+    await db.support_mappings.update_one(
+        {"raw_id": raw_id},
+        {"$set": {
+            **mapping,
+            "updated_at": datetime.now(timezone.utc),
+            "updated_by": admin.get("username") or admin.get("email"),
+        }},
+        upsert=True
+    )
+
+    # Update all snapshots with this raw_id to use the real ID
+    # We store both the real client_id and the site_id for site mappings
+    if mapped_id:
+        # For sites, use parent_client_id as client_id and add site_id
+        if mapped_type == "site":
+            client_id = mapping.get("parent_client_id", mapped_id)
+            update_fields = {
+                "client_id": client_id,
+                "site_id": mapped_id,
+                "site_name": mapping.get("mapped_name"),
+                "display_name": mapping.get("raw_name"),
+            }
+        else:
+            client_id = mapped_id
+            update_fields = {
+                "client_id": client_id,
+                "display_name": mapping.get("mapped_name"),
+            }
+
+        snap_result = await db.client_support_snapshots.update_many(
+            {"client_id": raw_id},
+            {"$set": update_fields}
+        )
+        prof_result = await db.client_support_profiles.update_many(
+            {"client_id": raw_id},
+            {"$set": update_fields}
+        )
+        changes_result = await db.support_changes.update_many(
+            {"client_id": raw_id},
+            {"$set": {"client_id": client_id}}
+        )
+
+        return {
+            "message": "Mapping saved and records updated",
+            "snapshots_updated": snap_result.modified_count,
+            "profiles_updated": prof_result.modified_count,
+            "changes_updated": changes_result.modified_count,
+        }
+
+    return {"message": "Mapping saved (no records updated — no mapped_id provided)"}
+
+@api_router.delete("/support/mappings/{raw_id:path}")
+async def delete_support_mapping(
+    raw_id: str,
+    admin: dict = Depends(require_admin)
+):
+    """Delete a mapping"""
+    await db.support_mappings.delete_one({"raw_id": raw_id})
+    return {"message": "Mapping deleted"}
 
 # Include the router after all routes are defined
 app.include_router(api_router)

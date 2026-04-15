@@ -30,6 +30,7 @@ import Stock from './pages/Stock';
 import Backups from './pages/Backups';
 import SupportChanges from './pages/SupportChanges';
 import SupportCount from './pages/SupportCount';
+import SupportMappings from './pages/SupportMappings';
 
 // Components
 import Layout from './components/Layout';
@@ -216,6 +217,7 @@ function App() {
               <Route path="backups" element={<Backups />} />
               <Route path="support/changes" element={<SupportChanges />} />
               <Route path="support/count" element={<SupportCount />} />
+              <Route path="support/mappings" element={<SupportMappings />} />
             </Route>
           </Routes>
         </BrowserRouter>
