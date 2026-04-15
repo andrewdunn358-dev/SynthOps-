@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiClient } from '../App';
 import { toast } from 'sonner';
+import SupportTab from '../components/SupportTab';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -205,6 +206,7 @@ export default function ClientDetail() {
           </TabsTrigger>
           <TabsTrigger value="tasks">Tasks ({tasks.length})</TabsTrigger>
           <TabsTrigger value="incidents">Incidents ({incidents.length})</TabsTrigger>
+          <TabsTrigger value="support">Support Contract</TabsTrigger>
         </TabsList>
 
         <TabsContent value="sites" className="mt-4">
@@ -366,6 +368,9 @@ export default function ClientDetail() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+        <TabsContent value="support">
+          <SupportTab clientId={id} clientName={client?.name} />
         </TabsContent>
       </Tabs>
     </div>

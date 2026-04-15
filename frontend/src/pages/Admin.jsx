@@ -32,6 +32,9 @@ import {
   Shield, Users, RefreshCw, Link2, CheckCircle, XCircle, Plus, 
   UserPlus, Edit, Trash2, Key, Clock
 } from 'lucide-react';
+import {
+  DialogFooter,
+} from '../components/ui/dialog';
 
 export default function Admin() {
   const { user } = useAuth();
@@ -195,6 +198,97 @@ export default function Admin() {
       </div>
     );
   }
+
+  // ── Support Product Catalogue ─────────────────────────────
+  const [products, setProducts] = useState([]);
+  const [productDialogOpen, setProductDialogOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [productForm, setProductForm] = useState({
+    name: '', category: 'office365', unit: 'count', active: true, sort_order: 0, unit_cost: null,
+  });
+  const [savingProduct, setSavingProduct] = useState(false);
+
+  const CATEGORY_OPTIONS = [
+    { value: 'security', label: 'Security' },
+    { value: 'backup', label: 'Backup' },
+    { value: 'devices', label: 'Devices' },
+    { value: 'onsite', label: 'Onsite Devices' },
+    { value: 'connectivity', label: 'Connectivity' },
+    { value: 'hosting', label: 'Hosting' },
+    { value: 'office365', label: 'Office 365' },
+    { value: 'other', label: 'Other' },
+  ];
+
+  const UNIT_OPTIONS = [
+    { value: 'count', label: 'Count' },
+    { value: 'licences', label: 'Licences' },
+    { value: 'gb', label: 'GB' },
+    { value: 'yes/no', label: 'Yes / No' },
+    { value: 'text', label: 'Text' },
+  ];
+
+  useEffect(() => { fetchProducts(); }, []);
+
+  const fetchProducts = async () => {
+    try {
+      const res = await apiClient.get('/support/products?include_inactive=true');
+      setProducts(res.data);
+    } catch (e) { /* silent */ }
+  };
+
+  const openNewProduct = () => {
+    setEditingProduct(null);
+    setProductForm({ name: '', category: 'office365', unit: 'count', active: true, sort_order: products.length * 10, unit_cost: null });
+    setProductDialogOpen(true);
+  };
+
+  const openEditProduct = (p) => {
+    setEditingProduct(p);
+    setProductForm({ name: p.name, category: p.category, unit: p.unit, active: p.active, sort_order: p.sort_order, unit_cost: p.unit_cost });
+    setProductDialogOpen(true);
+  };
+
+  const saveProduct = async () => {
+    if (!productForm.name) { toast.error('Product name is required'); return; }
+    setSavingProduct(true);
+    try {
+      if (editingProduct) {
+        await apiClient.put(`/support/products/${editingProduct.id}`, productForm);
+        toast.success('Product updated');
+      } else {
+        await apiClient.post('/support/products', productForm);
+        toast.success('Product added');
+      }
+      setProductDialogOpen(false);
+      fetchProducts();
+    } catch (e) {
+      toast.error('Failed to save product');
+    } finally {
+      setSavingProduct(false);
+    }
+  };
+
+  const deactivateProduct = async (id) => {
+    if (!window.confirm('Deactivate this product? It will be hidden from new entries but historical data is preserved.')) return;
+    try {
+      await apiClient.delete(`/support/products/${id}`);
+      toast.success('Product deactivated');
+      fetchProducts();
+    } catch (e) {
+      toast.error('Failed to deactivate product');
+    }
+  };
+
+  const reactivateProduct = async (p) => {
+    try {
+      await apiClient.put(`/support/products/${p.id}`, { ...p, active: true });
+      toast.success('Product reactivated');
+      fetchProducts();
+    } catch (e) {
+      toast.error('Failed to reactivate');
+    }
+  };
+
 
   return (
     <div className="space-y-6" data-testid="admin-page">

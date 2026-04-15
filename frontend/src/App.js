@@ -28,6 +28,7 @@ import Infrastructure from './pages/Infrastructure';
 import Customers from './pages/Customers';
 import Stock from './pages/Stock';
 import Backups from './pages/Backups';
+import SupportChanges from './pages/SupportChanges';
 
 // Components
 import Layout from './components/Layout';
@@ -212,6 +213,7 @@ function App() {
               <Route path="customers" element={<Customers />} />
               <Route path="stock" element={<Stock />} />
               <Route path="backups" element={<Backups />} />
+              <Route path="support/changes" element={<SupportChanges />} />
             </Route>
           </Routes>
         </BrowserRouter>
