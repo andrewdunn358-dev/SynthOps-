@@ -6408,6 +6408,137 @@ async def import_support_data(
 
     return results
 
+# ── Monthly Support Count view ──────────────────────────────
+
+@api_router.get("/support/monthly-count")
+async def get_monthly_support_count(
+    month: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Returns all client support data for a given month (YYYY-MM).
+    Falls back to current profiles if no snapshot exists for that month.
+    Defaults to current month if no month specified.
+    """
+    if not month:
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+
+    # Get all products for column definitions
+    products = await db.support_products.find(
+        {"active": True}, {"_id": 0}
+    ).sort("sort_order", 1).to_list(500)
+
+    # Get all clients for name lookup
+    clients_list = await db.clients.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
+    client_map = {c["id"]: c["name"] for c in clients_list}
+
+    # Get snapshots for this month
+    snapshots = await db.client_support_snapshots.find(
+        {"month": month}, {"_id": 0}
+    ).to_list(500)
+
+    snapshot_map = {s["client_id"]: s for s in snapshots}
+
+    # Also get current profiles for clients with no snapshot this month
+    profiles = await db.client_support_profiles.find(
+        {}, {"_id": 0}
+    ).to_list(500)
+
+    # Build rows - prefer snapshot, fall back to current profile
+    rows = []
+    seen_clients = set()
+
+    for snap in snapshots:
+        client_id = snap["client_id"]
+        seen_clients.add(client_id)
+        rows.append({
+            "client_id": client_id,
+            "client_name": client_map.get(client_id, client_id.replace("UNRESOLVED:", "")),
+            "support_type": snap.get("support_type"),
+            "products": snap.get("products", {}),
+            "remarks": snap.get("remarks"),
+            "source": "snapshot",
+        })
+
+    # Add current profiles for clients not in snapshot
+    current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+    if month == current_month:
+        for profile in profiles:
+            client_id = profile["client_id"]
+            if client_id not in seen_clients:
+                seen_clients.add(client_id)
+                rows.append({
+                    "client_id": client_id,
+                    "client_name": client_map.get(client_id, client_id.replace("UNRESOLVED:", "")),
+                    "support_type": profile.get("support_type"),
+                    "products": profile.get("products", {}),
+                    "remarks": profile.get("remarks"),
+                    "source": "current",
+                })
+
+    # Sort rows by client name
+    rows.sort(key=lambda r: (r.get("client_name") or "").lower())
+
+    # Get available months list
+    pipeline = [
+        {"$group": {"_id": "$month"}},
+        {"$sort": {"_id": -1}},
+        {"$limit": 36}
+    ]
+    available_months = [doc["_id"] async for doc in db.client_support_snapshots.aggregate(pipeline)]
+
+    return {
+        "month": month,
+        "products": products,
+        "rows": rows,
+        "available_months": sorted(available_months, reverse=True),
+    }
+
+@api_router.put("/support/monthly-count/{client_id}")
+async def update_monthly_support_count(
+    client_id: str,
+    data: dict = Body(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a client's support data for a specific month"""
+    month = data.get("month")
+    if not month:
+        raise HTTPException(status_code=400, detail="Month is required")
+
+    now = datetime.now(timezone.utc)
+    snap = {
+        "client_id": client_id,
+        "month": month,
+        "support_type": data.get("support_type"),
+        "products": data.get("products", {}),
+        "remarks": data.get("remarks"),
+        "snapshot_date": now,
+        "updated_by": current_user.get("username") or current_user.get("email"),
+    }
+
+    await db.client_support_snapshots.update_one(
+        {"client_id": client_id, "month": month},
+        {"$set": snap},
+        upsert=True
+    )
+
+    # If it's the current month, also update the live profile
+    current_month = now.strftime("%Y-%m")
+    if month == current_month:
+        await db.client_support_profiles.update_one(
+            {"client_id": client_id},
+            {"$set": {
+                "support_type": data.get("support_type"),
+                "products": data.get("products", {}),
+                "remarks": data.get("remarks"),
+                "updated_at": now,
+                "updated_by": current_user.get("username") or current_user.get("email"),
+            }},
+            upsert=True
+        )
+
+    return {"message": "Updated"}
+
 # Include the router after all routes are defined
 app.include_router(api_router)
 

@@ -6,7 +6,7 @@ import {
   AlertTriangle, Wrench, FileText, Clock, Users, Settings, 
   Shield, LogOut, Menu, X, Sun, Moon, ChevronLeft,
   BarChart3, KeyRound, ExternalLink, Monitor, ShieldCheck, Network,
-  UsersRound, Package, HardDrive, ClipboardList
+  UsersRound, Package, HardDrive, ClipboardList, Table2
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
@@ -33,6 +33,7 @@ const navItems = [
   { path: '/dc-health-check', icon: ShieldCheck, label: 'Monthly Health Check' },
   { path: '/backups', icon: HardDrive, label: 'Backup Tracking' },
   { path: '/support/changes', icon: ClipboardList, label: 'Support Changes' },
+  { path: '/support/count', icon: Table2, label: 'Support Count' },
   { path: '/docs', icon: FileText, label: 'Documentation' },
   { path: '/time', icon: Clock, label: 'Time Tracking' },
   { path: '/staff', icon: Users, label: 'Staff' },

@@ -29,6 +29,7 @@ import Customers from './pages/Customers';
 import Stock from './pages/Stock';
 import Backups from './pages/Backups';
 import SupportChanges from './pages/SupportChanges';
+import SupportCount from './pages/SupportCount';
 
 // Components
 import Layout from './components/Layout';
@@ -214,6 +215,7 @@ function App() {
               <Route path="stock" element={<Stock />} />
               <Route path="backups" element={<Backups />} />
               <Route path="support/changes" element={<SupportChanges />} />
+              <Route path="support/count" element={<SupportCount />} />
             </Route>
           </Routes>
         </BrowserRouter>
