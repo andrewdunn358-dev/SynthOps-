@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../components/ui/select';
-import { Save, Download, Search, ChevronLeft, ChevronRight, Edit, X, Plus } from 'lucide-react';
+import { Save, Download, Search, ChevronLeft, ChevronRight, Edit, X, Plus, Copy } from 'lucide-react';
 
 const CATEGORY_LABELS = {
   security: 'Security',
@@ -32,18 +32,27 @@ const CATEGORY_COLOURS = {
   other:        'bg-gray-100/50 dark:bg-gray-800/50 text-gray-800 dark:text-gray-300',
 };
 
+// Opaque background classes for sticky columns (prevents bleed-through on scroll)
+const stickyBg = (idx, isEditing) => {
+  if (isEditing) return 'bg-accent';
+  return idx % 2 === 0
+    ? 'bg-white dark:bg-gray-950'
+    : 'bg-gray-50 dark:bg-gray-900';
+};
+
 export default function SupportCount() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState('');
   const [search, setSearch] = useState('');
-  const [editingRow, setEditingRow] = useState(null); // client_id being edited
+  const [editingRow, setEditingRow] = useState(null);
   const [editValues, setEditValues] = useState({});
   const [saving, setSaving] = useState(false);
   const [hiddenCategories, setHiddenCategories] = useState({});
   const [addClientOpen, setAddClientOpen] = useState(false);
   const [addClientId, setAddClientId] = useState('');
   const [allClients, setAllClients] = useState([]);
+  const [copyingMonth, setCopyingMonth] = useState(false);
 
   useEffect(() => {
     fetchData(selectedMonth);
@@ -92,9 +101,6 @@ export default function SupportCount() {
       toast.success('Saved');
       setEditingRow(null);
       fetchData(selectedMonth);
-    if (allClients.length === 0) {
-      apiClient.get('/clients').then(r => setAllClients(r.data)).catch(() => {});
-    }
     } catch (e) {
       toast.error('Failed to save');
     } finally {
@@ -119,6 +125,31 @@ export default function SupportCount() {
       fetchData(selectedMonth);
     } catch (e) {
       toast.error('Failed to add client');
+    }
+  };
+
+  const copyFromPreviousMonth = async () => {
+    if (!data?.available_months?.length) return;
+    const months = [...data.available_months].sort();
+    const idx = months.indexOf(selectedMonth);
+    if (idx <= 0) { toast.error('No previous month available to copy from'); return; }
+    const prevMonth = months[idx - 1];
+    const confirmed = window.confirm(
+      `Copy all data from ${formatMonthLabel(prevMonth)} into ${formatMonthLabel(selectedMonth)}?\n\nThis will only fill in clients that don't already have data this month.`
+    );
+    if (!confirmed) return;
+    setCopyingMonth(true);
+    try {
+      const res = await apiClient.post('/support/monthly-count/copy-from-previous', {
+        target_month: selectedMonth,
+        source_month: prevMonth,
+      });
+      toast.success(`Copied ${res.data.copied} clients from ${formatMonthLabel(prevMonth)}`);
+      fetchData(selectedMonth);
+    } catch (e) {
+      toast.error('Failed to copy from previous month');
+    } finally {
+      setCopyingMonth(false);
     }
   };
 
@@ -168,7 +199,6 @@ export default function SupportCount() {
     return (row.client_name || '').toLowerCase().includes(search.toLowerCase());
   }) || [];
 
-  // Group products by category for column headers
   const productsByCategory = {};
   (data?.products || []).forEach(p => {
     if (!productsByCategory[p.category]) productsByCategory[p.category] = [];
@@ -219,6 +249,14 @@ export default function SupportCount() {
     );
   };
 
+  // Check if there's a previous month available to copy from
+  const hasPreviousMonth = (() => {
+    if (!data?.available_months?.length) return false;
+    const months = [...data.available_months].sort();
+    const idx = months.indexOf(selectedMonth);
+    return idx > 0;
+  })();
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -239,6 +277,11 @@ export default function SupportCount() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {hasPreviousMonth && (
+            <Button variant="outline" size="sm" onClick={copyFromPreviousMonth} disabled={copyingMonth}>
+              <Copy className="h-4 w-4 mr-1" /> {copyingMonth ? 'Copying...' : 'Copy from Previous Month'}
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => setAddClientOpen(true)}>
             <Plus className="h-4 w-4 mr-1" /> Add Client
           </Button>
@@ -299,10 +342,10 @@ export default function SupportCount() {
           <thead className="sticky top-0 z-20 bg-background">
             {/* Category header row */}
             <tr className="border-b">
-              <th className="sticky left-0 z-30 bg-background border-r px-3 py-2 text-left font-semibold min-w-52 text-sm" rowSpan={2}>
+              <th className="sticky left-0 z-30 bg-white dark:bg-gray-950 border-r px-3 py-2 text-left font-semibold min-w-52 text-sm" rowSpan={2}>
                 Client
               </th>
-              <th className="sticky left-52 z-30 bg-background border-r px-2 py-2 text-center font-semibold min-w-28 text-xs" rowSpan={2}>
+              <th className="sticky left-52 z-30 bg-white dark:bg-gray-950 border-r px-2 py-2 text-center font-semibold min-w-28 text-xs" rowSpan={2}>
                 Support Type
               </th>
               {Object.entries(productsByCategory).map(([cat, prods]) => {
@@ -317,10 +360,10 @@ export default function SupportCount() {
                   </th>
                 );
               })}
-              <th className="px-3 py-2 text-left font-semibold min-w-32 text-xs bg-gray-50" rowSpan={2}>
+              <th className="px-3 py-2 text-left font-semibold min-w-32 text-xs bg-gray-50 dark:bg-gray-900" rowSpan={2}>
                 Remarks
               </th>
-              <th className="px-2 py-2 bg-background" rowSpan={2} />
+              <th className="px-2 py-2 bg-white dark:bg-gray-950" rowSpan={2} />
             </tr>
             {/* Product name row */}
             <tr className="border-b bg-muted/50">
@@ -344,17 +387,16 @@ export default function SupportCount() {
               </tr>
             ) : filteredRows.map((row, idx) => {
               const isEditing = editingRow === row.client_id;
-              const vals = isEditing ? editValues : row;
 
               return (
                 <tr
                   key={row.client_id}
                   className={`border-b hover:bg-accent/30 transition-colors group ${
-                    idx % 2 === 0 ? 'bg-background' : 'bg-muted/30'
+                    idx % 2 === 0 ? 'bg-white dark:bg-gray-950' : 'bg-gray-50 dark:bg-gray-900'
                   } ${isEditing ? '!bg-accent' : ''}`}
                 >
-                  {/* Client name */}
-                  <td className={`sticky left-0 z-10 border-r px-3 py-1.5 font-medium min-w-52 ${isEditing ? "bg-accent" : idx % 2 === 0 ? "bg-background" : "bg-muted/30"}`}>
+                  {/* Client name — sticky, opaque background */}
+                  <td className={`sticky left-0 z-10 border-r px-3 py-1.5 font-medium min-w-52 ${stickyBg(idx, isEditing)}`}>
                     <div className="flex items-center gap-2">
                       <span className="truncate max-w-48" title={row.client_name}>
                         {row.client_name}
@@ -365,8 +407,8 @@ export default function SupportCount() {
                     </div>
                   </td>
 
-                  {/* Support type */}
-                  <td className={`sticky left-52 z-10 border-r px-2 py-1.5 text-center min-w-28 ${isEditing ? "bg-accent" : idx % 2 === 0 ? "bg-background" : "bg-muted/30"}`}>
+                  {/* Support type — sticky, opaque background */}
+                  <td className={`sticky left-52 z-10 border-r px-2 py-1.5 text-center min-w-28 ${stickyBg(idx, isEditing)}`}>
                     {isEditing ? (
                       <select
                         className="text-xs border rounded px-1 py-0.5 w-full"
@@ -380,7 +422,7 @@ export default function SupportCount() {
                       </select>
                     ) : (
                       row.support_type ? (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100">{row.support_type}</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">{row.support_type}</span>
                       ) : <span className="text-gray-300">—</span>
                     )}
                   </td>
@@ -436,11 +478,12 @@ export default function SupportCount() {
           </tbody>
         </table>
       </div>
+
       {/* Add client to month dialog */}
       <Dialog open={addClientOpen} onOpenChange={setAddClientOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Add Client to {selectedMonth}</DialogTitle>
+            <DialogTitle>Add Client to {formatMonthLabel(selectedMonth)}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             Add a client that isn't currently in this month's support count.

@@ -6534,6 +6534,53 @@ async def get_monthly_support_count(
         "available_months": sorted(available_months, reverse=True),
     }
 
+@api_router.post("/support/monthly-count/copy-from-previous")
+async def copy_support_count_from_previous(
+    data: dict = Body(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Copy all snapshots from source_month into target_month, skipping clients that already have data in target_month."""
+    target_month = data.get("target_month")
+    source_month = data.get("source_month")
+    if not target_month or not source_month:
+        raise HTTPException(status_code=400, detail="target_month and source_month are required")
+
+    # Get existing snapshots in target month so we don't overwrite them
+    existing = await db.client_support_snapshots.find(
+        {"month": target_month}, {"client_id": 1}
+    ).to_list(500)
+    existing_ids = {e["client_id"] for e in existing}
+
+    # Get all snapshots from source month
+    source_snaps = await db.client_support_snapshots.find(
+        {"month": source_month}, {"_id": 0}
+    ).to_list(500)
+
+    now = datetime.now(timezone.utc)
+    copied = 0
+    for snap in source_snaps:
+        client_id = snap["client_id"]
+        if client_id in existing_ids:
+            continue  # Don't overwrite existing data
+        new_snap = {
+            "client_id": client_id,
+            "month": target_month,
+            "support_type": snap.get("support_type"),
+            "products": snap.get("products", {}),
+            "remarks": snap.get("remarks"),
+            "snapshot_date": now,
+            "updated_by": current_user.get("username") or current_user.get("email"),
+        }
+        await db.client_support_snapshots.update_one(
+            {"client_id": client_id, "month": target_month},
+            {"$set": new_snap},
+            upsert=True
+        )
+        copied += 1
+
+    return {"message": f"Copied {copied} clients from {source_month} to {target_month}", "copied": copied}
+
+
 @api_router.put("/support/monthly-count/{client_id}")
 async def update_monthly_support_count(
     client_id: str,
