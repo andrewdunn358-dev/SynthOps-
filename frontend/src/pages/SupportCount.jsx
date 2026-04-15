@@ -199,7 +199,7 @@ export default function SupportCount() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 bg-background min-h-screen p-1">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -262,14 +262,14 @@ export default function SupportCount() {
 
       {/* Spreadsheet table */}
       <div className="overflow-auto rounded-lg border bg-white" style={{ maxHeight: 'calc(100vh - 260px)' }}>
-        <table className="text-xs border-collapse" style={{ minWidth: '100%' }}>
-          <thead className="sticky top-0 z-20">
+        <table className="text-xs border-collapse w-full">
+          <thead className="sticky top-0 z-20 bg-white">
             {/* Category header row */}
             <tr className="border-b">
-              <th className="sticky left-0 z-30 bg-white border-r px-3 py-2 text-left font-semibold min-w-48 text-sm" rowSpan={2}>
+              <th className="sticky left-0 z-30 bg-white border-r px-3 py-2 text-left font-semibold min-w-52 text-sm" rowSpan={2}>
                 Client
               </th>
-              <th className="sticky left-48 z-30 bg-white border-r px-2 py-2 text-center font-semibold min-w-24 text-xs" rowSpan={2}>
+              <th className="sticky left-52 z-30 bg-white border-r px-2 py-2 text-center font-semibold min-w-28 text-xs" rowSpan={2}>
                 Support Type
               </th>
               {Object.entries(productsByCategory).map(([cat, prods]) => {
@@ -294,7 +294,7 @@ export default function SupportCount() {
               {visibleProducts.map(p => (
                 <th
                   key={p.id}
-                  className="px-2 py-1 text-center font-medium whitespace-nowrap border-r text-xs min-w-16"
+                  className="px-1 py-2 text-center font-medium border-r text-xs min-w-14 max-w-20"
                   title={p.name}
                 >
                   <span className="block max-w-20 truncate mx-auto">{p.name}</span>
@@ -317,13 +317,13 @@ export default function SupportCount() {
                 <tr
                   key={row.client_id}
                   className={`border-b hover:bg-blue-50/30 transition-colors group ${
-                    idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
-                  } ${isEditing ? 'bg-blue-50' : ''}`}
+                    idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'
+                  } ${isEditing ? '!bg-blue-50' : ''}`}
                 >
                   {/* Client name */}
-                  <td className="sticky left-0 z-10 border-r px-3 py-1.5 font-medium bg-inherit min-w-48">
+                  <td className={`sticky left-0 z-10 border-r px-3 py-1.5 font-medium min-w-52 ${isEditing ? "bg-blue-50" : idx % 2 === 0 ? "bg-white" : "bg-slate-50"}`}>
                     <div className="flex items-center gap-2">
-                      <span className="truncate max-w-40" title={row.client_name}>
+                      <span className="truncate max-w-48" title={row.client_name}>
                         {row.client_name}
                       </span>
                       {row.client_id?.startsWith('UNRESOLVED:') && (
@@ -333,7 +333,7 @@ export default function SupportCount() {
                   </td>
 
                   {/* Support type */}
-                  <td className="sticky left-48 z-10 border-r px-2 py-1.5 text-center bg-inherit min-w-24">
+                  <td className={`sticky left-52 z-10 border-r px-2 py-1.5 text-center min-w-28 ${isEditing ? "bg-blue-50" : idx % 2 === 0 ? "bg-white" : "bg-slate-50"}`}>
                     {isEditing ? (
                       <select
                         className="text-xs border rounded px-1 py-0.5 w-full"
