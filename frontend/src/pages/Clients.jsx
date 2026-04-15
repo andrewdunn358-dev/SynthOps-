@@ -53,8 +53,11 @@ export default function Clients() {
     address: '',
     contract_type: 'monthly',
     contract_hours_monthly: '',
-    notes: ''
+    notes: '',
+    client_type: 'managed',
+    service_category: '',
   });
+  const [typeFilter, setTypeFilter] = useState('all'); // all | managed | service_only
 
   useEffect(() => {
     fetchClients();
@@ -106,7 +109,9 @@ export default function Clients() {
       address: client.address || '',
       contract_type: client.contract_type || 'monthly',
       contract_hours_monthly: client.contract_hours_monthly || '',
-      notes: client.notes || ''
+      notes: client.notes || '',
+      client_type: client.client_type || 'managed',
+      service_category: client.service_category || '',
     });
     setDialogOpen(true);
   };
@@ -150,10 +155,25 @@ export default function Clients() {
     });
   };
 
-  const filteredClients = clients.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.code.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredClients = clients.filter(c => {
+    const matchesSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
+      c.code.toLowerCase().includes(search.toLowerCase());
+    const matchesType = typeFilter === 'all' ||
+      (typeFilter === 'managed' && (c.client_type === 'managed' || !c.client_type)) ||
+      (typeFilter === 'service_only' && c.client_type === 'service_only');
+    return matchesSearch && matchesType;
+  });
+
+  const SERVICE_CATEGORIES = [
+    { value: 'web_hosting', label: 'Web Hosting' },
+    { value: 'email_only', label: 'Email Only' },
+    { value: 'domain_only', label: 'Domain Only' },
+    { value: 'broadband', label: 'Broadband' },
+    { value: 'mixed_services', label: 'Mixed Services' },
+  ];
+
+  const getServiceCategoryLabel = (cat) =>
+    SERVICE_CATEGORIES.find(s => s.value === cat)?.label || cat;
 
   return (
     <div className="space-y-6" data-testid="clients-page">
@@ -286,6 +306,38 @@ export default function Clients() {
                 </div>
                 
                 <div className="space-y-2">
+                  <Label>Client Type</Label>
+                  <Select value={form.client_type} onValueChange={(v) => setForm({ ...form, client_type: v, service_category: '' })}>
+                    <SelectTrigger data-testid="client-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="managed">Managed — Full MSP client with hardware monitoring</SelectItem>
+                      <SelectItem value="service_only">Service Only — Hosting, email, domains etc (no monitoring)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {form.client_type === 'service_only' && (
+                  <div className="space-y-2">
+                    <Label>Service Category</Label>
+                    <Select value={form.service_category || 'none'} onValueChange={(v) => setForm({ ...form, service_category: v === 'none' ? '' : v })}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select category..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Select category...</SelectItem>
+                        <SelectItem value="web_hosting">Web Hosting</SelectItem>
+                        <SelectItem value="email_only">Email Only</SelectItem>
+                        <SelectItem value="domain_only">Domain Only</SelectItem>
+                        <SelectItem value="broadband">Broadband</SelectItem>
+                        <SelectItem value="mixed_services">Mixed Services</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                <div className="space-y-2">
                   <Label>Notes</Label>
                   <Textarea
                     value={form.notes}
@@ -310,16 +362,34 @@ export default function Clients() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search clients..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-10"
-          data-testid="search-clients"
-        />
+      {/* Search + type filter */}
+      <div className="flex gap-3 flex-wrap items-center">
+        <div className="relative max-w-md flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search clients..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
+            data-testid="search-clients"
+          />
+        </div>
+        <div className="flex gap-2">
+          {[
+            { value: 'all', label: `All (${clients.length})` },
+            { value: 'managed', label: `Managed (${clients.filter(c => !c.client_type || c.client_type === 'managed').length})` },
+            { value: 'service_only', label: `Service Only (${clients.filter(c => c.client_type === 'service_only').length})` },
+          ].map(f => (
+            <Button
+              key={f.value}
+              size="sm"
+              variant={typeFilter === f.value ? 'default' : 'outline'}
+              onClick={() => setTypeFilter(f.value)}
+            >
+              {f.label}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {/* Client Grid */}
@@ -359,7 +429,14 @@ export default function Clients() {
                       <Building2 className="h-5 w-5 text-primary" />
                     </div>
                     <div>
-                      <h3 className="font-semibold">{client.name}</h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold">{client.name}</h3>
+                        {client.client_type === 'service_only' && (
+                          <Badge variant="outline" className="text-xs text-purple-600 border-purple-400">
+                            {client.service_category ? getServiceCategoryLabel(client.service_category) : 'Service Only'}
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground font-mono">{client.code}</p>
                     </div>
                   </div>

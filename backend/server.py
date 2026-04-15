@@ -168,6 +168,8 @@ class ClientCreate(BaseModel):
     contract_type: str = "monthly"
     contract_hours_monthly: Optional[int] = None
     notes: Optional[str] = None
+    client_type: str = "managed"  # managed | service_only
+    service_category: Optional[str] = None  # web_hosting | email_only | domain_only | broadband | mixed_services
 
 class ClientResponse(BaseModel):
     id: str
@@ -186,6 +188,8 @@ class ClientResponse(BaseModel):
     server_count: int = 0
     workstation_count: int = 0
     site_count: int = 0
+    client_type: str = "managed"
+    service_category: Optional[str] = None
 
 class SiteCreate(BaseModel):
     client_id: str
@@ -802,7 +806,9 @@ async def list_clients(user: dict = Depends(get_current_user)):
             is_active=c.get("is_active", True),
             tactical_rmm_client_id=c.get("tactical_rmm_client_id"),
             created_at=datetime.fromisoformat(c["created_at"]),
-            server_count=server_count, workstation_count=workstation_count, site_count=site_count
+            server_count=server_count, workstation_count=workstation_count, site_count=site_count,
+            client_type=c.get("client_type", "managed"),
+            service_category=c.get("service_category"),
         ))
     return result
 
@@ -834,7 +840,9 @@ async def get_client(client_id: str, user: dict = Depends(get_current_user)):
         is_active=c.get("is_active", True),
         tactical_rmm_client_id=c.get("tactical_rmm_client_id"),
         created_at=datetime.fromisoformat(c["created_at"]),
-        server_count=server_count, workstation_count=workstation_count, site_count=site_count
+        server_count=server_count, workstation_count=workstation_count, site_count=site_count,
+        client_type=c.get("client_type", "managed"),
+        service_category=c.get("service_category"),
     )
 
 @api_router.post("/clients", response_model=ClientResponse)
@@ -856,6 +864,8 @@ async def create_client(client_data: ClientCreate, user: dict = Depends(get_curr
         "notes": encrypt_field(client_data.notes) if client_data.notes else None,
         "is_active": True,
         "tactical_rmm_client_id": None,
+        "client_type": client_data.client_type,
+        "service_category": client_data.service_category,
         "created_by": user["id"],
         "created_at": datetime.now(timezone.utc).isoformat()
     }
@@ -868,7 +878,9 @@ async def create_client(client_data: ClientCreate, user: dict = Depends(get_curr
         contract_hours_monthly=client["contract_hours_monthly"],
         notes=client_data.notes, is_active=True, tactical_rmm_client_id=None,
         created_at=datetime.fromisoformat(client["created_at"]),
-        server_count=0, site_count=0
+        server_count=0, site_count=0,
+        client_type=client["client_type"],
+        service_category=client["service_category"],
     )
 
 @api_router.put("/clients/{client_id}", response_model=ClientResponse)
@@ -883,6 +895,8 @@ async def update_client(client_id: str, client_data: ClientCreate, user: dict = 
         "contract_type": client_data.contract_type,
         "contract_hours_monthly": client_data.contract_hours_monthly,
         "notes": encrypt_field(client_data.notes) if client_data.notes else None,
+        "client_type": client_data.client_type,
+        "service_category": client_data.service_category,
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
     result = await db.clients.update_one({"id": client_id}, {"$set": update_data})

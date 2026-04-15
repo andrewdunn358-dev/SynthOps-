@@ -4,10 +4,11 @@ import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../components/ui/select';
-import { Save, Download, Search, ChevronLeft, ChevronRight, Edit, X } from 'lucide-react';
+import { Save, Download, Search, ChevronLeft, ChevronRight, Edit, X, Plus } from 'lucide-react';
 
 const CATEGORY_LABELS = {
   security: 'Security',
@@ -40,9 +41,15 @@ export default function SupportCount() {
   const [editValues, setEditValues] = useState({});
   const [saving, setSaving] = useState(false);
   const [hiddenCategories, setHiddenCategories] = useState({});
+  const [addClientOpen, setAddClientOpen] = useState(false);
+  const [addClientId, setAddClientId] = useState('');
+  const [allClients, setAllClients] = useState([]);
 
   useEffect(() => {
     fetchData(selectedMonth);
+    if (allClients.length === 0) {
+      apiClient.get('/clients').then(r => setAllClients(r.data)).catch(() => {});
+    }
   }, [selectedMonth]);
 
   const fetchData = async (month) => {
@@ -85,10 +92,33 @@ export default function SupportCount() {
       toast.success('Saved');
       setEditingRow(null);
       fetchData(selectedMonth);
+    if (allClients.length === 0) {
+      apiClient.get('/clients').then(r => setAllClients(r.data)).catch(() => {});
+    }
     } catch (e) {
       toast.error('Failed to save');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const addClientToMonth = async () => {
+    if (!addClientId) { toast.error('Please select a client'); return; }
+    const client = allClients.find(c => c.id === addClientId);
+    if (!client) return;
+    try {
+      await apiClient.put(`/support/monthly-count/${addClientId}`, {
+        month: selectedMonth,
+        support_type: null,
+        products: {},
+        remarks: null,
+      });
+      toast.success(`${client.name} added to ${selectedMonth}`);
+      setAddClientOpen(false);
+      setAddClientId('');
+      fetchData(selectedMonth);
+    } catch (e) {
+      toast.error('Failed to add client');
     }
   };
 
@@ -209,6 +239,9 @@ export default function SupportCount() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={() => setAddClientOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Add Client
+          </Button>
           <Button variant="outline" size="sm" onClick={exportCSV}>
             <Download className="h-4 w-4 mr-1" /> Export CSV
           </Button>
@@ -403,6 +436,37 @@ export default function SupportCount() {
           </tbody>
         </table>
       </div>
+      {/* Add client to month dialog */}
+      <Dialog open={addClientOpen} onOpenChange={setAddClientOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Client to {selectedMonth}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Add a client that isn't currently in this month's support count.
+          </p>
+          <Select value={addClientId || 'none'} onValueChange={v => setAddClientId(v === 'none' ? '' : v)}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select client..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none" disabled>Select client...</SelectItem>
+              {allClients
+                .filter(c => !data?.rows?.find(r => r.client_id === c.id))
+                .map(c => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                    {c.client_type === 'service_only' && ' (Service Only)'}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddClientOpen(false)}>Cancel</Button>
+            <Button onClick={addClientToMonth} disabled={!addClientId}>Add to Month</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

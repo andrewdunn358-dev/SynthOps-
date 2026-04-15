@@ -11,7 +11,11 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '../components/ui/table';
-import { CheckCircle2, Circle, Search, Link2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { CheckCircle2, Circle, Search, Link2, AlertTriangle, RefreshCw, UserPlus } from 'lucide-react';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '../components/ui/dialog';
+import { Label } from '../components/ui/label';
 
 export default function SupportMappings() {
   const [mappings, setMappings] = useState([]);
@@ -20,6 +24,9 @@ export default function SupportMappings() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState({});
+  const [creatingClient, setCreatingClient] = useState(null); // raw_id being used to create
+  const [newClientForm, setNewClientForm] = useState({ name: '', code: '', service_category: 'mixed_services' });
+  const [savingNewClient, setSavingNewClient] = useState(false);
   const [pendingMappings, setPendingMappings] = useState({});
   const [filter, setFilter] = useState('all'); // all, mapped, unmapped
 
@@ -54,6 +61,45 @@ export default function SupportMappings() {
 
   const getPending = (rawId, field, fallback) => {
     return pendingMappings[rawId]?.[field] ?? fallback;
+  };
+
+  const createClientAndMap = async (mapping) => {
+    if (!newClientForm.name || !newClientForm.code) {
+      toast.error('Name and code are required');
+      return;
+    }
+    setSavingNewClient(true);
+    try {
+      // Create the client
+      const clientRes = await apiClient.post('/clients', {
+        name: newClientForm.name,
+        code: newClientForm.code.toUpperCase(),
+        client_type: 'service_only',
+        service_category: newClientForm.service_category,
+        contract_type: 'monthly',
+      });
+      const newClient = clientRes.data;
+
+      // Now map to the new client
+      const result = await apiClient.post('/support/mappings', {
+        raw_id: mapping.raw_id,
+        raw_name: mapping.raw_name,
+        mapped_type: 'client',
+        mapped_id: newClient.id,
+        mapped_name: newClient.name,
+        parent_client_id: newClient.id,
+        parent_client_name: newClient.name,
+      });
+
+      toast.success(`Created "${newClient.name}" and mapped ${result.data.snapshots_updated} snapshots`);
+      setCreatingClient(null);
+      setNewClientForm({ name: '', code: '', service_category: 'mixed_services' });
+      await fetchAll();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to create client');
+    } finally {
+      setSavingNewClient(false);
+    }
   };
 
   const saveMapping = async (mapping) => {
@@ -322,17 +368,33 @@ export default function SupportMappings() {
 
                     {/* Save button */}
                     <TableCell>
-                      {(hasPendingChange || !isMapped) && (
-                        <Button
-                          size="sm"
-                          className="h-7 text-xs"
-                          onClick={() => saveMapping(m)}
-                          disabled={saving[m.raw_id]}
-                        >
-                          <Link2 className="h-3 w-3 mr-1" />
-                          {saving[m.raw_id] ? 'Saving...' : 'Map'}
-                        </Button>
-                      )}
+                      <div className="flex gap-1">
+                        {(hasPendingChange || !isMapped) && (
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => saveMapping(m)}
+                            disabled={saving[m.raw_id]}
+                          >
+                            <Link2 className="h-3 w-3 mr-1" />
+                            {saving[m.raw_id] ? 'Saving...' : 'Map'}
+                          </Button>
+                        )}
+                        {!isMapped && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            onClick={() => {
+                              setCreatingClient(m.raw_id);
+                              setNewClientForm({ name: m.raw_name, code: m.raw_name.slice(0,6).toUpperCase().replace(/[^A-Z0-9]/g,''), service_category: 'mixed_services' });
+                            }}
+                          >
+                            <UserPlus className="h-3 w-3 mr-1" />
+                            New
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
@@ -341,6 +403,61 @@ export default function SupportMappings() {
           </Table>
         </CardContent>
       </Card>
+      {/* Create New Service Only Client Dialog */}
+      {mappings.map(m => m.raw_id === creatingClient ? (
+        <Dialog key={m.raw_id} open={true} onOpenChange={() => setCreatingClient(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Create Service Only Client</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              Creating a new Service Only client for "<strong>{m.raw_name}</strong>" — this client won't appear in NOC or monitoring views.
+            </p>
+            <div className="space-y-4 py-2">
+              <div>
+                <Label>Client Name *</Label>
+                <input
+                  className="w-full mt-1 border rounded px-3 py-2 text-sm bg-background"
+                  value={newClientForm.name}
+                  onChange={e => setNewClientForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="Client name..."
+                />
+              </div>
+              <div>
+                <Label>Client Code * <span className="text-muted-foreground text-xs">(short unique code)</span></Label>
+                <input
+                  className="w-full mt-1 border rounded px-3 py-2 text-sm bg-background uppercase"
+                  value={newClientForm.code}
+                  onChange={e => setNewClientForm(f => ({ ...f, code: e.target.value.toUpperCase() }))}
+                  placeholder="e.g. ACME"
+                  maxLength={10}
+                />
+              </div>
+              <div>
+                <Label>Service Category</Label>
+                <Select value={newClientForm.service_category} onValueChange={v => setNewClientForm(f => ({ ...f, service_category: v }))}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="web_hosting">Web Hosting</SelectItem>
+                    <SelectItem value="email_only">Email Only</SelectItem>
+                    <SelectItem value="domain_only">Domain Only</SelectItem>
+                    <SelectItem value="broadband">Broadband</SelectItem>
+                    <SelectItem value="mixed_services">Mixed Services</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setCreatingClient(null)}>Cancel</Button>
+              <Button onClick={() => createClientAndMap(m)} disabled={savingNewClient}>
+                {savingNewClient ? 'Creating...' : 'Create & Map'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null)}
     </div>
   );
 }
