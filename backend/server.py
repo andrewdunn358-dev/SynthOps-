@@ -6079,6 +6079,335 @@ async def get_backup_compliance_report(months: int = 1, user: dict = Depends(get
         "total_days_tracked": len(set(s["date"] for s in summaries)),
     }
 
+# ==================== SUPPORT CONTRACTS ====================
+# Product catalogue, client support profiles, change log, monthly snapshots
+
+# --- Pydantic Models ---
+
+class SupportProduct(BaseModel):
+    name: str
+    category: str  # security, backup, devices, onsite, connectivity, hosting, office365, other
+    unit: str = "count"  # count, licences, gb, yes/no
+    active: bool = True
+    sort_order: int = 0
+    unit_cost: Optional[float] = None  # £ per unit per month - for future pricing
+
+class SupportProductResponse(SupportProduct):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+class ClientSupportProfile(BaseModel):
+    client_id: str
+    support_type: Optional[str] = None  # Monthly, PAYG, Support Fund, Hosting
+    remarks: Optional[str] = None
+    products: Dict[str, Any] = {}  # product_id -> quantity/value
+
+class ClientSupportProfileResponse(ClientSupportProfile):
+    id: str
+    updated_at: datetime
+    updated_by: Optional[str] = None
+
+class SupportChange(BaseModel):
+    client_id: str
+    product_id: Optional[str] = None
+    product_name: Optional[str] = None  # free text if not a catalogue product
+    change_description: str
+    date: Optional[datetime] = None
+    requested_by: Optional[str] = None
+    completed_by: Optional[str] = None
+    accounts_informed: bool = False
+    worksheet_submitted: bool = False
+    profile_updated: bool = False
+
+class SupportChangeResponse(SupportChange):
+    id: str
+    created_at: datetime
+    created_by: Optional[str] = None
+
+# --- Support Products (admin-managed catalogue) ---
+
+@api_router.get("/support/products", response_model=List[SupportProductResponse])
+async def list_support_products(
+    include_inactive: bool = False,
+    current_user: dict = Depends(get_current_user)
+):
+    """List all support products in the catalogue"""
+    query = {} if include_inactive else {"active": True}
+    products = await db.support_products.find(query, {"_id": 0}).sort("sort_order", 1).to_list(500)
+    return products
+
+@api_router.post("/support/products", response_model=SupportProductResponse)
+async def create_support_product(
+    product: SupportProduct,
+    admin: dict = Depends(require_admin)
+):
+    """Create a new product in the catalogue (admin only)"""
+    now = datetime.now(timezone.utc)
+    doc = {
+        "id": str(uuid.uuid4()),
+        **product.dict(),
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.support_products.insert_one(doc)
+    return {**doc, "_id": None}
+
+@api_router.put("/support/products/{product_id}", response_model=SupportProductResponse)
+async def update_support_product(
+    product_id: str,
+    product: SupportProduct,
+    admin: dict = Depends(require_admin)
+):
+    """Update a product in the catalogue (admin only)"""
+    now = datetime.now(timezone.utc)
+    update_data = {**product.dict(), "updated_at": now}
+    result = await db.support_products.update_one(
+        {"id": product_id}, {"$set": update_data}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Product not found")
+    updated = await db.support_products.find_one({"id": product_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/support/products/{product_id}")
+async def delete_support_product(
+    product_id: str,
+    admin: dict = Depends(require_admin)
+):
+    """Soft-delete a product (sets active=False to preserve history)"""
+    result = await db.support_products.update_one(
+        {"id": product_id},
+        {"$set": {"active": False, "updated_at": datetime.now(timezone.utc)}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return {"message": "Product deactivated"}
+
+@api_router.put("/support/products/reorder", response_model=List[SupportProductResponse])
+async def reorder_support_products(
+    order: List[dict] = Body(...),  # [{"id": "...", "sort_order": 0}, ...]
+    admin: dict = Depends(require_admin)
+):
+    """Bulk update sort order for products (admin only)"""
+    for item in order:
+        await db.support_products.update_one(
+            {"id": item["id"]},
+            {"$set": {"sort_order": item["sort_order"], "updated_at": datetime.now(timezone.utc)}}
+        )
+    products = await db.support_products.find({}, {"_id": 0}).sort("sort_order", 1).to_list(500)
+    return products
+
+# --- Client Support Profiles ---
+
+@api_router.get("/support/profile/{client_id}", response_model=ClientSupportProfileResponse)
+async def get_client_support_profile(
+    client_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get the current support profile for a client"""
+    profile = await db.client_support_profiles.find_one({"client_id": client_id}, {"_id": 0})
+    if not profile:
+        # Return empty profile rather than 404
+        return {
+            "id": str(uuid.uuid4()),
+            "client_id": client_id,
+            "support_type": None,
+            "remarks": None,
+            "products": {},
+            "updated_at": datetime.now(timezone.utc),
+            "updated_by": None,
+        }
+    return profile
+
+@api_router.put("/support/profile/{client_id}", response_model=ClientSupportProfileResponse)
+async def upsert_client_support_profile(
+    client_id: str,
+    profile: ClientSupportProfile,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create or update a client's support profile"""
+    now = datetime.now(timezone.utc)
+    existing = await db.client_support_profiles.find_one({"client_id": client_id})
+    
+    doc = {
+        "client_id": client_id,
+        "support_type": profile.support_type,
+        "remarks": profile.remarks,
+        "products": profile.products,
+        "updated_at": now,
+        "updated_by": current_user.get("username") or current_user.get("email"),
+    }
+
+    if existing:
+        # Save a snapshot of the old state before overwriting
+        snapshot_month = now.strftime("%Y-%m")
+        await db.client_support_snapshots.update_one(
+            {"client_id": client_id, "month": snapshot_month},
+            {"$set": {
+                "client_id": client_id,
+                "month": snapshot_month,
+                "support_type": existing.get("support_type"),
+                "remarks": existing.get("remarks"),
+                "products": existing.get("products", {}),
+                "snapshot_date": now,
+            }},
+            upsert=True
+        )
+        await db.client_support_profiles.update_one(
+            {"client_id": client_id}, {"$set": doc}
+        )
+    else:
+        doc["id"] = str(uuid.uuid4())
+        await db.client_support_profiles.insert_one(doc)
+
+    result = await db.client_support_profiles.find_one({"client_id": client_id}, {"_id": 0})
+    return result
+
+@api_router.get("/support/profile/{client_id}/history")
+async def get_client_support_history(
+    client_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get monthly snapshot history for a client"""
+    snapshots = await db.client_support_snapshots.find(
+        {"client_id": client_id}, {"_id": 0}
+    ).sort("month", -1).to_list(60)  # up to 5 years
+    return snapshots
+
+# --- Change Log ---
+
+@api_router.get("/support/changes")
+async def list_support_changes(
+    client_id: Optional[str] = None,
+    month: Optional[str] = None,  # YYYY-MM format
+    current_user: dict = Depends(get_current_user)
+):
+    """List change log entries, optionally filtered by client or month"""
+    query = {}
+    if client_id:
+        query["client_id"] = client_id
+    if month:
+        try:
+            start = datetime.strptime(month, "%Y-%m").replace(tzinfo=timezone.utc)
+            end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+            query["date"] = {"$gte": start, "$lt": end}
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Month must be YYYY-MM format")
+    
+    changes = await db.support_changes.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
+    return changes
+
+@api_router.post("/support/changes", response_model=SupportChangeResponse)
+async def create_support_change(
+    change: SupportChange,
+    current_user: dict = Depends(get_current_user)
+):
+    """Log a new change"""
+    now = datetime.now(timezone.utc)
+    doc = {
+        "id": str(uuid.uuid4()),
+        **change.dict(),
+        "date": change.date or now,
+        "created_at": now,
+        "created_by": current_user.get("username") or current_user.get("email"),
+    }
+    await db.support_changes.insert_one(doc)
+    # If profile_updated is False, flag the client profile as needing update
+    if not change.profile_updated:
+        await db.client_support_profiles.update_one(
+            {"client_id": change.client_id},
+            {"$set": {"needs_review": True}},
+        )
+    return {**doc, "_id": None}
+
+@api_router.put("/support/changes/{change_id}", response_model=SupportChangeResponse)
+async def update_support_change(
+    change_id: str,
+    change: SupportChange,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update a change log entry (e.g. tick off accounts informed)"""
+    update_data = {**change.dict(), "updated_at": datetime.now(timezone.utc)}
+    result = await db.support_changes.update_one({"id": change_id}, {"$set": update_data})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Change not found")
+    # If profile is now marked as updated, clear the needs_review flag
+    if change.profile_updated:
+        await db.client_support_profiles.update_one(
+            {"client_id": change.client_id},
+            {"$set": {"needs_review": False}},
+        )
+    updated = await db.support_changes.find_one({"id": change_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/support/changes/{change_id}")
+async def delete_support_change(
+    change_id: str,
+    admin: dict = Depends(require_admin)
+):
+    """Delete a change log entry (admin only)"""
+    result = await db.support_changes.delete_one({"id": change_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Change not found")
+    return {"message": "Change deleted"}
+
+# --- Import endpoint for historical data ---
+
+@api_router.post("/support/import")
+async def import_support_data(
+    data: dict = Body(...),
+    admin: dict = Depends(require_admin)
+):
+    """
+    Bulk import historical support data from migration script.
+    Expects: { profiles: [...], snapshots: [...], changes: [...], products: [...] }
+    """
+    results = {"products": 0, "profiles": 0, "snapshots": 0, "changes": 0, "errors": []}
+    
+    # Import products
+    for p in data.get("products", []):
+        try:
+            await db.support_products.update_one(
+                {"name": p["name"]}, {"$setOnInsert": p}, upsert=True
+            )
+            results["products"] += 1
+        except Exception as e:
+            results["errors"].append(f"Product {p.get('name')}: {str(e)}")
+
+    # Import profiles (current state)
+    for p in data.get("profiles", []):
+        try:
+            await db.client_support_profiles.update_one(
+                {"client_id": p["client_id"]}, {"$set": p}, upsert=True
+            )
+            results["profiles"] += 1
+        except Exception as e:
+            results["errors"].append(f"Profile {p.get('client_id')}: {str(e)}")
+
+    # Import snapshots (historical)
+    for s in data.get("snapshots", []):
+        try:
+            await db.client_support_snapshots.update_one(
+                {"client_id": s["client_id"], "month": s["month"]},
+                {"$set": s}, upsert=True
+            )
+            results["snapshots"] += 1
+        except Exception as e:
+            results["errors"].append(f"Snapshot {s.get('client_id')} {s.get('month')}: {str(e)}")
+
+    # Import changes
+    for c in data.get("changes", []):
+        try:
+            await db.support_changes.update_one(
+                {"id": c["id"]}, {"$set": c}, upsert=True
+            )
+            results["changes"] += 1
+        except Exception as e:
+            results["errors"].append(f"Change {c.get('id')}: {str(e)}")
+
+    return results
+
 # Include the router after all routes are defined
 app.include_router(api_router)
 
