@@ -185,20 +185,6 @@ export default function Admin() {
     }
   };
 
-  if (user?.role !== 'admin') {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Card className="w-full max-w-md">
-          <CardContent className="p-8 text-center">
-            <Shield className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
-            <p className="text-muted-foreground">You need admin privileges to access this page.</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   // ── Support Product Catalogue ─────────────────────────────
   const [products, setProducts] = useState([]);
   const [productDialogOpen, setProductDialogOpen] = useState(false);
@@ -228,6 +214,22 @@ export default function Admin() {
   ];
 
   useEffect(() => { fetchProducts(); }, []);
+
+  if (user?.role !== 'admin') {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Card className="w-full max-w-md">
+          <CardContent className="p-8 text-center">
+            <Shield className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
+            <p className="text-muted-foreground">You need admin privileges to access this page.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+
 
   const fetchProducts = async () => {
     try {
