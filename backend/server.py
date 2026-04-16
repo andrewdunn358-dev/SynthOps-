@@ -6595,17 +6595,29 @@ async def get_monthly_support_count(
     # Attach hosting domains — build a map of client_id → list of primary domains
     hosting_accounts = await db.hosting_accounts.find(
         {"client_id": {"$ne": None}, "ignored": {"$ne": True}},
-        {"_id": 0, "primary_domain": 1, "client_id": 1}
+        {"_id": 0, "primary_domain": 1, "client_id": 1, "ssl_expiry": 1, "domain_renewal": 1}
     ).to_list(1000)
     hosting_by_client = {}
     for ha in hosting_accounts:
         cid = ha["client_id"]
         if cid not in hosting_by_client:
-            hosting_by_client[cid] = []
-        hosting_by_client[cid].append(ha["primary_domain"])
+            hosting_by_client[cid] = {"domains": [], "ssl_expiry": None, "domain_renewal": None}
+        hosting_by_client[cid]["domains"].append(ha["primary_domain"])
+        # Keep the earliest SSL expiry and domain renewal across all domains for this client
+        if ha.get("ssl_expiry"):
+            existing_ssl = hosting_by_client[cid]["ssl_expiry"]
+            if not existing_ssl or ha["ssl_expiry"] < existing_ssl:
+                hosting_by_client[cid]["ssl_expiry"] = ha["ssl_expiry"]
+        if ha.get("domain_renewal"):
+            existing_renewal = hosting_by_client[cid]["domain_renewal"]
+            if not existing_renewal or ha["domain_renewal"] < existing_renewal:
+                hosting_by_client[cid]["domain_renewal"] = ha["domain_renewal"]
 
     for row in rows:
-        row["hosting_domains"] = hosting_by_client.get(row["client_id"], [])
+        h = hosting_by_client.get(row["client_id"], {})
+        row["hosting_domains"] = h.get("domains", [])
+        row["ssl_expiry"] = h.get("ssl_expiry")
+        row["domain_renewal"] = h.get("domain_renewal")
 
     # Get available months list
     pipeline = [
@@ -7074,7 +7086,7 @@ async def import_hosting_accounts(
 # ── 20i Hosting Integration ───────────────────────────────
 
 async def sync_20i_packages():
-    """Sync hosting packages from 20i API into hosting_accounts collection."""
+    """Sync hosting packages from 20i API — packages, SSL expiry, domain renewals."""
     api_key = os.environ.get('TWENTY_I_API_KEY', '')
     if not api_key:
         logger.warning("20i sync skipped — TWENTY_I_API_KEY not set")
@@ -7084,45 +7096,103 @@ async def sync_20i_packages():
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client_http:
+        async with httpx.AsyncClient(timeout=60) as client_http:
+            # Fetch all packages
             resp = await client_http.get("https://api.20i.com/package", headers=headers)
             resp.raise_for_status()
             packages = resp.json()
+
+            # Fetch all domains for renewal dates
+            domain_renewal_map = {}
+            try:
+                dresp = await client_http.get("https://api.20i.com/domain", headers=headers)
+                if dresp.status_code == 200:
+                    domains_data = dresp.json()
+                    for d in (domains_data if isinstance(domains_data, list) else []):
+                        name = d.get("name", "").lower().strip()
+                        renewal = d.get("renewalDate") or d.get("renewal_date") or d.get("expiry") or d.get("expiryDate")
+                        if name and renewal:
+                            domain_renewal_map[name] = renewal
+            except Exception as e:
+                logger.warning(f"20i domain fetch failed: {e}")
+
     except Exception as e:
         logger.error(f"20i API error: {e}")
         return {"synced": 0, "error": str(e)}
 
+    now = datetime.now(timezone.utc)
     synced = 0
-    for pkg in packages:
-        primary_domain = pkg.get("name", "").strip()
-        if not primary_domain:
-            continue
-        all_domains = [d.strip() for d in pkg.get("names", [primary_domain]) if d.strip()]
-        # Get existing to preserve client_id mapping
-        existing = await db.hosting_accounts.find_one({"primary_domain": primary_domain})
-        doc = {
-            "primary_domain": primary_domain,
-            "all_domains": all_domains,
-            "package": pkg.get("packageTypeName", ""),
-            "package_id": pkg.get("id"),
-            "enabled": pkg.get("enabled", True),
-            "created": pkg.get("created"),
-            "has_ssl": None,  # fetched separately below if needed
-            "source": "20i",
-            "last_synced": datetime.now(timezone.utc),
-        }
-        if existing:
-            # Preserve existing client mapping
-            if existing.get("client_id"):
-                doc["client_id"] = existing["client_id"]
-                doc["mapped_at"] = existing.get("mapped_at")
-                doc["mapped_by"] = existing.get("mapped_by")
-        await db.hosting_accounts.update_one(
-            {"primary_domain": primary_domain},
-            {"$set": doc},
-            upsert=True
-        )
-        synced += 1
+
+    async with httpx.AsyncClient(timeout=30) as client_http:
+        for pkg in packages:
+            primary_domain = pkg.get("name", "").strip()
+            if not primary_domain:
+                continue
+
+            all_domains = [d.strip() for d in pkg.get("names", [primary_domain]) if d.strip()]
+            pkg_id = pkg.get("id")
+
+            # Fetch SSL info for this package
+            ssl_expiry = None
+            has_ssl = False
+            try:
+                ssl_resp = await client_http.get(f"https://api.20i.com/package/{pkg_id}/ssl", headers=headers)
+                if ssl_resp.status_code == 200:
+                    ssl_data = ssl_resp.json()
+                    # Handle various response shapes
+                    if isinstance(ssl_data, dict):
+                        # Look for expiry in common fields
+                        expiry = (ssl_data.get("expiry") or ssl_data.get("expiryDate") or
+                                  ssl_data.get("validTo") or ssl_data.get("not_after"))
+                        if expiry:
+                            ssl_expiry = expiry
+                            has_ssl = True
+                        elif ssl_data.get("active") or ssl_data.get("enabled"):
+                            has_ssl = True
+                    elif isinstance(ssl_data, list) and ssl_data:
+                        cert = ssl_data[0]
+                        expiry = (cert.get("expiry") or cert.get("expiryDate") or
+                                  cert.get("validTo") or cert.get("not_after"))
+                        if expiry:
+                            ssl_expiry = expiry
+                            has_ssl = True
+            except Exception as e:
+                logger.debug(f"SSL fetch failed for {primary_domain}: {e}")
+
+            # Get domain renewal date
+            domain_renewal = domain_renewal_map.get(primary_domain.lower())
+
+            # Get existing to preserve client_id mapping and ignored flag
+            existing = await db.hosting_accounts.find_one({"primary_domain": primary_domain})
+            doc = {
+                "primary_domain": primary_domain,
+                "all_domains": all_domains,
+                "package": pkg.get("packageTypeName", ""),
+                "package_id": pkg_id,
+                "enabled": pkg.get("enabled", True),
+                "created": pkg.get("created"),
+                "has_ssl": has_ssl,
+                "ssl_expiry": ssl_expiry,
+                "domain_renewal": domain_renewal,
+                "source": "20i",
+                "last_synced": now,
+            }
+            if existing:
+                if existing.get("client_id"):
+                    doc["client_id"] = existing["client_id"]
+                    doc["mapped_at"] = existing.get("mapped_at")
+                    doc["mapped_by"] = existing.get("mapped_by")
+                if existing.get("ignored"):
+                    doc["ignored"] = True
+                    doc["ignored_by"] = existing.get("ignored_by")
+                    doc["ignored_at"] = existing.get("ignored_at")
+
+            await db.hosting_accounts.update_one(
+                {"primary_domain": primary_domain},
+                {"$set": doc},
+                upsert=True
+            )
+            synced += 1
 
     logger.info(f"20i sync complete: {synced} packages")
     return {"synced": synced}

@@ -406,6 +406,9 @@ export default function SupportCount() {
                   </th>
                 );
               })}
+              <th colSpan={2} className="px-2 py-1 text-center font-semibold border-r text-xs bg-teal-100/50 dark:bg-teal-900/30 text-teal-800 dark:text-teal-300">
+                20i
+              </th>
               <th className="px-3 py-2 text-left font-semibold min-w-32 text-xs bg-gray-50 dark:bg-gray-900" rowSpan={2}>Remarks</th>
               <th className="px-2 py-2 bg-white dark:bg-gray-950" rowSpan={2} />
             </tr>
@@ -415,12 +418,14 @@ export default function SupportCount() {
                   <span className="block max-w-20 truncate mx-auto">{p.name}</span>
                 </th>
               ))}
+              <th className="px-1 py-2 text-center font-medium border-r text-xs min-w-20">SSL Expiry</th>
+              <th className="px-1 py-2 text-center font-medium border-r text-xs min-w-24">Domain Renewal</th>
             </tr>
           </thead>
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={visibleProducts.length + 4} className="text-center py-12 text-muted-foreground">No data for this month</td>
+                <td colSpan={visibleProducts.length + 6} className="text-center py-12 text-muted-foreground">No data for this month</td>
               </tr>
             ) : filteredRows.map((row, idx) => {
               const isEditing = editingRow === row.client_id;
@@ -462,6 +467,26 @@ export default function SupportCount() {
                       {isEditing ? renderEditCell(p, editValues, setEditValues) : renderCellValue(p, row.products?.[p.name], row)}
                     </td>
                   ))}
+
+                  {/* SSL Expiry */}
+                  <td className="border-r px-2 py-1.5 text-center text-xs">
+                    {row.ssl_expiry ? (() => {
+                      const expiry = new Date(row.ssl_expiry);
+                      const daysLeft = Math.ceil((expiry - new Date()) / (1000 * 60 * 60 * 24));
+                      const colour = daysLeft < 0 ? 'text-red-600 font-bold' : daysLeft < 30 ? 'text-red-500 font-medium' : daysLeft < 60 ? 'text-amber-500' : 'text-green-600';
+                      return <span className={colour} title={expiry.toLocaleDateString('en-GB')}>{daysLeft < 0 ? 'EXPIRED' : `${daysLeft}d`}</span>;
+                    })() : <span className="text-gray-300">—</span>}
+                  </td>
+
+                  {/* Domain Renewal */}
+                  <td className="border-r px-2 py-1.5 text-center text-xs">
+                    {row.domain_renewal ? (() => {
+                      const renewal = new Date(row.domain_renewal);
+                      const daysLeft = Math.ceil((renewal - new Date()) / (1000 * 60 * 60 * 24));
+                      const colour = daysLeft < 0 ? 'text-red-600 font-bold' : daysLeft < 30 ? 'text-red-500 font-medium' : daysLeft < 60 ? 'text-amber-500' : 'text-muted-foreground';
+                      return <span className={colour} title={renewal.toLocaleDateString('en-GB')}>{renewal.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}</span>;
+                    })() : <span className="text-gray-300">—</span>}
+                  </td>
 
                   <td className="px-3 py-1.5 text-xs text-muted-foreground">
                     {isEditing ? (
