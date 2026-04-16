@@ -43,6 +43,7 @@ export default function SupportCount() {
   const [addClientId, setAddClientId] = useState('');
   const [allClients, setAllClients] = useState([]);
   const [wiping, setWiping] = useState(false);
+  const [copyingMonth, setCopyingMonth] = useState(false);
 
   const wipeMonth = async () => {
     const confirmed = window.confirm(
