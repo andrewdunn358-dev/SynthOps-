@@ -7036,6 +7036,7 @@ async def ignore_hosting_account(
 
 
 
+@api_router.post("/hosting/sync-to-support-count")
 async def sync_hosting_to_support_count(
     current_user: dict = Depends(get_current_user)
 ):

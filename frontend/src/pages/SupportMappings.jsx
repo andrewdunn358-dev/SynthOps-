@@ -693,7 +693,7 @@ function GiacomTab({ clients }) {
 
                   <TableCell>
                     <Select
-                      value={c.client_id || 'none'}
+                      value={c.client_id ?? 'none'}
                       onValueChange={v => mapCustomer(c.customer_id, v === 'none' ? null : v)}
                       disabled={saving[c.customer_id]}
                     >
