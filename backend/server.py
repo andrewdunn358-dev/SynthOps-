@@ -6497,6 +6497,10 @@ async def get_monthly_support_count(
     clients_list = await db.clients.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
     client_map = {c["id"]: c["name"] for c in clients_list}
 
+    # Also build a site map so site rows show the site name + parent client
+    sites_list = await db.sites.find({}, {"_id": 0, "id": 1, "name": 1, "client_id": 1}).to_list(1000)
+    site_map = {s["id"]: s for s in sites_list}  # site_id → {id, name, client_id}
+
     # Get snapshots for this month
     snapshots = await db.client_support_snapshots.find(
         {"month": month}, {"_id": 0}
@@ -6509,19 +6513,33 @@ async def get_monthly_support_count(
         {}, {"_id": 0}
     ).to_list(500)
 
+    def resolve_row_name(client_id):
+        """Returns (display_name, parent_client_name, is_site)"""
+        if client_id in site_map:
+            site = site_map[client_id]
+            parent_name = client_map.get(site["client_id"], "")
+            return site["name"], parent_name, True
+        if client_id in client_map:
+            return client_map[client_id], "", False
+        # Unresolved
+        return client_id.replace("UNRESOLVED:", ""), "", False
+
     # Build rows - prefer snapshot, fall back to current profile
     rows = []
     seen_clients = set()
 
     for snap in snapshots:
         if snap.get("removed"):
-            seen_clients.add(snap["client_id"])  # Mark as seen so profile fallback doesn't show it
+            seen_clients.add(snap["client_id"])
             continue
         client_id = snap["client_id"]
         seen_clients.add(client_id)
+        display_name, parent_name, is_site = resolve_row_name(client_id)
         rows.append({
             "client_id": client_id,
-            "client_name": client_map.get(client_id, client_id.replace("UNRESOLVED:", "")),
+            "client_name": display_name,
+            "parent_client_name": parent_name,
+            "is_site": is_site,
             "support_type": snap.get("support_type"),
             "products": snap.get("products", {}),
             "remarks": snap.get("remarks"),
@@ -6535,9 +6553,12 @@ async def get_monthly_support_count(
             client_id = profile["client_id"]
             if client_id not in seen_clients:
                 seen_clients.add(client_id)
+                display_name, parent_name, is_site = resolve_row_name(client_id)
                 rows.append({
                     "client_id": client_id,
-                    "client_name": client_map.get(client_id, client_id.replace("UNRESOLVED:", "")),
+                    "client_name": display_name,
+                    "parent_client_name": parent_name,
+                    "is_site": is_site,
                     "support_type": profile.get("support_type"),
                     "products": profile.get("products", {}),
                     "remarks": profile.get("remarks"),
@@ -6547,28 +6568,11 @@ async def get_monthly_support_count(
     # Sort rows by client name
     rows.sort(key=lambda r: (r.get("client_name") or "").lower())
 
-    # Build hierarchy - group sites under parent clients
-    # Get all mappings to know which rows are sites
-    all_mappings = await db.support_mappings.find({}, {"_id": 0}).to_list(500)
-    site_lookup = {
-        m.get("mapped_id"): m for m in all_mappings if m.get("mapped_type") == "site"
-    }
-
-    # Add site_id and parent info to rows that have it
-    for row in rows:
-        if row.get("site_id"):
-            # This row is a site — find parent client name
-            parent = client_map.get(row["client_id"], "")
-            row["parent_client_name"] = parent
-            row["is_site"] = True
-        else:
-            row["is_site"] = False
-
-    # Re-sort: parent clients first, then their sites grouped together
+    # Re-sort: parent clients first, then their sites grouped under them
     def sort_key(r):
         if r.get("is_site"):
             parent = (r.get("parent_client_name") or r.get("client_name") or "").lower()
-            return (parent, "1", (r.get("display_name") or r.get("client_name") or "").lower())
+            return (parent, "1", (r.get("client_name") or "").lower())
         return ((r.get("client_name") or "").lower(), "0", "")
 
     rows.sort(key=sort_key)

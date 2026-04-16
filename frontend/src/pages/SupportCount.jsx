@@ -399,8 +399,17 @@ export default function SupportCount() {
 
                   <td className={`sticky left-0 z-10 border-r px-3 py-1.5 font-medium min-w-52 ${stickyBg(idx, isEditing)}`}>
                     <div className="flex items-center gap-2">
-                      <span className="truncate max-w-48" title={row.client_name}>{row.client_name}</span>
-                      {row.client_id?.startsWith('UNRESOLVED:') && <span className="text-amber-500 text-xs">⚠</span>}
+                      {row.is_site ? (
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-xs text-muted-foreground truncate">{row.parent_client_name}</span>
+                          <span className="truncate max-w-44 pl-2 border-l-2 border-blue-300 dark:border-blue-700 text-sm" title={row.client_name}>
+                            {row.client_name}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="truncate max-w-48" title={row.client_name}>{row.client_name}</span>
+                      )}
+                      {row.client_id?.startsWith('UNRESOLVED:') && <span className="text-amber-500 text-xs shrink-0">⚠</span>}
                     </div>
                   </td>
 
