@@ -243,11 +243,31 @@ export default function SupportCount() {
   const visibleProducts = (data?.products || []).filter(p => !hiddenCategories[p.category]);
 
   const renderCellValue = (product, value, row) => {
+    // If this is an O365/MessageLabs product and Giacom has data for it, use that
+    const giacomVal = row?.giacom_products?.[product.name];
+    const displayVal = (giacomVal !== undefined && giacomVal !== null) ? giacomVal : value;
+    const fromGiacom = giacomVal !== undefined && giacomVal !== null;
+
+    if (displayVal === null || displayVal === undefined || displayVal === '') {
+      if (product.name === 'Domain Name' && row?.hosting_domains?.length > 0) {
+        return (
+          <div className="flex flex-wrap gap-0.5">
+            {row.hosting_domains.map(d => (
+              <span key={d} className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-mono">
+                <Globe className="h-2.5 w-2.5 shrink-0" />{d}
+              </span>
+            ))}
+          </div>
+        );
+      }
+      return <span className="text-gray-300">—</span>;
+    }
+
     if (product.name === 'Domain Name' && row?.hosting_domains?.length > 0) {
       return (
         <div className="space-y-0.5">
-          {value !== null && value !== undefined && value !== '' && (
-            <div><span className="text-sm font-medium">{value}</span></div>
+          {displayVal !== null && displayVal !== undefined && displayVal !== '' && (
+            <div><span className="text-sm font-medium">{displayVal}</span></div>
           )}
           <div className="flex flex-wrap gap-0.5">
             {row.hosting_domains.map(d => (
@@ -259,10 +279,14 @@ export default function SupportCount() {
         </div>
       );
     }
-    if (value === null || value === undefined || value === '') return <span className="text-gray-300">—</span>;
-    if (product.unit === 'yes/no') return value ? <span className="text-green-600 font-medium">✓</span> : <span className="text-gray-300">—</span>;
-    if (product.unit === 'gb') return <span className="text-xs">{value}GB</span>;
-    return <span className="text-sm font-medium">{value}</span>;
+
+    if (product.unit === 'yes/no') return displayVal ? <span className="text-green-600 font-medium">✓</span> : <span className="text-gray-300">—</span>;
+    if (product.unit === 'gb') return <span className="text-xs">{displayVal}GB</span>;
+    return (
+      <span className={`text-sm font-medium ${fromGiacom ? 'text-purple-600 dark:text-purple-400' : ''}`} title={fromGiacom ? 'From Giacom' : ''}>
+        {displayVal}
+      </span>
+    );
   };
 
   const renderEditCell = (product, editVals, setEditVals) => {
@@ -409,6 +433,9 @@ export default function SupportCount() {
               <th colSpan={4} className="px-2 py-1 text-center font-bold border-r text-xs bg-teal-100/50 dark:bg-teal-900/30 text-teal-800 dark:text-teal-300">
                 20i
               </th>
+              <th className="px-2 py-1 text-center font-bold border-r text-xs bg-purple-100/50 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300" rowSpan={2}>
+                Giacom<br/>Monthly
+              </th>
               <th className="px-3 py-2 text-left font-bold min-w-32 text-xs bg-gray-50 dark:bg-gray-900" rowSpan={2}>Remarks</th>
               <th className="px-2 py-2 bg-white dark:bg-gray-950" rowSpan={2} />
             </tr>
@@ -427,7 +454,7 @@ export default function SupportCount() {
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={visibleProducts.length + 8} className="text-center py-12 text-muted-foreground">No data for this month</td>
+                <td colSpan={visibleProducts.length + 9} className="text-center py-12 text-muted-foreground">No data for this month</td>
               </tr>
             ) : filteredRows.map((row, idx) => {
               const isEditing = editingRow === row.client_id;
@@ -501,6 +528,13 @@ export default function SupportCount() {
                   <td className="border-r px-2 py-1.5 text-center text-xs">
                     {row.website_turbo
                       ? <span className="text-teal-600 font-medium" title="Website Turbo active">⚡</span>
+                      : <span className="text-gray-300">—</span>}
+                  </td>
+
+                  {/* Giacom monthly cost */}
+                  <td className="border-r px-2 py-1.5 text-center text-xs">
+                    {row.giacom_monthly_cost != null
+                      ? <span className="font-medium text-purple-600 dark:text-purple-400">£{row.giacom_monthly_cost.toFixed(2)}</span>
                       : <span className="text-gray-300">—</span>}
                   </td>
 

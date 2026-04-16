@@ -6624,6 +6624,30 @@ async def get_monthly_support_count(
         row["website_turbo"] = h.get("website_turbo", False)
         row["hosting_packages"] = list(h.get("packages", set()))
 
+    # Attach Giacom subscription data (licence counts + monthly cost)
+    giacom_customers = await db.giacom_customers.find(
+        {"client_id": {"$ne": None}}, {"_id": 0, "client_id": 1, "customer_id": 1}
+    ).to_list(500)
+    giacom_client_map = {c["client_id"]: c["customer_id"] for c in giacom_customers}
+
+    for row in rows:
+        customer_id = giacom_client_map.get(row["client_id"])
+        if customer_id:
+            subs = await db.giacom_subscriptions.find(
+                {"customer_id": customer_id}, {"_id": 0}
+            ).to_list(50)
+            giacom_products = {}
+            total_cost = 0.0
+            for s in subs:
+                key = s.get("product_key") or s.get("product", "")
+                giacom_products[key] = giacom_products.get(key, 0) + s.get("quantity", 0)
+                total_cost += s.get("total_cost", 0.0)
+            row["giacom_products"] = giacom_products
+            row["giacom_monthly_cost"] = round(total_cost, 2)
+        else:
+            row["giacom_products"] = {}
+            row["giacom_monthly_cost"] = None
+
     # Get available months list
     pipeline = [
         {"$group": {"_id": "$month"}},
@@ -7376,6 +7400,72 @@ async def create_renewal_tasks(
             created += 1
 
     return {"message": f"Created {created} tasks. {skipped} already existed.", "created": created, "skipped": skipped}
+
+
+# ── Giacom / Cloud Market ─────────────────────────────────
+
+@api_router.get("/giacom/customers")
+async def list_giacom_customers(current_user: dict = Depends(get_current_user)):
+    """List all Giacom customers with their subscriptions"""
+    customers = await db.giacom_customers.find({}, {"_id": 0}).sort("customer_name", 1).to_list(500)
+    # Attach subscriptions to each customer
+    for c in customers:
+        subs = await db.giacom_subscriptions.find(
+            {"customer_id": c["customer_id"]}, {"_id": 0}
+        ).to_list(50)
+        c["subscriptions"] = subs
+    return customers
+
+
+@api_router.put("/giacom/customers/{customer_id}/map")
+async def map_giacom_customer(
+    customer_id: str,
+    data: dict = Body(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Map a Giacom customer to a SynthOps client"""
+    client_id = data.get("client_id")
+    await db.giacom_customers.update_one(
+        {"customer_id": customer_id},
+        {"$set": {
+            "client_id": client_id,
+            "mapped_at": datetime.now(timezone.utc),
+            "mapped_by": current_user.get("username") or current_user.get("email"),
+        }}
+    )
+    return {"message": "Updated"}
+
+
+@api_router.get("/giacom/summary")
+async def get_giacom_summary(current_user: dict = Depends(get_current_user)):
+    """Get Giacom subscription summary for all mapped clients"""
+    customers = await db.giacom_customers.find(
+        {"client_id": {"$ne": None}}, {"_id": 0}
+    ).to_list(500)
+
+    summary = {}
+    for c in customers:
+        subs = await db.giacom_subscriptions.find(
+            {"customer_id": c["customer_id"]}, {"_id": 0}
+        ).to_list(50)
+        client_id = c["client_id"]
+        if client_id not in summary:
+            summary[client_id] = {"products": {}, "total_cost": 0.0, "renewals": []}
+        for s in subs:
+            key = s.get("product_key") or s.get("product", "")
+            qty = s.get("quantity", 0)
+            # Sum quantities for same product key
+            summary[client_id]["products"][key] = summary[client_id]["products"].get(key, 0) + qty
+            summary[client_id]["total_cost"] += s.get("total_cost", 0.0)
+            if s.get("renewal_date"):
+                summary[client_id]["renewals"].append({
+                    "product": s.get("product"),
+                    "product_key": key,
+                    "renewal_date": s["renewal_date"],
+                    "quantity": qty,
+                })
+
+    return summary
 
 
 # Include the router after all routes are defined

@@ -565,6 +565,158 @@ function HostingDomainsTab({ clients: initialClients }) {
 }
 
 // ─────────────────────────────────────────────
+// Giacom Tab
+// ─────────────────────────────────────────────
+function GiacomTab({ clients }) {
+  const [customers, setCustomers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState({});
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('all'); // all, mapped, unmapped
+  const [expanded, setExpanded] = useState({});
+
+  useEffect(() => { fetchCustomers(); }, []);
+
+  const fetchCustomers = async () => {
+    setLoading(true);
+    try {
+      const res = await apiClient.get('/giacom/customers');
+      setCustomers(res.data);
+    } catch (e) {
+      toast.error('Failed to load Giacom customers');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const mapCustomer = async (customerId, clientId) => {
+    setSaving(prev => ({ ...prev, [customerId]: true }));
+    try {
+      await apiClient.put(`/giacom/customers/${customerId}/map`, { client_id: clientId || null });
+      toast.success(clientId ? 'Customer mapped' : 'Customer unmapped');
+      fetchCustomers();
+    } catch (e) {
+      toast.error('Failed to save');
+    } finally {
+      setSaving(prev => ({ ...prev, [customerId]: false }));
+    }
+  };
+
+  const filtered = customers.filter(c => {
+    if (filter === 'mapped' && !c.client_id) return false;
+    if (filter === 'unmapped' && c.client_id) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      return c.customer_name.toLowerCase().includes(q) ||
+        (clients.find(cl => cl.id === c.client_id)?.name || '').toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  const mappedCount = customers.filter(c => c.client_id).length;
+  const unmappedCount = customers.filter(c => !c.client_id).length;
+
+  if (loading) return <div className="py-8 text-center text-muted-foreground">Loading Giacom customers...</div>;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Map each Giacom customer to a SynthOps client. Once mapped, their M365 licence counts and monthly costs will automatically appear on the Support Count.
+      </p>
+
+      <div className="grid grid-cols-3 gap-4">
+        {[['Customers', customers.length, ''], ['Mapped', mappedCount, 'text-green-500'], ['Unmapped', unmappedCount, unmappedCount > 0 ? 'text-amber-500' : 'text-green-500']].map(([label, val, cls]) => (
+          <Card key={label}><CardContent className="pt-4 pb-4"><p className="text-sm text-muted-foreground">{label}</p><p className={`text-2xl font-bold mt-1 ${cls}`}>{val}</p></CardContent></Card>
+        ))}
+      </div>
+
+      <div className="flex gap-3 flex-wrap">
+        <div className="relative flex-1 max-w-72">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input className="pl-9" placeholder="Search customer or client..." value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <div className="flex gap-2">
+          {['all', 'unmapped', 'mapped'].map(f => (
+            <Button key={f} size="sm" variant={filter === f ? 'default' : 'outline'} onClick={() => setFilter(f)} className="capitalize">{f}</Button>
+          ))}
+        </div>
+        <Button variant="outline" size="sm" onClick={fetchCustomers}><RefreshCw className="h-4 w-4 mr-1" /> Refresh</Button>
+      </div>
+
+      <Card><CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-8" />
+              <TableHead>Giacom Customer</TableHead>
+              <TableHead>Subscriptions</TableHead>
+              <TableHead>Monthly Cost</TableHead>
+              <TableHead>Map to Client</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filtered.length === 0 ? (
+              <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">No results</TableCell></TableRow>
+            ) : filtered.map(c => {
+              const isMapped = !!c.client_id;
+              const isExpanded = expanded[c.customer_id];
+              const totalCost = c.subscriptions?.reduce((sum, s) => sum + (s.total_cost || 0), 0) || 0;
+
+              return (
+                <TableRow key={c.customer_id} className={isMapped ? 'opacity-80' : ''}>
+                  <TableCell>
+                    {isMapped ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <AlertTriangle className="h-4 w-4 text-amber-500" />}
+                  </TableCell>
+
+                  <TableCell className="font-medium">{c.customer_name}</TableCell>
+
+                  <TableCell>
+                    <div>
+                      {(isExpanded ? c.subscriptions : c.subscriptions?.slice(0, 2))?.map((s, i) => (
+                        <div key={i} className="text-xs text-muted-foreground">
+                          <span className="font-medium">{s.product_key}</span> × {s.quantity}
+                          <span className="ml-1 text-gray-400">({s.term})</span>
+                        </div>
+                      ))}
+                      {(c.subscriptions?.length || 0) > 2 && (
+                        <button className="text-xs text-blue-500 hover:underline mt-0.5"
+                          onClick={() => setExpanded(prev => ({ ...prev, [c.customer_id]: !isExpanded }))}>
+                          {isExpanded ? 'Show less' : `+${c.subscriptions.length - 2} more`}
+                        </button>
+                      )}
+                    </div>
+                  </TableCell>
+
+                  <TableCell className="text-sm font-medium">
+                    £{totalCost.toFixed(2)}/mo
+                  </TableCell>
+
+                  <TableCell>
+                    <Select
+                      value={c.client_id || 'none'}
+                      onValueChange={v => mapCustomer(c.customer_id, v === 'none' ? null : v)}
+                      disabled={saving[c.customer_id]}
+                    >
+                      <SelectTrigger className="w-48 h-8 text-sm"><SelectValue placeholder="Select client..." /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">— Unmapped —</SelectItem>
+                        {clients.map(cl => (
+                          <SelectItem key={cl.id} value={cl.id}>{cl.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </CardContent></Card>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // Main page
 // ─────────────────────────────────────────────
 export default function SupportMappings() {
@@ -595,7 +747,7 @@ export default function SupportMappings() {
       <div>
         <h1 className="text-2xl font-bold">Support Mappings</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Map historical spreadsheet names and hosting accounts to SynthOps clients.
+          Map historical spreadsheet names, hosting accounts and Giacom customers to SynthOps clients.
         </p>
       </div>
 
@@ -606,12 +758,16 @@ export default function SupportMappings() {
           <TabsList>
             <TabsTrigger value="names">Name Mappings</TabsTrigger>
             <TabsTrigger value="hosting">Hosting Domains</TabsTrigger>
+            <TabsTrigger value="giacom">Giacom / M365</TabsTrigger>
           </TabsList>
           <TabsContent value="names" className="mt-4">
             <NameMappingsTab clients={clients} sites={sites} />
           </TabsContent>
           <TabsContent value="hosting" className="mt-4">
             <HostingDomainsTab clients={clients} />
+          </TabsContent>
+          <TabsContent value="giacom" className="mt-4">
+            <GiacomTab clients={clients} />
           </TabsContent>
         </Tabs>
       )}
