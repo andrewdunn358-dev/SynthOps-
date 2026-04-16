@@ -302,6 +302,8 @@ function HostingDomainsTab({ clients: initialClients }) {
       setSyncing(false);
     }
   };
+
+  const mapAccount = async (primaryDomain, clientId) => {
     setSaving(prev => ({ ...prev, [primaryDomain]: true }));
     try {
       await apiClient.put(`/hosting/accounts/${encodeURIComponent(primaryDomain)}/map`, { client_id: clientId || null });
