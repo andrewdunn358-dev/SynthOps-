@@ -168,11 +168,13 @@ class ClientCreate(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     address: Optional[str] = None
+    website: Optional[str] = None
+    account_manager: Optional[str] = None
     contract_type: str = "monthly"
     contract_hours_monthly: Optional[int] = None
     notes: Optional[str] = None
-    client_type: str = "managed"  # managed | unmanaged | web_services
-    service_category: Optional[str] = None  # web_hosting | email_only | domain_only | broadband | mixed_services
+    client_type: str = "managed"
+    service_category: Optional[str] = None
 
 class ClientResponse(BaseModel):
     id: str
@@ -182,6 +184,8 @@ class ClientResponse(BaseModel):
     contact_email: Optional[str]
     contact_phone: Optional[str]
     address: Optional[str]
+    website: Optional[str] = None
+    account_manager: Optional[str] = None
     contract_type: str
     contract_hours_monthly: Optional[int]
     notes: Optional[str]

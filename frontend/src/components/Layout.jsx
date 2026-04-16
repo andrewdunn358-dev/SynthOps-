@@ -6,7 +6,7 @@ import {
   AlertTriangle, Wrench, FileText, Clock, Users, Settings, 
   Shield, LogOut, Menu, X, Sun, Moon, ChevronLeft,
   BarChart3, KeyRound, ExternalLink, Monitor, ShieldCheck, Network,
-  UsersRound, Package, HardDrive, ClipboardList, Table2, Link2
+  Package, HardDrive, ClipboardList, Table2, Link2
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
@@ -22,7 +22,6 @@ import SophieFloating from './SophieFloating';
 const navItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard', exact: true },
   { path: '/clients', icon: Building2, label: 'Clients' },
-  { path: '/customers', icon: UsersRound, label: 'Customer CRM' },
   { path: '/servers', icon: Server, label: 'Servers' },
   { path: '/infrastructure', icon: Network, label: 'Infrastructure' },
   { path: '/stock', icon: Package, label: 'Stock & Assets' },

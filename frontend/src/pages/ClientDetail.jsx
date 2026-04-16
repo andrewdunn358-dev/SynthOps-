@@ -5,13 +5,122 @@ import { toast } from 'sonner';
 import SupportTab from '../components/SupportTab';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { 
   Building2, Server, MapPin, Phone, Mail, ArrowLeft, Plus,
   Edit, AlertTriangle, ListTodo, Clock, Monitor, Laptop,
-  ExternalLink, MessageSquare
+  ExternalLink, MessageSquare, Save, X, User, Globe, FileText
 } from 'lucide-react';
+
+function ContactTab({ client, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    contact_name: '', contact_email: '', contact_phone: '',
+    address: '', website: '', account_manager: '', notes: '',
+  });
+
+  useEffect(() => {
+    if (client) {
+      setForm({
+        contact_name: client.contact_name || '',
+        contact_email: client.contact_email || '',
+        contact_phone: client.contact_phone || '',
+        address: client.address || '',
+        website: client.website || '',
+        account_manager: client.account_manager || '',
+        notes: client.notes || '',
+      });
+    }
+  }, [client]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await apiClient.put(`/clients/${client.id}`, {
+        name: client.name,
+        code: client.code,
+        client_type: client.client_type,
+        service_category: client.service_category,
+        contract_type: client.contract_type,
+        ...form,
+      });
+      toast.success('Contact details saved');
+      setEditing(false);
+      onSaved();
+    } catch (e) {
+      toast.error('Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const fields = [
+    { key: 'contact_name', label: 'Contact Name', icon: User, type: 'text', placeholder: 'Primary contact' },
+    { key: 'contact_email', label: 'Email', icon: Mail, type: 'email', placeholder: 'email@company.com' },
+    { key: 'contact_phone', label: 'Phone', icon: Phone, type: 'text', placeholder: '0191 000 0000' },
+    { key: 'website', label: 'Website', icon: Globe, type: 'text', placeholder: 'https://company.com' },
+    { key: 'account_manager', label: 'Account Manager', icon: User, type: 'text', placeholder: 'Engineer name' },
+    { key: 'address', label: 'Address', icon: MapPin, type: 'text', placeholder: 'Full address' },
+  ];
+
+  return (
+    <div className="space-y-4 mt-2">
+      <div className="flex justify-end">
+        {editing ? (
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setEditing(false)}><X className="h-4 w-4 mr-1" />Cancel</Button>
+            <Button size="sm" onClick={save} disabled={saving}><Save className="h-4 w-4 mr-1" />{saving ? 'Saving...' : 'Save'}</Button>
+          </div>
+        ) : (
+          <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Edit className="h-4 w-4 mr-1" />Edit</Button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {fields.map(({ key, label, icon: Icon, type, placeholder }) => (
+          <div key={key}>
+            <Label className="flex items-center gap-1.5 mb-1.5 text-sm font-medium">
+              <Icon className="h-3.5 w-3.5 text-muted-foreground" />{label}
+            </Label>
+            {editing ? (
+              <Input type={type} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} placeholder={placeholder} />
+            ) : (
+              <p className="text-sm py-2 px-3 rounded bg-muted/40 min-h-9">
+                {form[key] ? (
+                  key === 'website' ? <a href={form[key]} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">{form[key]}</a>
+                  : key === 'contact_email' ? <a href={`mailto:${form[key]}`} className="text-blue-500 hover:underline">{form[key]}</a>
+                  : form[key]
+                ) : <span className="text-muted-foreground">—</span>}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div>
+        <Label className="flex items-center gap-1.5 mb-1.5 text-sm font-medium">
+          <FileText className="h-3.5 w-3.5 text-muted-foreground" />Notes
+        </Label>
+        {editing ? (
+          <textarea
+            className="w-full border rounded px-3 py-2 text-sm bg-background min-h-24 resize-y"
+            value={form.notes}
+            onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+            placeholder="Internal notes about this client..."
+          />
+        ) : (
+          <p className="text-sm py-2 px-3 rounded bg-muted/40 min-h-16 whitespace-pre-wrap">
+            {form.notes || <span className="text-muted-foreground">No notes</span>}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function ClientDetail() {
   const { id } = useParams();
@@ -207,6 +316,7 @@ export default function ClientDetail() {
           <TabsTrigger value="tasks">Tasks ({tasks.length})</TabsTrigger>
           <TabsTrigger value="incidents">Incidents ({incidents.length})</TabsTrigger>
           <TabsTrigger value="support">Support Contract</TabsTrigger>
+          <TabsTrigger value="contact">Contact & Notes</TabsTrigger>
         </TabsList>
 
         <TabsContent value="sites" className="mt-4">
@@ -371,6 +481,9 @@ export default function ClientDetail() {
         </TabsContent>
         <TabsContent value="support">
           <SupportTab clientId={id} clientName={client?.name} />
+        </TabsContent>
+        <TabsContent value="contact">
+          <ContactTab client={client} onSaved={fetchData} />
         </TabsContent>
       </Tabs>
     </div>
