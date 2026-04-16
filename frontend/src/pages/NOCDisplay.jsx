@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiClient } from '../App';
-import { Server, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield, Play, Pause, ChevronLeft, ChevronRight, ListTodo, HardDrive, XCircle, Bell } from 'lucide-react';
+import { Server, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield, Play, Pause, ChevronLeft, ChevronRight, ListTodo, HardDrive, XCircle, Bell, Globe, ShieldCheck } from 'lucide-react';
 
 const VIEWS = ['security', 'clients', 'servers', 'reminders', 'alerts'];
 const VIEW_LABELS = { security: 'Security', clients: 'Clients', servers: 'Servers', reminders: 'Reminders', alerts: 'Alerts' };
@@ -13,6 +13,7 @@ export default function NOCDisplay() {
   const [incidents, setIncidents] = useState([]);
   const [securityAlerts, setSecurityAlerts] = useState(null);
   const [recurringTasks, setRecurringTasks] = useState([]);
+  const [hostingAlerts, setHostingAlerts] = useState([]);
   const [backupStats, setBackupStats] = useState(null);
   const [ahsayStats, setAhsayStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -80,6 +81,14 @@ export default function NOCDisplay() {
         } catch (e2) {
           // Backups not available
         }
+      }
+
+      // Get hosting alerts (SSL/domain expiry)
+      try {
+        const hostingAlertsRes = await apiClient.get('/hosting/alerts?days=60');
+        setHostingAlerts(hostingAlertsRes.data || []);
+      } catch (e) {
+        // 20i not configured, ignore
       }
 
       // Get Ahsay CBS backup stats
@@ -512,6 +521,34 @@ export default function NOCDisplay() {
                   )}
                 </div>
               </div>
+
+              {/* Hosting Alerts - SSL & Domain Renewals */}
+              {hostingAlerts.length > 0 && (
+                <div className="noc-reminder-panel">
+                  <h3 className="noc-panel-title">
+                    <Globe className="h-5 w-5 text-teal-400" />
+                    Hosting Alerts ({hostingAlerts.length})
+                  </h3>
+                  <div className="noc-panel-content">
+                    {hostingAlerts.slice(0, 12).map((alert, idx) => (
+                      <div key={idx} className={`noc-reminder-item priority-${alert.urgent ? 'critical' : 'high'}`}>
+                        <div className="noc-reminder-priority" />
+                        <div className="noc-reminder-content">
+                          <span className="noc-reminder-title">
+                            {alert.type === 'ssl' ? '🔒' : '🌐'} {alert.domain}
+                          </span>
+                          <span className="noc-reminder-meta">
+                            {alert.client_name} · {alert.type === 'ssl' ? 'SSL' : 'Domain'} expires
+                          </span>
+                        </div>
+                        <span className={`noc-reminder-badge ${alert.days_left < 0 ? 'overdue' : ''}`}>
+                          {alert.days_left < 0 ? 'EXPIRED' : `${alert.days_left}d`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

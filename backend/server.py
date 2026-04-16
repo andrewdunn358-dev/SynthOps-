@@ -6595,15 +6595,18 @@ async def get_monthly_support_count(
     # Attach hosting domains — build a map of client_id → list of primary domains
     hosting_accounts = await db.hosting_accounts.find(
         {"client_id": {"$ne": None}, "ignored": {"$ne": True}},
-        {"_id": 0, "primary_domain": 1, "client_id": 1, "ssl_expiry": 1, "domain_renewal": 1}
+        {"_id": 0, "primary_domain": 1, "client_id": 1, "ssl_expiry": 1, "domain_renewal": 1, "website_turbo": 1, "package": 1}
     ).to_list(1000)
     hosting_by_client = {}
     for ha in hosting_accounts:
         cid = ha["client_id"]
         if cid not in hosting_by_client:
-            hosting_by_client[cid] = {"domains": [], "ssl_expiry": None, "domain_renewal": None}
+            hosting_by_client[cid] = {"domains": [], "ssl_expiry": None, "domain_renewal": None, "website_turbo": False, "packages": set()}
         hosting_by_client[cid]["domains"].append(ha["primary_domain"])
-        # Keep the earliest SSL expiry and domain renewal across all domains for this client
+        if ha.get("website_turbo"):
+            hosting_by_client[cid]["website_turbo"] = True
+        if ha.get("package"):
+            hosting_by_client[cid]["packages"].add(ha["package"])
         if ha.get("ssl_expiry"):
             existing_ssl = hosting_by_client[cid]["ssl_expiry"]
             if not existing_ssl or ha["ssl_expiry"] < existing_ssl:
@@ -6618,6 +6621,8 @@ async def get_monthly_support_count(
         row["hosting_domains"] = h.get("domains", [])
         row["ssl_expiry"] = h.get("ssl_expiry")
         row["domain_renewal"] = h.get("domain_renewal")
+        row["website_turbo"] = h.get("website_turbo", False)
+        row["hosting_packages"] = list(h.get("packages", set()))
 
     # Get available months list
     pipeline = [
@@ -7159,6 +7164,20 @@ async def sync_20i_packages():
             except Exception as e:
                 logger.debug(f"SSL fetch failed for {primary_domain}: {e}")
 
+            # Fetch Website Turbo status
+            website_turbo = False
+            try:
+                turbo_resp = await client_http.get(f"https://api.20i.com/package/{pkg_id}/turbo", headers=headers)
+                if turbo_resp.status_code == 200:
+                    turbo_data = turbo_resp.json()
+                    website_turbo = bool(turbo_data.get("active") or turbo_data.get("enabled") or turbo_data.get("turbo"))
+            except Exception:
+                pass
+            # Also check packageLabels from the original package data
+            if not website_turbo:
+                labels = pkg.get("packageLabels", [])
+                website_turbo = any("turbo" in str(l).lower() for l in labels)
+
             # Get domain renewal date
             domain_renewal = domain_renewal_map.get(primary_domain.lower())
 
@@ -7174,6 +7193,7 @@ async def sync_20i_packages():
                 "has_ssl": has_ssl,
                 "ssl_expiry": ssl_expiry,
                 "domain_renewal": domain_renewal,
+                "website_turbo": website_turbo,
                 "source": "20i",
                 "last_synced": now,
             }
@@ -7198,6 +7218,73 @@ async def sync_20i_packages():
     return {"synced": synced}
 
 
+@api_router.get("/hosting/alerts")
+async def get_hosting_alerts(
+    days: int = Query(60),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get hosting accounts with SSL or domain renewal expiring within X days. Only mapped, non-ignored accounts."""
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(days=days)
+    cutoff_str = cutoff.isoformat()
+    now_str = now.isoformat()
+
+    accounts = await db.hosting_accounts.find(
+        {"client_id": {"$ne": None}, "ignored": {"$ne": True}},
+        {"_id": 0}
+    ).to_list(1000)
+
+    # Build client name map
+    clients_list = await db.clients.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
+    client_map = {c["id"]: c["name"] for c in clients_list}
+
+    alerts = []
+    for acc in accounts:
+        client_name = client_map.get(acc.get("client_id"), acc.get("primary_domain"))
+
+        # SSL expiry check
+        if acc.get("ssl_expiry"):
+            try:
+                expiry = datetime.fromisoformat(str(acc["ssl_expiry"]).replace("Z", "+00:00"))
+                if expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=timezone.utc)
+                days_left = (expiry - now).days
+                if days_left <= days:
+                    alerts.append({
+                        "type": "ssl",
+                        "domain": acc["primary_domain"],
+                        "client_name": client_name,
+                        "expiry": acc["ssl_expiry"],
+                        "days_left": days_left,
+                        "urgent": days_left < 14,
+                    })
+            except Exception:
+                pass
+
+        # Domain renewal check
+        if acc.get("domain_renewal"):
+            try:
+                renewal = datetime.fromisoformat(str(acc["domain_renewal"]).replace("Z", "+00:00"))
+                if renewal.tzinfo is None:
+                    renewal = renewal.replace(tzinfo=timezone.utc)
+                days_left = (renewal - now).days
+                if days_left <= days:
+                    alerts.append({
+                        "type": "domain",
+                        "domain": acc["primary_domain"],
+                        "client_name": client_name,
+                        "expiry": acc["domain_renewal"],
+                        "days_left": days_left,
+                        "urgent": days_left < 14,
+                    })
+            except Exception:
+                pass
+
+    alerts.sort(key=lambda a: a["days_left"])
+    return alerts
+
+
+
 @api_router.post("/integrations/20i/sync")
 async def trigger_20i_sync(current_user: dict = Depends(require_admin)):
     """Manually trigger a 20i hosting sync"""
@@ -7216,6 +7303,79 @@ async def get_20i_status(current_user: dict = Depends(get_current_user)):
         "package_count": count,
         "last_synced": last.get("last_synced") if last else None,
     }
+
+
+@api_router.post("/hosting/create-renewal-tasks")
+async def create_renewal_tasks(
+    data: dict = Body(default={}),
+    current_user: dict = Depends(get_current_user)
+):
+    """Auto-create tasks for SSL/domain renewals expiring within 60 days. Skips if task already exists."""
+    days = data.get("days", 60)
+    now = datetime.now(timezone.utc)
+
+    accounts = await db.hosting_accounts.find(
+        {"client_id": {"$ne": None}, "ignored": {"$ne": True}},
+        {"_id": 0}
+    ).to_list(1000)
+
+    clients_list = await db.clients.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
+    client_map = {c["id"]: c["name"] for c in clients_list}
+
+    created = 0
+    skipped = 0
+
+    for acc in accounts:
+        client_id = acc.get("client_id")
+        client_name = client_map.get(client_id, acc["primary_domain"])
+
+        for alert_type, date_field, label in [
+            ("ssl", "ssl_expiry", "SSL Certificate"),
+            ("domain", "domain_renewal", "Domain Renewal"),
+        ]:
+            raw_date = acc.get(date_field)
+            if not raw_date:
+                continue
+            try:
+                expiry = datetime.fromisoformat(str(raw_date).replace("Z", "+00:00"))
+                if expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=timezone.utc)
+                days_left = (expiry - now).days
+                if days_left > days:
+                    continue
+            except Exception:
+                continue
+
+            title = f"{label} expiry — {acc['primary_domain']}"
+
+            # Skip if task already exists for this domain + type
+            existing = await db.tasks.find_one({
+                "title": title,
+                "status": {"$nin": ["completed"]},
+            })
+            if existing:
+                skipped += 1
+                continue
+
+            priority = "critical" if days_left < 7 else "high" if days_left < 30 else "medium"
+            task_doc = {
+                "id": str(uuid.uuid4()),
+                "title": title,
+                "description": f"{'SSL certificate' if alert_type == 'ssl' else 'Domain'} for {acc['primary_domain']} expires on {expiry.strftime('%d %b %Y')} ({days_left} days).\n\nClient: {client_name}",
+                "client_id": client_id,
+                "priority": priority,
+                "status": "open",
+                "due_date": expiry.isoformat(),
+                "is_recurring": False,
+                "created_at": now.isoformat(),
+                "created_by": current_user.get("username") or current_user.get("email"),
+                "source": "20i_hosting",
+                "tags": [alert_type, "hosting", "auto"],
+            }
+            await db.tasks.insert_one(task_doc)
+            created += 1
+
+    return {"message": f"Created {created} tasks. {skipped} already existed.", "created": created, "skipped": skipped}
 
 
 # Include the router after all routes are defined

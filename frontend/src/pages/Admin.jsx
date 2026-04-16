@@ -39,6 +39,7 @@ import {
 function TwentyICard() {
   const [status, setStatus] = useState(null);
   const [syncing, setSyncing] = useState(false);
+  const [creatingTasks, setCreatingTasks] = useState(false);
 
   useEffect(() => {
     apiClient.get('/integrations/20i/status').then(r => setStatus(r.data)).catch(() => {});
@@ -55,6 +56,18 @@ function TwentyICard() {
       toast.error(e.response?.data?.detail || 'Sync failed');
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const createRenewalTasks = async () => {
+    setCreatingTasks(true);
+    try {
+      const res = await apiClient.post('/hosting/create-renewal-tasks', { days: 60 });
+      toast.success(res.data.message);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to create tasks');
+    } finally {
+      setCreatingTasks(false);
     }
   };
 
@@ -87,10 +100,15 @@ function TwentyICard() {
             Last synced: {new Date(status.last_synced).toLocaleString()}
           </p>
         )}
-        <Button size="sm" onClick={syncNow} disabled={syncing || !status?.configured}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
-          {syncing ? 'Syncing...' : 'Sync Now'}
-        </Button>
+        <div className="flex gap-2 flex-wrap">
+          <Button size="sm" onClick={syncNow} disabled={syncing || !status?.configured}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Syncing...' : 'Sync Now'}
+          </Button>
+          <Button size="sm" variant="outline" onClick={createRenewalTasks} disabled={creatingTasks || !status?.configured}>
+            {creatingTasks ? 'Creating...' : 'Create Renewal Tasks'}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

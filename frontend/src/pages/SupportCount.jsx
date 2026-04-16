@@ -406,10 +406,9 @@ export default function SupportCount() {
                   </th>
                 );
               })}
-              <th colSpan={2} className="px-2 py-1 text-center font-semibold border-r text-xs bg-teal-100/50 dark:bg-teal-900/30 text-teal-800 dark:text-teal-300">
+              <th colSpan={4} className="px-2 py-1 text-center font-semibold border-r text-xs bg-teal-100/50 dark:bg-teal-900/30 text-teal-800 dark:text-teal-300">
                 20i
-              </th>
-              <th className="px-3 py-2 text-left font-semibold min-w-32 text-xs bg-gray-50 dark:bg-gray-900" rowSpan={2}>Remarks</th>
+              </th>              <th className="px-3 py-2 text-left font-semibold min-w-32 text-xs bg-gray-50 dark:bg-gray-900" rowSpan={2}>Remarks</th>
               <th className="px-2 py-2 bg-white dark:bg-gray-950" rowSpan={2} />
             </tr>
             <tr className="border-b bg-muted/50">
@@ -420,12 +419,14 @@ export default function SupportCount() {
               ))}
               <th className="px-1 py-2 text-center font-medium border-r text-xs min-w-20">SSL Expiry</th>
               <th className="px-1 py-2 text-center font-medium border-r text-xs min-w-24">Domain Renewal</th>
+              <th className="px-1 py-2 text-center font-medium border-r text-xs min-w-28">Package</th>
+              <th className="px-1 py-2 text-center font-medium border-r text-xs min-w-16">Turbo</th>
             </tr>
           </thead>
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={visibleProducts.length + 6} className="text-center py-12 text-muted-foreground">No data for this month</td>
+                <td colSpan={visibleProducts.length + 8} className="text-center py-12 text-muted-foreground">No data for this month</td>
               </tr>
             ) : filteredRows.map((row, idx) => {
               const isEditing = editingRow === row.client_id;
@@ -486,6 +487,20 @@ export default function SupportCount() {
                       const colour = daysLeft < 0 ? 'text-red-600 font-bold' : daysLeft < 30 ? 'text-red-500 font-medium' : daysLeft < 60 ? 'text-amber-500' : 'text-muted-foreground';
                       return <span className={colour} title={renewal.toLocaleDateString('en-GB')}>{renewal.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}</span>;
                     })() : <span className="text-gray-300">—</span>}
+                  </td>
+
+                  {/* Package type */}
+                  <td className="border-r px-2 py-1.5 text-center text-xs text-muted-foreground">
+                    {row.hosting_packages?.length > 0
+                      ? <span title={row.hosting_packages.join(', ')} className="truncate block max-w-28">{row.hosting_packages[0]}</span>
+                      : <span className="text-gray-300">—</span>}
+                  </td>
+
+                  {/* Website Turbo */}
+                  <td className="border-r px-2 py-1.5 text-center text-xs">
+                    {row.website_turbo
+                      ? <span className="text-teal-600 font-medium" title="Website Turbo active">⚡</span>
+                      : <span className="text-gray-300">—</span>}
                   </td>
 
                   <td className="px-3 py-1.5 text-xs text-muted-foreground">
