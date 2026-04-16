@@ -330,19 +330,6 @@ export default function Customers() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Contract Value</p>
-                <p className="text-2xl font-bold">
-                  ${customers.reduce((sum, c) => sum + (c.contract_value || 0), 0).toLocaleString()}
-                </p>
-              </div>
-              <DollarSign className="h-8 w-8 text-amber-500 opacity-70" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
                 <p className="text-sm text-muted-foreground">With Notes</p>
                 <p className="text-2xl font-bold">
                   {customers.filter(c => c.notes_count > 0).length}
@@ -512,9 +499,8 @@ export default function Customers() {
           </DialogHeader>
           <form onSubmit={handleSubmit}>
             <Tabs defaultValue="basic" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="basic">Basic Info</TabsTrigger>
-                <TabsTrigger value="contract">Contract</TabsTrigger>
                 <TabsTrigger value="other">Other</TabsTrigger>
               </TabsList>
               
@@ -570,50 +556,6 @@ export default function Customers() {
                       onChange={(e) => setForm({ ...form, address: e.target.value })}
                       placeholder="Full address"
                       rows={2}
-                    />
-                  </div>
-                </div>
-              </TabsContent>
-              
-              <TabsContent value="contract" className="space-y-4 mt-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Contract Type</Label>
-                    <Select value={form.contract_type} onValueChange={(v) => setForm({ ...form, contract_type: v })}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="monthly">Monthly</SelectItem>
-                        <SelectItem value="annual">Annual</SelectItem>
-                        <SelectItem value="project">Project</SelectItem>
-                        <SelectItem value="adhoc">Ad-hoc</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Contract Value ($)</Label>
-                    <Input
-                      type="number"
-                      value={form.contract_value}
-                      onChange={(e) => setForm({ ...form, contract_value: e.target.value })}
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <div>
-                    <Label>Contract Start</Label>
-                    <Input
-                      type="date"
-                      value={form.contract_start}
-                      onChange={(e) => setForm({ ...form, contract_start: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Contract End</Label>
-                    <Input
-                      type="date"
-                      value={form.contract_end}
-                      onChange={(e) => setForm({ ...form, contract_end: e.target.value })}
                     />
                   </div>
                 </div>

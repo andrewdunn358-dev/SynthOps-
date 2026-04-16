@@ -2426,55 +2426,51 @@ async def list_customers(user: dict = Depends(get_current_user)):
 
 @api_router.post("/customers/import-from-clients")
 async def import_customers_from_clients(user: dict = Depends(get_current_user)):
-    """Import all SynthOps clients into the Customer CRM. Skips clients already imported."""
+    """Import all SynthOps clients into the Customer CRM. Upserts by trmm_client_id."""
     clients = await db.clients.find({}, {"_id": 0}).to_list(1000)
     now = datetime.now(timezone.utc)
     imported = 0
-    skipped = 0
+    updated = 0
 
     for client in clients:
-        # Check if already exists by trmm_client_id or name
-        existing = await db.customers.find_one({
-            "$or": [
-                {"trmm_client_id": client["id"]},
-                {"name": client["name"]},
-            ]
-        })
-        if existing:
-            skipped += 1
-            continue
-
-        # Build website from hosting if available
         hosting = await db.hosting_accounts.find_one(
             {"client_id": client["id"]}, {"primary_domain": 1}
         )
         website = f"https://{hosting['primary_domain']}" if hosting else None
 
-        doc = {
-            "id": str(uuid.uuid4()),
-            "name": client["name"],
-            "trmm_client_id": client["id"],
-            "contact_name": None,
-            "contact_email": None,
-            "contact_phone": None,
-            "address": None,
-            "website": website,
-            "contract_type": client.get("contract_type"),
-            "contract_value": None,
-            "contract_start": None,
-            "contract_end": None,
-            "account_manager": None,
-            "technical_contact": None,
-            "notes": None,
-            "tags": [client.get("client_type", "managed")],
-            "is_active": True,
-            "created_at": now,
-            "updated_at": now,
-        }
-        await db.customers.insert_one(doc)
-        imported += 1
+        existing = await db.customers.find_one({"trmm_client_id": client["id"]})
+        if existing:
+            await db.customers.update_one(
+                {"trmm_client_id": client["id"]},
+                {"$set": {"name": client["name"], "website": website or existing.get("website"), "updated_at": now}}
+            )
+            updated += 1
+        else:
+            doc = {
+                "id": str(uuid.uuid4()),
+                "name": client["name"],
+                "trmm_client_id": client["id"],
+                "contact_name": None,
+                "contact_email": None,
+                "contact_phone": None,
+                "address": None,
+                "website": website,
+                "contract_type": None,
+                "contract_value": None,
+                "contract_start": None,
+                "contract_end": None,
+                "account_manager": None,
+                "technical_contact": None,
+                "notes": None,
+                "tags": [client.get("client_type", "managed")],
+                "is_active": True,
+                "created_at": now,
+                "updated_at": now,
+            }
+            await db.customers.insert_one(doc)
+            imported += 1
 
-    return {"message": f"Imported {imported} clients. {skipped} already existed.", "imported": imported, "skipped": skipped}
+    return {"message": f"Imported {imported} new, updated {updated} existing.", "imported": imported, "updated": updated}
 
 
 
