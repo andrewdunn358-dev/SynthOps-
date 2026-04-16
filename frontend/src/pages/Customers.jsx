@@ -81,6 +81,21 @@ export default function Customers() {
     is_active: true
   });
 
+  const [importing, setImporting] = useState(false);
+
+  const importFromClients = async () => {
+    setImporting(true);
+    try {
+      const res = await apiClient.post('/customers/import-from-clients');
+      toast.success(res.data.message);
+      fetchData();
+    } catch (e) {
+      toast.error('Failed to import clients');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -273,10 +288,16 @@ export default function Customers() {
             Manage customer information, contracts, and notes
           </p>
         </div>
-        <Button onClick={() => { resetForm(); setDialogOpen(true); }} data-testid="add-customer-btn">
-          <Plus className="h-4 w-4 mr-2" />
-          Add Customer
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={importFromClients} disabled={importing}>
+            <Building2 className="h-4 w-4 mr-2" />
+            {importing ? 'Importing...' : 'Import from Clients'}
+          </Button>
+          <Button onClick={() => { resetForm(); setDialogOpen(true); }} data-testid="add-customer-btn">
+            <Plus className="h-4 w-4 mr-2" />
+            Add Customer
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
