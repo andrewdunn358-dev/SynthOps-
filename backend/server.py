@@ -6254,6 +6254,53 @@ async def upsert_client_support_profile(
     }
 
     if existing:
+        # Auto-generate change log entries by diffing old vs new values
+        now_str = now
+        old_products = existing.get("products", {}) or {}
+        new_products = profile.products or {}
+        all_product_keys = set(list(old_products.keys()) + list(new_products.keys()))
+        auto_changes = []
+
+        for key in all_product_keys:
+            old_val = old_products.get(key)
+            new_val = new_products.get(key)
+            if old_val != new_val:
+                if old_val is None:
+                    desc = f"Added: {key} = {new_val}"
+                elif new_val is None:
+                    desc = f"Removed: {key} (was {old_val})"
+                else:
+                    desc = f"{key}: {old_val} → {new_val}"
+                auto_changes.append(desc)
+
+        # Also check support_type change
+        old_type = existing.get("support_type")
+        new_type = profile.support_type
+        if old_type != new_type:
+            auto_changes.append(f"Support Type: {old_type or 'None'} → {new_type or 'None'}")
+
+        if auto_changes:
+            change_doc = {
+                "id": str(uuid.uuid4()),
+                "client_id": client_id,
+                "product_name": None,
+                "change_description": "; ".join(auto_changes),
+                "date": now,
+                "requested_by": None,
+                "completed_by": current_user.get("username") or current_user.get("email"),
+                "accounts_informed": False,
+                "worksheet_submitted": False,
+                "profile_updated": True,  # Profile was just saved so count is in sync
+                "auto_logged": True,
+                "created_at": now,
+                "created_by": current_user.get("username") or current_user.get("email"),
+            }
+            await db.support_changes.insert_one(change_doc)
+            # Clear needs_review since profile and count are now in sync
+            await db.client_support_profiles.update_one(
+                {"client_id": client_id}, {"$set": {"needs_review": False}}
+            )
+
         # Save a snapshot of the NEW state for the current month
         snapshot_month = now.strftime("%Y-%m")
         # Check month isn't locked before updating snapshot

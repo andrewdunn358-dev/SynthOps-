@@ -16,7 +16,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from './ui/table';
 import {
-  Edit, Save, X, History, Plus, AlertCircle, ChevronDown, ChevronRight,
+  Edit, Save, X, History, Plus, AlertCircle, ChevronDown, ChevronRight, CheckCircle2,
 } from 'lucide-react';
 
 const CATEGORY_LABELS = {
@@ -119,7 +119,10 @@ export default function SupportTab({ clientId, clientName }) {
       });
       setProfile(res.data);
       setEditing(false);
-      toast.success('Support profile saved');
+      toast.success('Support profile saved — changes auto-logged');
+      // Refresh recent changes to show the auto-logged entry
+      const changesRes = await apiClient.get(`/support/changes?client_id=${clientId}`);
+      setRecentChanges(changesRes.data.slice(0, 10));
     } catch (e) {
       toast.error('Failed to save profile');
     } finally {
@@ -274,7 +277,29 @@ export default function SupportTab({ clientId, clientName }) {
         </div>
       </div>
 
-      {/* Support type + remarks when editing */}
+      {/* Warning: unresolved changes where support count not updated */}
+      {recentChanges.some(c => !c.profile_updated && !c.auto_logged) && (
+        <div className="flex items-start gap-3 p-3 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700">
+          <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+          <div className="text-sm">
+            <p className="font-medium text-amber-800 dark:text-amber-300">Support Count not updated</p>
+            <p className="text-amber-700 dark:text-amber-400 mt-0.5">
+              There {recentChanges.filter(c => !c.profile_updated && !c.auto_logged).length === 1 ? 'is' : 'are'}{' '}
+              <strong>{recentChanges.filter(c => !c.profile_updated && !c.auto_logged).length}</strong> logged{' '}
+              {recentChanges.filter(c => !c.profile_updated && !c.auto_logged).length === 1 ? 'change' : 'changes'}{' '}
+              where the support count hasn't been marked as updated. Check the changes below and tick "Support Count Updated" once done.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation: everything in sync */}
+      {recentChanges.length > 0 && recentChanges.every(c => c.profile_updated || c.auto_logged) && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-green-300 bg-green-50 dark:bg-green-900/20 dark:border-green-700 text-sm text-green-700 dark:text-green-400">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          Support count is up to date with all logged changes.
+        </div>
+      )}
       {editing && (
         <Card>
           <CardContent className="pt-4">
@@ -398,6 +423,9 @@ export default function SupportTab({ clientId, clientName }) {
                     <TableCell className="py-2 text-sm">
                       {c.product_name && <span className="font-medium mr-1">{c.product_name}:</span>}
                       {c.change_description}
+                      {c.auto_logged && (
+                        <Badge variant="outline" className="ml-2 text-xs text-blue-600 border-blue-400">auto</Badge>
+                      )}
                     </TableCell>
                     <TableCell className="py-2 text-sm">{c.requested_by || '—'}</TableCell>
                     <TableCell className="py-2 text-sm">{c.completed_by || '—'}</TableCell>
