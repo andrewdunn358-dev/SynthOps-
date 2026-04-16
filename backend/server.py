@@ -6594,7 +6594,8 @@ async def get_monthly_support_count(
 
     # Attach hosting domains — build a map of client_id → list of primary domains
     hosting_accounts = await db.hosting_accounts.find(
-        {"client_id": {"$ne": None}}, {"_id": 0, "primary_domain": 1, "client_id": 1, "has_ssl": 1, "enabled": 1}
+        {"client_id": {"$ne": None}, "ignored": {"$ne": True}},
+        {"_id": 0, "primary_domain": 1, "client_id": 1}
     ).to_list(1000)
     hosting_by_client = {}
     for ha in hosting_accounts:
@@ -6974,7 +6975,26 @@ async def _add_hosting_client_to_month(client_id, primary_domain, now, current_u
         })
 
 
-@api_router.post("/hosting/sync-to-support-count")
+@api_router.put("/hosting/accounts/{primary_domain}/ignore")
+async def ignore_hosting_account(
+    primary_domain: str,
+    data: dict = Body(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Mark a hosting account as ignored (hidden from support count and default view)"""
+    ignored = data.get("ignored", True)
+    await db.hosting_accounts.update_one(
+        {"primary_domain": primary_domain},
+        {"$set": {
+            "ignored": ignored,
+            "ignored_by": current_user.get("username") or current_user.get("email"),
+            "ignored_at": datetime.now(timezone.utc),
+        }}
+    )
+    return {"message": "Updated"}
+
+
+
 async def sync_hosting_to_support_count(
     current_user: dict = Depends(get_current_user)
 ):
@@ -6987,7 +7007,8 @@ async def sync_hosting_to_support_count(
 
     # Get all mapped hosting accounts grouped by client
     accounts = await db.hosting_accounts.find(
-        {"client_id": {"$ne": None}}, {"_id": 0, "primary_domain": 1, "client_id": 1}
+        {"client_id": {"$ne": None}, "ignored": {"$ne": True}},
+        {"_id": 0, "primary_domain": 1, "client_id": 1}
     ).to_list(1000)
 
     # Group by client_id

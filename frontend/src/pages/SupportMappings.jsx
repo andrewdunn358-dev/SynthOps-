@@ -264,10 +264,10 @@ function HostingDomainsTab({ clients: initialClients }) {
   const [clients, setClients] = useState(initialClients);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState('active'); // active, mapped, unmapped, ignored
   const [saving, setSaving] = useState({});
   const [expandedDomains, setExpandedDomains] = useState({});
-  const [creatingFor, setCreatingFor] = useState(null); // primary_domain
+  const [creatingFor, setCreatingFor] = useState(null);
   const [newClientForm, setNewClientForm] = useState({ name: '', code: '', service_category: 'web_hosting' });
   const [savingNewClient, setSavingNewClient] = useState(false);
 
@@ -286,6 +286,19 @@ function HostingDomainsTab({ clients: initialClients }) {
   };
 
   const [syncing, setSyncing] = useState(false);
+
+  const toggleIgnore = async (primaryDomain, currentlyIgnored) => {
+    setSaving(prev => ({ ...prev, [primaryDomain]: true }));
+    try {
+      await apiClient.put(`/hosting/accounts/${encodeURIComponent(primaryDomain)}/ignore`, { ignored: !currentlyIgnored });
+      toast.success(currentlyIgnored ? 'Account restored' : 'Account ignored');
+      fetchAccounts();
+    } catch (e) {
+      toast.error('Failed to update');
+    } finally {
+      setSaving(prev => ({ ...prev, [primaryDomain]: false }));
+    }
+  };
 
   const syncAllToSupportCount = async () => {
     const confirmed = window.confirm(
@@ -342,8 +355,10 @@ function HostingDomainsTab({ clients: initialClients }) {
   };
 
   const filtered = accounts.filter(a => {
-    if (filter === 'mapped' && !a.client_id) return false;
-    if (filter === 'unmapped' && a.client_id) return false;
+    if (filter === 'active' && a.ignored) return false;
+    if (filter === 'mapped' && (!a.client_id || a.ignored)) return false;
+    if (filter === 'unmapped' && (a.client_id || a.ignored)) return false;
+    if (filter === 'ignored' && !a.ignored) return false;
     if (search) {
       const q = search.toLowerCase();
       return a.primary_domain.toLowerCase().includes(q) ||
@@ -353,8 +368,10 @@ function HostingDomainsTab({ clients: initialClients }) {
     return true;
   });
 
-  const mappedCount = accounts.filter(a => a.client_id).length;
-  const unmappedCount = accounts.filter(a => !a.client_id).length;
+  const activeAccounts = accounts.filter(a => !a.ignored);
+  const mappedCount = activeAccounts.filter(a => a.client_id).length;
+  const unmappedCount = activeAccounts.filter(a => !a.client_id).length;
+  const ignoredCount = accounts.filter(a => a.ignored).length;
 
   if (loading) return <div className="py-8 text-center text-muted-foreground">Loading hosting accounts...</div>;
 
@@ -362,11 +379,11 @@ function HostingDomainsTab({ clients: initialClients }) {
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         Map each hosting account to a SynthOps client. Mapped domains appear automatically on the Support Count.
-        Use <strong>New</strong> to create a Web Services client on the spot.
+        Use <strong>New</strong> to create a Web Services client on the spot. Use <strong>Ignore</strong> to hide internal or irrelevant accounts.
       </p>
 
-      <div className="grid grid-cols-3 gap-4">
-        {[['Total Accounts', accounts.length, ''], ['Mapped', mappedCount, 'text-green-500'], ['Unmapped', unmappedCount, unmappedCount > 0 ? 'text-amber-500' : 'text-green-500']].map(([label, val, cls]) => (
+      <div className="grid grid-cols-4 gap-4">
+        {[['Active', activeAccounts.length, ''], ['Mapped', mappedCount, 'text-green-500'], ['Unmapped', unmappedCount, unmappedCount > 0 ? 'text-amber-500' : 'text-green-500'], ['Ignored', ignoredCount, 'text-gray-400']].map(([label, val, cls]) => (
           <Card key={label}><CardContent className="pt-4 pb-4"><p className="text-sm text-muted-foreground">{label}</p><p className={`text-2xl font-bold mt-1 ${cls}`}>{val}</p></CardContent></Card>
         ))}
       </div>
@@ -377,8 +394,8 @@ function HostingDomainsTab({ clients: initialClients }) {
           <Input className="pl-9" placeholder="Search domain or client..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <div className="flex gap-2">
-          {['all', 'unmapped', 'mapped'].map(f => (
-            <Button key={f} size="sm" variant={filter === f ? 'default' : 'outline'} onClick={() => setFilter(f)} className="capitalize">{f}</Button>
+          {[['active', 'Active'], ['unmapped', 'Unmapped'], ['mapped', 'Mapped'], ['ignored', 'Ignored']].map(([val, label]) => (
+            <Button key={val} size="sm" variant={filter === val ? 'default' : 'outline'} onClick={() => setFilter(val)}>{label}</Button>
           ))}
         </div>
         <Button variant="outline" size="sm" onClick={fetchAccounts}><RefreshCw className="h-4 w-4 mr-1" /> Refresh</Button>
@@ -410,10 +427,11 @@ function HostingDomainsTab({ clients: initialClients }) {
               const extraDomains = (a.all_domains || []).filter(d => d !== a.primary_domain);
               const isExpanded = expandedDomains[a.primary_domain];
 
+              const isIgnored = !!a.ignored;
               return (
-                <TableRow key={a.primary_domain} className={isMapped ? 'opacity-80' : ''}>
+                <TableRow key={a.primary_domain} className={isIgnored ? 'opacity-40' : isMapped ? 'opacity-80' : ''}>
                   <TableCell>
-                    {isMapped ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <AlertTriangle className="h-4 w-4 text-amber-500" />}
+                    {isIgnored ? <span className="text-xs text-gray-400">—</span> : isMapped ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <AlertTriangle className="h-4 w-4 text-amber-500" />}
                   </TableCell>
 
                   <TableCell className="font-medium font-mono text-sm">
@@ -452,37 +470,51 @@ function HostingDomainsTab({ clients: initialClients }) {
                   </TableCell>
 
                   <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Select
-                        value={a.client_id || 'none'}
-                        onValueChange={v => mapAccount(a.primary_domain, v === 'none' ? null : v)}
-                        disabled={saving[a.primary_domain]}
-                      >
-                        <SelectTrigger className="w-44 h-8 text-sm"><SelectValue placeholder="Select client..." /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">— Unmapped —</SelectItem>
-                          {clients.map(c => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.name}{c.client_type === 'web_services' && ' ★'}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {!isMapped && (
-                        <Button size="sm" variant="outline" className="h-8 text-xs px-2 shrink-0"
-                          onClick={() => {
-                            const name = a.primary_domain.replace(/\.(co\.uk|com|org|net|uk)$/, '');
-                            setCreatingFor(a.primary_domain);
-                            setNewClientForm({
-                              name,
-                              code: name.slice(0, 6).toUpperCase().replace(/[^A-Z0-9]/g, ''),
-                              service_category: 'web_hosting',
-                            });
-                          }}>
-                          <UserPlus className="h-3 w-3 mr-1" />New
+                    {isIgnored ? (
+                      <Button size="sm" variant="outline" className="h-8 text-xs"
+                        onClick={() => toggleIgnore(a.primary_domain, true)}
+                        disabled={saving[a.primary_domain]}>
+                        Restore
+                      </Button>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <Select
+                          value={a.client_id || 'none'}
+                          onValueChange={v => mapAccount(a.primary_domain, v === 'none' ? null : v)}
+                          disabled={saving[a.primary_domain]}
+                        >
+                          <SelectTrigger className="w-44 h-8 text-sm"><SelectValue placeholder="Select client..." /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">— Unmapped —</SelectItem>
+                            {clients.map(c => (
+                              <SelectItem key={c.id} value={c.id}>
+                                {c.name}{c.client_type === 'web_services' && ' ★'}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {!isMapped && (
+                          <Button size="sm" variant="outline" className="h-8 text-xs px-2 shrink-0"
+                            onClick={() => {
+                              const name = a.primary_domain.replace(/\.(co\.uk|com|org|net|uk)$/, '');
+                              setCreatingFor(a.primary_domain);
+                              setNewClientForm({
+                                name,
+                                code: name.slice(0, 6).toUpperCase().replace(/[^A-Z0-9]/g, ''),
+                                service_category: 'web_hosting',
+                              });
+                            }}>
+                            <UserPlus className="h-3 w-3 mr-1" />New
+                          </Button>
+                        )}
+                        <Button size="sm" variant="ghost" className="h-8 text-xs px-2 text-muted-foreground hover:text-red-600 shrink-0"
+                          onClick={() => toggleIgnore(a.primary_domain, false)}
+                          disabled={saving[a.primary_domain]}
+                          title="Ignore this account">
+                          ✕
                         </Button>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               );
