@@ -396,31 +396,32 @@ export default function SupportCount() {
         <table className="text-xs border-collapse w-full">
           <thead className="sticky top-0 z-20 bg-background">
             <tr className="border-b">
-              <th className="sticky left-0 z-30 bg-white dark:bg-gray-950 border-r px-3 py-2 text-left font-semibold min-w-52 text-sm" rowSpan={2}>Client</th>
-              <th className="sticky left-52 z-30 bg-white dark:bg-gray-950 border-r px-2 py-2 text-center font-semibold min-w-28 text-xs" rowSpan={2}>Support Type</th>
+              <th className="sticky left-0 z-30 bg-white dark:bg-gray-950 border-r px-3 py-2 text-left font-bold min-w-52 text-sm" rowSpan={2}>Client</th>
+              <th className="border-r px-2 py-2 text-left font-bold min-w-28 text-xs" rowSpan={2}>Support Type</th>
               {Object.entries(productsByCategory).map(([cat, prods]) => {
                 if (hiddenCategories[cat]) return null;
                 return (
-                  <th key={cat} colSpan={prods.length} className={`px-2 py-1 text-center font-semibold border-r text-xs ${CATEGORY_COLOURS[cat] || ''}`}>
+                  <th key={cat} colSpan={prods.length} className={`px-2 py-1 text-center font-bold border-r text-xs ${CATEGORY_COLOURS[cat] || ''}`}>
                     {CATEGORY_LABELS[cat]}
                   </th>
                 );
               })}
-              <th colSpan={4} className="px-2 py-1 text-center font-semibold border-r text-xs bg-teal-100/50 dark:bg-teal-900/30 text-teal-800 dark:text-teal-300">
+              <th colSpan={4} className="px-2 py-1 text-center font-bold border-r text-xs bg-teal-100/50 dark:bg-teal-900/30 text-teal-800 dark:text-teal-300">
                 20i
-              </th>              <th className="px-3 py-2 text-left font-semibold min-w-32 text-xs bg-gray-50 dark:bg-gray-900" rowSpan={2}>Remarks</th>
+              </th>
+              <th className="px-3 py-2 text-left font-bold min-w-32 text-xs bg-gray-50 dark:bg-gray-900" rowSpan={2}>Remarks</th>
               <th className="px-2 py-2 bg-white dark:bg-gray-950" rowSpan={2} />
             </tr>
             <tr className="border-b bg-muted/50">
               {visibleProducts.map(p => (
-                <th key={p.id} className="px-1 py-2 text-center font-medium border-r text-xs min-w-14 max-w-20" title={p.name}>
-                  <span className="block max-w-20 truncate mx-auto">{p.name}</span>
+                <th key={p.id} className="px-2 py-2 text-left font-bold border-r text-xs min-w-16 max-w-24">
+                  {p.name}
                 </th>
               ))}
-              <th className="px-1 py-2 text-center font-medium border-r text-xs min-w-20">SSL Expiry</th>
-              <th className="px-1 py-2 text-center font-medium border-r text-xs min-w-24">Domain Renewal</th>
-              <th className="px-1 py-2 text-center font-medium border-r text-xs min-w-28">Package</th>
-              <th className="px-1 py-2 text-center font-medium border-r text-xs min-w-16">Turbo</th>
+              <th className="px-2 py-2 text-left font-bold border-r text-xs min-w-20">SSL Expiry</th>
+              <th className="px-2 py-2 text-left font-bold border-r text-xs min-w-24">Domain Renewal</th>
+              <th className="px-2 py-2 text-left font-bold border-r text-xs min-w-24">Package</th>
+              <th className="px-2 py-2 text-left font-bold border-r text-xs min-w-14">Turbo</th>
             </tr>
           </thead>
           <tbody>
@@ -450,7 +451,7 @@ export default function SupportCount() {
                     </div>
                   </td>
 
-                  <td className={`sticky left-52 z-10 border-r px-2 py-1.5 text-center min-w-28 ${stickyBg(idx, isEditing)}`}>
+                  <td className="border-r px-2 py-1.5 text-left min-w-28">
                     {isEditing ? (
                       <select className="text-xs border rounded px-1 py-0.5 w-full" value={editValues.support_type || ''} onChange={e => setEditValues(v => ({ ...v, support_type: e.target.value }))}>
                         <option value="">—</option>
