@@ -42,7 +42,26 @@ export default function SupportCount() {
   const [addClientOpen, setAddClientOpen] = useState(false);
   const [addClientId, setAddClientId] = useState('');
   const [allClients, setAllClients] = useState([]);
-  const [copyingMonth, setCopyingMonth] = useState(false);
+  const [wiping, setWiping] = useState(false);
+
+  const wipeMonth = async () => {
+    const confirmed = window.confirm(
+      `⚠️ WIPE ENTIRE MONTH?\n\nThis permanently deletes ALL ${filteredRows.length} rows from ${formatMonthLabel(selectedMonth)}.\n\nThis cannot be undone. Are you absolutely sure?`
+    );
+    if (!confirmed) return;
+    const confirmed2 = window.confirm(`Last chance — delete everything in ${formatMonthLabel(selectedMonth)}?`);
+    if (!confirmed2) return;
+    setWiping(true);
+    try {
+      const res = await apiClient.delete(`/support/monthly-count/wipe-month?month=${selectedMonth}`);
+      toast.success(`Wiped ${res.data.deleted} rows from ${formatMonthLabel(selectedMonth)}`);
+      fetchData(selectedMonth);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to wipe month');
+    } finally {
+      setWiping(false);
+    }
+  };
   const [locks, setLocks] = useState({});
   const [lockingMonth, setLockingMonth] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null); // client_id to delete
@@ -294,6 +313,17 @@ export default function SupportCount() {
           )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {isAdmin && !isLocked && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={wipeMonth}
+              disabled={wiping || filteredRows.length === 0}
+              className="border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+            >
+              {wiping ? 'Wiping...' : 'Wipe Month'}
+            </Button>
+          )}
           {isAdmin && (
             <Button
               variant={isLocked ? 'outline' : 'outline'}

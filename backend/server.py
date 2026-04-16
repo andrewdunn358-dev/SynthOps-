@@ -6927,7 +6927,7 @@ async def map_hosting_account(
     data: dict = Body(...),
     current_user: dict = Depends(get_current_user)
 ):
-    """Map a hosting account to a SynthOps client"""
+    """Map a hosting account to a SynthOps client and add to current month's support count"""
     client_id = data.get("client_id")  # None to unmap
     now = datetime.now(timezone.utc)
     await db.hosting_accounts.update_one(
@@ -6938,7 +6938,41 @@ async def map_hosting_account(
             "mapped_by": current_user.get("username") or current_user.get("email"),
         }}
     )
+
+    # Auto-add to current month's support count if mapping (not unmapping)
+    if client_id:
+        current_month = now.strftime("%Y-%m")
+        # Check month isn't locked
+        lock = await db.support_month_locks.find_one({"month": current_month, "locked": True})
+        if not lock:
+            # Only add if not already in this month
+            existing_snap = await db.client_support_snapshots.find_one(
+                {"client_id": client_id, "month": current_month}
+            )
+            if not existing_snap:
+                # Look up client name
+                client = await db.clients.find_one({"id": client_id}, {"_id": 0, "name": 1})
+                await db.client_support_snapshots.insert_one({
+                    "client_id": client_id,
+                    "month": current_month,
+                    "support_type": "Hosting",
+                    "products": {},
+                    "remarks": None,
+                    "snapshot_date": now,
+                    "updated_by": current_user.get("username") or current_user.get("email"),
+                })
+
     return {"message": "Updated"}
+
+
+@api_router.delete("/support/monthly-count/wipe-month")
+async def wipe_month(
+    month: str = Query(...),
+    admin: dict = Depends(require_admin)
+):
+    """Delete ALL snapshots for a given month (admin only). Used to clean up bad imports."""
+    result = await db.client_support_snapshots.delete_many({"month": month})
+    return {"message": f"Deleted {result.deleted_count} snapshots for {month}", "deleted": result.deleted_count}
 
 @api_router.post("/hosting/import")
 async def import_hosting_accounts(
