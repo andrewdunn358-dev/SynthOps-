@@ -259,13 +259,17 @@ function NameMappingsTab({ clients, sites }) {
 // ─────────────────────────────────────────────
 // Hosting Domains Tab (new)
 // ─────────────────────────────────────────────
-function HostingDomainsTab({ clients }) {
+function HostingDomainsTab({ clients: initialClients }) {
   const [accounts, setAccounts] = useState([]);
+  const [clients, setClients] = useState(initialClients);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState('all'); // all, mapped, unmapped
+  const [filter, setFilter] = useState('all');
   const [saving, setSaving] = useState({});
   const [expandedDomains, setExpandedDomains] = useState({});
+  const [creatingFor, setCreatingFor] = useState(null); // primary_domain
+  const [newClientForm, setNewClientForm] = useState({ name: '', code: '', service_category: 'web_hosting' });
+  const [savingNewClient, setSavingNewClient] = useState(false);
 
   useEffect(() => { fetchAccounts(); }, []);
 
@@ -294,6 +298,31 @@ function HostingDomainsTab({ clients }) {
     }
   };
 
+  const createClientAndMap = async () => {
+    if (!newClientForm.name || !newClientForm.code) { toast.error('Name and code are required'); return; }
+    setSavingNewClient(true);
+    try {
+      const clientRes = await apiClient.post('/clients', {
+        name: newClientForm.name,
+        code: newClientForm.code.toUpperCase(),
+        client_type: 'service_only',
+        service_category: newClientForm.service_category,
+        contract_type: 'monthly',
+      });
+      const newClient = clientRes.data;
+      await apiClient.put(`/hosting/accounts/${encodeURIComponent(creatingFor)}/map`, { client_id: newClient.id });
+      toast.success(`Created "${newClient.name}" and mapped ${creatingFor}`);
+      setClients(prev => [...prev, newClient]);
+      setCreatingFor(null);
+      setNewClientForm({ name: '', code: '', service_category: 'web_hosting' });
+      fetchAccounts();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to create client');
+    } finally {
+      setSavingNewClient(false);
+    }
+  };
+
   const filtered = accounts.filter(a => {
     if (filter === 'mapped' && !a.client_id) return false;
     if (filter === 'unmapped' && a.client_id) return false;
@@ -314,8 +343,8 @@ function HostingDomainsTab({ clients }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Map each hosting account to a SynthOps client. The mapped domains will automatically appear on the Support Count for that client.
-        To add new hosting accounts, run <code className="text-xs bg-muted px-1 py-0.5 rounded">scripts/migrate_hosting.py</code> on the server.
+        Map each hosting account to a SynthOps client. Mapped domains appear automatically on the Support Count.
+        Use <strong>New</strong> to create a Service Only client on the spot.
       </p>
 
       <div className="grid grid-cols-3 gap-4">
@@ -355,16 +384,13 @@ function HostingDomainsTab({ clients }) {
               <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">{filter === 'unmapped' ? '🎉 All hosting accounts are mapped!' : 'No results'}</TableCell></TableRow>
             ) : filtered.map(a => {
               const isMapped = !!a.client_id;
-              const mappedClient = clients.find(c => c.id === a.client_id);
               const extraDomains = (a.all_domains || []).filter(d => d !== a.primary_domain);
               const isExpanded = expandedDomains[a.primary_domain];
 
               return (
-                <TableRow key={a.primary_domain} className={!isMapped ? '' : 'opacity-80'}>
+                <TableRow key={a.primary_domain} className={isMapped ? 'opacity-80' : ''}>
                   <TableCell>
-                    {isMapped
-                      ? <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      : <AlertTriangle className="h-4 w-4 text-amber-500" />}
+                    {isMapped ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <AlertTriangle className="h-4 w-4 text-amber-500" />}
                   </TableCell>
 
                   <TableCell className="font-medium font-mono text-sm">
@@ -375,18 +401,14 @@ function HostingDomainsTab({ clients }) {
                   </TableCell>
 
                   <TableCell>
-                    {extraDomains.length === 0 ? (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    ) : (
+                    {extraDomains.length === 0 ? <span className="text-xs text-muted-foreground">—</span> : (
                       <div>
                         {(isExpanded ? extraDomains : extraDomains.slice(0, 2)).map(d => (
                           <div key={d} className="text-xs text-muted-foreground font-mono">{d}</div>
                         ))}
                         {extraDomains.length > 2 && (
-                          <button
-                            className="text-xs text-blue-500 hover:underline mt-0.5"
-                            onClick={() => setExpandedDomains(prev => ({ ...prev, [a.primary_domain]: !isExpanded }))}
-                          >
+                          <button className="text-xs text-blue-500 hover:underline mt-0.5"
+                            onClick={() => setExpandedDomains(prev => ({ ...prev, [a.primary_domain]: !isExpanded }))}>
                             {isExpanded ? 'Show less' : `+${extraDomains.length - 2} more`}
                           </button>
                         )}
@@ -394,14 +416,10 @@ function HostingDomainsTab({ clients }) {
                     )}
                   </TableCell>
 
-                  <TableCell>
-                    <span className="text-xs text-muted-foreground">{a.package || '—'}</span>
-                  </TableCell>
+                  <TableCell><span className="text-xs text-muted-foreground">{a.package || '—'}</span></TableCell>
 
                   <TableCell>
-                    {a.has_ssl
-                      ? <ShieldCheck className="h-4 w-4 text-green-500" />
-                      : <ShieldOff className="h-4 w-4 text-gray-400" />}
+                    {a.has_ssl ? <ShieldCheck className="h-4 w-4 text-green-500" /> : <ShieldOff className="h-4 w-4 text-gray-400" />}
                   </TableCell>
 
                   <TableCell>
@@ -411,24 +429,37 @@ function HostingDomainsTab({ clients }) {
                   </TableCell>
 
                   <TableCell>
-                    <Select
-                      value={a.client_id || 'none'}
-                      onValueChange={v => mapAccount(a.primary_domain, v === 'none' ? null : v)}
-                      disabled={saving[a.primary_domain]}
-                    >
-                      <SelectTrigger className="w-48 h-8 text-sm">
-                        <SelectValue placeholder="Select client..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">— Unmapped —</SelectItem>
-                        {clients.map(c => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.name}
-                            {c.client_type === 'service_only' && ' ★'}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex items-center gap-1">
+                      <Select
+                        value={a.client_id || 'none'}
+                        onValueChange={v => mapAccount(a.primary_domain, v === 'none' ? null : v)}
+                        disabled={saving[a.primary_domain]}
+                      >
+                        <SelectTrigger className="w-44 h-8 text-sm"><SelectValue placeholder="Select client..." /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">— Unmapped —</SelectItem>
+                          {clients.map(c => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {c.name}{c.client_type === 'service_only' && ' ★'}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {!isMapped && (
+                        <Button size="sm" variant="outline" className="h-8 text-xs px-2 shrink-0"
+                          onClick={() => {
+                            const name = a.primary_domain.replace(/\.(co\.uk|com|org|net|uk)$/, '');
+                            setCreatingFor(a.primary_domain);
+                            setNewClientForm({
+                              name,
+                              code: name.slice(0, 6).toUpperCase().replace(/[^A-Z0-9]/g, ''),
+                              service_category: 'web_hosting',
+                            });
+                          }}>
+                          <UserPlus className="h-3 w-3 mr-1" />New
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               );
@@ -436,6 +467,44 @@ function HostingDomainsTab({ clients }) {
           </TableBody>
         </Table>
       </CardContent></Card>
+
+      {/* Create New Service Only Client Dialog */}
+      <Dialog open={!!creatingFor} onOpenChange={() => setCreatingFor(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Create Service Only Client</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Creating a new Service Only client for <strong>{creatingFor}</strong>. It will appear in Support Count but not in monitoring views.
+          </p>
+          <div className="space-y-4 py-2">
+            <div><Label>Client Name *</Label>
+              <input className="w-full mt-1 border rounded px-3 py-2 text-sm bg-background" value={newClientForm.name}
+                onChange={e => setNewClientForm(f => ({ ...f, name: e.target.value }))} placeholder="Client name..." />
+            </div>
+            <div><Label>Client Code * <span className="text-muted-foreground text-xs">(short unique code)</span></Label>
+              <input className="w-full mt-1 border rounded px-3 py-2 text-sm bg-background uppercase" value={newClientForm.code}
+                onChange={e => setNewClientForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} maxLength={10} />
+            </div>
+            <div><Label>Service Category</Label>
+              <Select value={newClientForm.service_category} onValueChange={v => setNewClientForm(f => ({ ...f, service_category: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="web_hosting">Web Hosting</SelectItem>
+                  <SelectItem value="email_only">Email Only</SelectItem>
+                  <SelectItem value="domain_only">Domain Only</SelectItem>
+                  <SelectItem value="broadband">Broadband</SelectItem>
+                  <SelectItem value="mixed_services">Mixed Services</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreatingFor(null)}>Cancel</Button>
+            <Button onClick={createClientAndMap} disabled={savingNewClient}>
+              {savingNewClient ? 'Creating...' : 'Create & Map'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
