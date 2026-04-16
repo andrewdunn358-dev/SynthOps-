@@ -1,24 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { apiClient } from '../App';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../components/ui/select';
-import { Save, Download, Search, ChevronLeft, ChevronRight, Edit, X, Plus, Copy } from 'lucide-react';
+import { Save, Download, Search, ChevronLeft, ChevronRight, Edit, X, Plus, Copy, Lock, Unlock, Trash2 } from 'lucide-react';
 
 const CATEGORY_LABELS = {
-  security: 'Security',
-  backup: 'Backup',
-  devices: 'Devices',
-  onsite: 'Onsite',
-  connectivity: 'Connectivity',
-  hosting: 'Hosting',
-  office365: 'Office 365',
-  other: 'Other',
+  security: 'Security', backup: 'Backup', devices: 'Devices', onsite: 'Onsite',
+  connectivity: 'Connectivity', hosting: 'Hosting', office365: 'Office 365', other: 'Other',
 };
 
 const CATEGORY_COLOURS = {
@@ -32,12 +25,9 @@ const CATEGORY_COLOURS = {
   other:        'bg-gray-100/50 dark:bg-gray-800/50 text-gray-800 dark:text-gray-300',
 };
 
-// Opaque background classes for sticky columns (prevents bleed-through on scroll)
 const stickyBg = (idx, isEditing) => {
   if (isEditing) return 'bg-accent';
-  return idx % 2 === 0
-    ? 'bg-white dark:bg-gray-950'
-    : 'bg-gray-50 dark:bg-gray-900';
+  return idx % 2 === 0 ? 'bg-white dark:bg-gray-950' : 'bg-gray-50 dark:bg-gray-900';
 };
 
 export default function SupportCount() {
@@ -53,12 +43,18 @@ export default function SupportCount() {
   const [addClientId, setAddClientId] = useState('');
   const [allClients, setAllClients] = useState([]);
   const [copyingMonth, setCopyingMonth] = useState(false);
+  const [locks, setLocks] = useState({});
+  const [lockingMonth, setLockingMonth] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // client_id to delete
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
     fetchData(selectedMonth);
+    fetchLocks();
     if (allClients.length === 0) {
       apiClient.get('/clients').then(r => setAllClients(r.data)).catch(() => {});
     }
+    apiClient.get('/auth/me').then(r => setCurrentUser(r.data)).catch(() => {});
   }, [selectedMonth]);
 
   const fetchData = async (month) => {
@@ -67,9 +63,7 @@ export default function SupportCount() {
       const url = month ? `/support/monthly-count?month=${month}` : '/support/monthly-count';
       const res = await apiClient.get(url);
       setData(res.data);
-      if (!selectedMonth && res.data.month) {
-        setSelectedMonth(res.data.month);
-      }
+      if (!selectedMonth && res.data.month) setSelectedMonth(res.data.month);
     } catch (e) {
       toast.error('Failed to load support count data');
     } finally {
@@ -77,7 +71,18 @@ export default function SupportCount() {
     }
   };
 
+  const fetchLocks = async () => {
+    try {
+      const res = await apiClient.get('/support/monthly-count/locks');
+      setLocks(res.data || {});
+    } catch (e) {}
+  };
+
+  const isAdmin = currentUser?.role === 'admin';
+  const isLocked = locks[selectedMonth]?.locked === true;
+
   const startEdit = (row) => {
+    if (isLocked) { toast.error('This month is locked'); return; }
     setEditingRow(row.client_id);
     setEditValues({
       support_type: row.support_type || '',
@@ -86,25 +91,49 @@ export default function SupportCount() {
     });
   };
 
-  const cancelEdit = () => {
-    setEditingRow(null);
-    setEditValues({});
-  };
+  const cancelEdit = () => { setEditingRow(null); setEditValues({}); };
 
   const saveRow = async (clientId) => {
     setSaving(true);
     try {
-      await apiClient.put(`/support/monthly-count/${clientId}`, {
-        month: selectedMonth,
-        ...editValues,
-      });
+      await apiClient.put(`/support/monthly-count/${clientId}`, { month: selectedMonth, ...editValues });
       toast.success('Saved');
       setEditingRow(null);
       fetchData(selectedMonth);
     } catch (e) {
-      toast.error('Failed to save');
+      toast.error(e.response?.data?.detail || 'Failed to save');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const deleteClientFromMonth = async (clientId) => {
+    try {
+      await apiClient.delete(`/support/monthly-count/${clientId}?month=${selectedMonth}`);
+      toast.success('Removed from month');
+      setDeleteConfirm(null);
+      fetchData(selectedMonth);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to remove');
+    }
+  };
+
+  const toggleLock = async () => {
+    if (!isAdmin) { toast.error('Only admins can lock/unlock months'); return; }
+    setLockingMonth(true);
+    try {
+      if (isLocked) {
+        await apiClient.post(`/support/monthly-count/${selectedMonth}/unlock`);
+        toast.success(`${formatMonthLabel(selectedMonth)} unlocked`);
+      } else {
+        await apiClient.post(`/support/monthly-count/${selectedMonth}/lock`);
+        toast.success(`${formatMonthLabel(selectedMonth)} locked`);
+      }
+      fetchLocks();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to change lock');
+    } finally {
+      setLockingMonth(false);
     }
   };
 
@@ -114,17 +143,14 @@ export default function SupportCount() {
     if (!client) return;
     try {
       await apiClient.put(`/support/monthly-count/${addClientId}`, {
-        month: selectedMonth,
-        support_type: null,
-        products: {},
-        remarks: null,
+        month: selectedMonth, support_type: null, products: {}, remarks: null,
       });
       toast.success(`${client.name} added to ${selectedMonth}`);
       setAddClientOpen(false);
       setAddClientId('');
       fetchData(selectedMonth);
     } catch (e) {
-      toast.error('Failed to add client');
+      toast.error(e.response?.data?.detail || 'Failed to add client');
     }
   };
 
@@ -132,22 +158,21 @@ export default function SupportCount() {
     if (!data?.available_months?.length) return;
     const months = [...data.available_months].sort();
     const idx = months.indexOf(selectedMonth);
-    if (idx <= 0) { toast.error('No previous month available to copy from'); return; }
+    if (idx <= 0) { toast.error('No previous month available'); return; }
     const prevMonth = months[idx - 1];
     const confirmed = window.confirm(
-      `Copy all data from ${formatMonthLabel(prevMonth)} into ${formatMonthLabel(selectedMonth)}?\n\nThis will only fill in clients that don't already have data this month.`
+      `Copy all data from ${formatMonthLabel(prevMonth)} into ${formatMonthLabel(selectedMonth)}?\n\nOnly fills in clients that don't already have data this month.`
     );
     if (!confirmed) return;
     setCopyingMonth(true);
     try {
       const res = await apiClient.post('/support/monthly-count/copy-from-previous', {
-        target_month: selectedMonth,
-        source_month: prevMonth,
+        target_month: selectedMonth, source_month: prevMonth,
       });
       toast.success(`Copied ${res.data.copied} clients from ${formatMonthLabel(prevMonth)}`);
       fetchData(selectedMonth);
     } catch (e) {
-      toast.error('Failed to copy from previous month');
+      toast.error(e.response?.data?.detail || 'Failed to copy');
     } finally {
       setCopyingMonth(false);
     }
@@ -166,38 +191,28 @@ export default function SupportCount() {
     const products = data.products;
     const headers = ['Client', 'Support Type', ...products.map(p => p.name), 'Remarks'];
     const rows = filteredRows.map(row => [
-      row.client_name,
-      row.support_type || '',
-      ...products.map(p => {
-        const val = row.products?.[p.name];
-        return val !== undefined && val !== null ? val : '';
-      }),
+      row.client_name, row.support_type || '',
+      ...products.map(p => { const v = row.products?.[p.name]; return v !== undefined && v !== null ? v : ''; }),
       row.remarks || '',
     ]);
     const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `support-count-${selectedMonth}.csv`;
-    a.click();
+    const a = document.createElement('a'); a.href = url;
+    a.download = `support-count-${selectedMonth}.csv`; a.click();
   };
 
-  const toggleCategory = (cat) => {
-    setHiddenCategories(prev => ({ ...prev, [cat]: !prev[cat] }));
-  };
+  const toggleCategory = (cat) => setHiddenCategories(prev => ({ ...prev, [cat]: !prev[cat] }));
 
   const formatMonthLabel = (m) => {
     if (!m) return '';
     const [year, month] = m.split('-');
-    const date = new Date(parseInt(year), parseInt(month) - 1);
-    return date.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+    return new Date(parseInt(year), parseInt(month) - 1).toLocaleString('en-GB', { month: 'long', year: 'numeric' });
   };
 
-  const filteredRows = data?.rows?.filter(row => {
-    if (!search) return true;
-    return (row.client_name || '').toLowerCase().includes(search.toLowerCase());
-  }) || [];
+  const filteredRows = data?.rows?.filter(row =>
+    !search || (row.client_name || '').toLowerCase().includes(search.toLowerCase())
+  ) || [];
 
   const productsByCategory = {};
   (data?.products || []).forEach(p => {
@@ -217,44 +232,23 @@ export default function SupportCount() {
   const renderEditCell = (product, editVals, setEditVals) => {
     const current = editVals.products?.[product.name];
     if (product.unit === 'yes/no') {
-      return (
-        <input
-          type="checkbox"
-          checked={!!current}
-          onChange={e => setEditVals(v => ({ ...v, products: { ...v.products, [product.name]: e.target.checked } }))}
-          className="w-4 h-4"
-        />
-      );
+      return <input type="checkbox" checked={!!current} onChange={e => setEditVals(v => ({ ...v, products: { ...v.products, [product.name]: e.target.checked } }))} className="w-4 h-4" />;
     }
     if (product.unit === 'text') {
-      return (
-        <input
-          className="w-24 text-xs border rounded px-1 py-0.5"
-          value={current || ''}
-          onChange={e => setEditVals(v => ({ ...v, products: { ...v.products, [product.name]: e.target.value } }))}
-        />
-      );
+      return <input className="w-24 text-xs border rounded px-1 py-0.5" value={current || ''} onChange={e => setEditVals(v => ({ ...v, products: { ...v.products, [product.name]: e.target.value } }))} />;
     }
     return (
-      <input
-        type="number"
-        min="0"
-        className="w-16 text-xs border rounded px-1 py-0.5 text-center"
+      <input type="number" min="0" className="w-16 text-xs border rounded px-1 py-0.5 text-center"
         value={current ?? ''}
-        onChange={e => setEditVals(v => ({
-          ...v,
-          products: { ...v.products, [product.name]: e.target.value === '' ? undefined : Number(e.target.value) }
-        }))}
+        onChange={e => setEditVals(v => ({ ...v, products: { ...v.products, [product.name]: e.target.value === '' ? undefined : Number(e.target.value) } }))}
       />
     );
   };
 
-  // Check if there's a previous month available to copy from
   const hasPreviousMonth = (() => {
     if (!data?.available_months?.length) return false;
     const months = [...data.available_months].sort();
-    const idx = months.indexOf(selectedMonth);
-    return idx > 0;
+    return months.indexOf(selectedMonth) > 0;
   })();
 
   if (loading) {
@@ -270,21 +264,41 @@ export default function SupportCount() {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Monthly Support Count</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            {filteredRows.length} clients · {visibleProducts.length} products shown
-          </p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-2xl font-bold">Monthly Support Count</h1>
+            <p className="text-muted-foreground text-sm mt-0.5">
+              {filteredRows.length} clients · {visibleProducts.length} products shown
+            </p>
+          </div>
+          {isLocked && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 text-xs font-medium border border-amber-300 dark:border-amber-700">
+              <Lock className="h-3 w-3" /> Locked
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {hasPreviousMonth && (
+          {isAdmin && (
+            <Button
+              variant={isLocked ? 'outline' : 'outline'}
+              size="sm"
+              onClick={toggleLock}
+              disabled={lockingMonth}
+              className={isLocked ? 'border-amber-400 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20' : ''}
+            >
+              {isLocked ? <><Unlock className="h-4 w-4 mr-1" /> Unlock Month</> : <><Lock className="h-4 w-4 mr-1" /> Lock Month</>}
+            </Button>
+          )}
+          {!isLocked && hasPreviousMonth && (
             <Button variant="outline" size="sm" onClick={copyFromPreviousMonth} disabled={copyingMonth}>
               <Copy className="h-4 w-4 mr-1" /> {copyingMonth ? 'Copying...' : 'Copy from Previous Month'}
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => setAddClientOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" /> Add Client
-          </Button>
+          {!isLocked && (
+            <Button variant="outline" size="sm" onClick={() => setAddClientOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Add Client
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={exportCSV}>
             <Download className="h-4 w-4 mr-1" /> Export CSV
           </Button>
@@ -303,7 +317,12 @@ export default function SupportCount() {
             </SelectTrigger>
             <SelectContent>
               {(data?.available_months || []).map(m => (
-                <SelectItem key={m} value={m}>{formatMonthLabel(m)}</SelectItem>
+                <SelectItem key={m} value={m}>
+                  <span className="flex items-center gap-1.5">
+                    {locks[m]?.locked && <Lock className="h-3 w-3 text-amber-500" />}
+                    {formatMonthLabel(m)}
+                  </span>
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -313,23 +332,12 @@ export default function SupportCount() {
         </div>
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            className="pl-8 h-8 w-48 text-sm"
-            placeholder="Search clients..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+          <Input className="pl-8 h-8 w-48 text-sm" placeholder="Search clients..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-        {/* Category toggles */}
         <div className="flex gap-1 flex-wrap">
           {Object.entries(productsByCategory).map(([cat, prods]) => (
-            <button
-              key={cat}
-              onClick={() => toggleCategory(cat)}
-              className={`text-xs px-2 py-1 rounded-full border transition-opacity ${
-                hiddenCategories[cat] ? 'opacity-40' : ''
-              } ${CATEGORY_COLOURS[cat] || 'bg-gray-100/50 dark:bg-gray-800/50 text-gray-800 dark:text-gray-300'}`}
-            >
+            <button key={cat} onClick={() => toggleCategory(cat)}
+              className={`text-xs px-2 py-1 rounded-full border transition-opacity ${hiddenCategories[cat] ? 'opacity-40' : ''} ${CATEGORY_COLOURS[cat] || ''}`}>
               {CATEGORY_LABELS[cat]} ({prods.length})
             </button>
           ))}
@@ -340,39 +348,23 @@ export default function SupportCount() {
       <div className="overflow-auto rounded-lg border bg-background" style={{ maxHeight: 'calc(100vh - 260px)' }}>
         <table className="text-xs border-collapse w-full">
           <thead className="sticky top-0 z-20 bg-background">
-            {/* Category header row */}
             <tr className="border-b">
-              <th className="sticky left-0 z-30 bg-white dark:bg-gray-950 border-r px-3 py-2 text-left font-semibold min-w-52 text-sm" rowSpan={2}>
-                Client
-              </th>
-              <th className="sticky left-52 z-30 bg-white dark:bg-gray-950 border-r px-2 py-2 text-center font-semibold min-w-28 text-xs" rowSpan={2}>
-                Support Type
-              </th>
+              <th className="sticky left-0 z-30 bg-white dark:bg-gray-950 border-r px-3 py-2 text-left font-semibold min-w-52 text-sm" rowSpan={2}>Client</th>
+              <th className="sticky left-52 z-30 bg-white dark:bg-gray-950 border-r px-2 py-2 text-center font-semibold min-w-28 text-xs" rowSpan={2}>Support Type</th>
               {Object.entries(productsByCategory).map(([cat, prods]) => {
                 if (hiddenCategories[cat]) return null;
                 return (
-                  <th
-                    key={cat}
-                    colSpan={prods.length}
-                    className={`px-2 py-1 text-center font-semibold border-r text-xs ${CATEGORY_COLOURS[cat] || ''}`}
-                  >
+                  <th key={cat} colSpan={prods.length} className={`px-2 py-1 text-center font-semibold border-r text-xs ${CATEGORY_COLOURS[cat] || ''}`}>
                     {CATEGORY_LABELS[cat]}
                   </th>
                 );
               })}
-              <th className="px-3 py-2 text-left font-semibold min-w-32 text-xs bg-gray-50 dark:bg-gray-900" rowSpan={2}>
-                Remarks
-              </th>
+              <th className="px-3 py-2 text-left font-semibold min-w-32 text-xs bg-gray-50 dark:bg-gray-900" rowSpan={2}>Remarks</th>
               <th className="px-2 py-2 bg-white dark:bg-gray-950" rowSpan={2} />
             </tr>
-            {/* Product name row */}
             <tr className="border-b bg-muted/50">
               {visibleProducts.map(p => (
-                <th
-                  key={p.id}
-                  className="px-1 py-2 text-center font-medium border-r text-xs min-w-14 max-w-20"
-                  title={p.name}
-                >
+                <th key={p.id} className="px-1 py-2 text-center font-medium border-r text-xs min-w-14 max-w-20" title={p.name}>
                   <span className="block max-w-20 truncate mx-auto">{p.name}</span>
                 </th>
               ))}
@@ -381,76 +373,48 @@ export default function SupportCount() {
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={visibleProducts.length + 4} className="text-center py-12 text-muted-foreground">
-                  No data for this month
-                </td>
+                <td colSpan={visibleProducts.length + 4} className="text-center py-12 text-muted-foreground">No data for this month</td>
               </tr>
             ) : filteredRows.map((row, idx) => {
               const isEditing = editingRow === row.client_id;
-
               return (
-                <tr
-                  key={row.client_id}
-                  className={`border-b hover:bg-accent/30 transition-colors group ${
-                    idx % 2 === 0 ? 'bg-white dark:bg-gray-950' : 'bg-gray-50 dark:bg-gray-900'
-                  } ${isEditing ? '!bg-accent' : ''}`}
-                >
-                  {/* Client name — sticky, opaque background */}
+                <tr key={row.client_id}
+                  className={`border-b hover:bg-accent/30 transition-colors group ${idx % 2 === 0 ? 'bg-white dark:bg-gray-950' : 'bg-gray-50 dark:bg-gray-900'} ${isEditing ? '!bg-accent' : ''}`}>
+
                   <td className={`sticky left-0 z-10 border-r px-3 py-1.5 font-medium min-w-52 ${stickyBg(idx, isEditing)}`}>
                     <div className="flex items-center gap-2">
-                      <span className="truncate max-w-48" title={row.client_name}>
-                        {row.client_name}
-                      </span>
-                      {row.client_id?.startsWith('UNRESOLVED:') && (
-                        <span className="text-amber-500 text-xs">⚠</span>
-                      )}
+                      <span className="truncate max-w-48" title={row.client_name}>{row.client_name}</span>
+                      {row.client_id?.startsWith('UNRESOLVED:') && <span className="text-amber-500 text-xs">⚠</span>}
                     </div>
                   </td>
 
-                  {/* Support type — sticky, opaque background */}
                   <td className={`sticky left-52 z-10 border-r px-2 py-1.5 text-center min-w-28 ${stickyBg(idx, isEditing)}`}>
                     {isEditing ? (
-                      <select
-                        className="text-xs border rounded px-1 py-0.5 w-full"
-                        value={editValues.support_type || ''}
-                        onChange={e => setEditValues(v => ({ ...v, support_type: e.target.value }))}
-                      >
+                      <select className="text-xs border rounded px-1 py-0.5 w-full" value={editValues.support_type || ''} onChange={e => setEditValues(v => ({ ...v, support_type: e.target.value }))}>
                         <option value="">—</option>
-                        {['Monthly', 'PAYG', 'Support Fund', 'Hosting'].map(t => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
+                        {['Monthly', 'PAYG', 'Support Fund', 'Hosting'].map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                     ) : (
-                      row.support_type ? (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">{row.support_type}</span>
-                      ) : <span className="text-gray-300">—</span>
+                      row.support_type
+                        ? <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">{row.support_type}</span>
+                        : <span className="text-gray-300">—</span>
                     )}
                   </td>
 
-                  {/* Product cells */}
                   {visibleProducts.map(p => (
                     <td key={p.id} className="border-r px-2 py-1.5 text-center">
-                      {isEditing
-                        ? renderEditCell(p, editValues, setEditValues)
-                        : renderCellValue(p, row.products?.[p.name])
-                      }
+                      {isEditing ? renderEditCell(p, editValues, setEditValues) : renderCellValue(p, row.products?.[p.name])}
                     </td>
                   ))}
 
-                  {/* Remarks */}
                   <td className="px-3 py-1.5 text-xs text-muted-foreground">
                     {isEditing ? (
-                      <input
-                        className="w-full text-xs border rounded px-1 py-0.5"
-                        value={editValues.remarks || ''}
-                        onChange={e => setEditValues(v => ({ ...v, remarks: e.target.value }))}
-                      />
+                      <input className="w-full text-xs border rounded px-1 py-0.5" value={editValues.remarks || ''} onChange={e => setEditValues(v => ({ ...v, remarks: e.target.value }))} />
                     ) : (
                       <span className="line-clamp-1">{row.remarks || ''}</span>
                     )}
                   </td>
 
-                  {/* Actions */}
                   <td className="px-2 py-1.5 whitespace-nowrap">
                     {isEditing ? (
                       <div className="flex gap-1">
@@ -461,15 +425,17 @@ export default function SupportCount() {
                           <X className="h-3 w-3" />
                         </Button>
                       </div>
+                    ) : !isLocked ? (
+                      <div className="flex gap-0.5">
+                        <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-muted-foreground hover:text-foreground" onClick={() => startEdit(row)}>
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-muted-foreground hover:text-red-600" onClick={() => setDeleteConfirm(row.client_id)}>
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
                     ) : (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 text-xs px-2 text-muted-foreground hover:text-foreground"
-                        onClick={() => startEdit(row)}
-                      >
-                        <Edit className="h-3 w-3" />
-                      </Button>
+                      <Lock className="h-3 w-3 text-amber-400 mx-auto" />
                     )}
                   </td>
                 </tr>
@@ -479,34 +445,37 @@ export default function SupportCount() {
         </table>
       </div>
 
-      {/* Add client to month dialog */}
+      {/* Add client dialog */}
       <Dialog open={addClientOpen} onOpenChange={setAddClientOpen}>
         <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add Client to {formatMonthLabel(selectedMonth)}</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Add a client that isn't currently in this month's support count.
-          </p>
+          <DialogHeader><DialogTitle>Add Client to {formatMonthLabel(selectedMonth)}</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Add a client that isn't currently in this month's support count.</p>
           <Select value={addClientId || 'none'} onValueChange={v => setAddClientId(v === 'none' ? '' : v)}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select client..." />
-            </SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="Select client..." /></SelectTrigger>
             <SelectContent>
               <SelectItem value="none" disabled>Select client...</SelectItem>
-              {allClients
-                .filter(c => !data?.rows?.find(r => r.client_id === c.id))
-                .map(c => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                    {c.client_type === 'service_only' && ' (Service Only)'}
-                  </SelectItem>
-                ))}
+              {allClients.filter(c => !data?.rows?.find(r => r.client_id === c.id)).map(c => (
+                <SelectItem key={c.id} value={c.id}>{c.name}{c.client_type === 'service_only' && ' (Service Only)'}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddClientOpen(false)}>Cancel</Button>
             <Button onClick={addClientToMonth} disabled={!addClientId}>Add to Month</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirm dialog */}
+      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Remove from {formatMonthLabel(selectedMonth)}?</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This removes <strong>{filteredRows.find(r => r.client_id === deleteConfirm)?.client_name}</strong> from this month's support count. Their data in other months is not affected.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleteClientFromMonth(deleteConfirm)}>Remove</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

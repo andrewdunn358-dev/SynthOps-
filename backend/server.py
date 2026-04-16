@@ -6254,20 +6254,24 @@ async def upsert_client_support_profile(
     }
 
     if existing:
-        # Save a snapshot of the old state before overwriting
+        # Save a snapshot of the NEW state for the current month
         snapshot_month = now.strftime("%Y-%m")
-        await db.client_support_snapshots.update_one(
-            {"client_id": client_id, "month": snapshot_month},
-            {"$set": {
-                "client_id": client_id,
-                "month": snapshot_month,
-                "support_type": existing.get("support_type"),
-                "remarks": existing.get("remarks"),
-                "products": existing.get("products", {}),
-                "snapshot_date": now,
-            }},
-            upsert=True
-        )
+        # Check month isn't locked before updating snapshot
+        lock = await db.support_month_locks.find_one({"month": snapshot_month, "locked": True})
+        if not lock:
+            await db.client_support_snapshots.update_one(
+                {"client_id": client_id, "month": snapshot_month},
+                {"$set": {
+                    "client_id": client_id,
+                    "month": snapshot_month,
+                    "support_type": profile.support_type,
+                    "remarks": profile.remarks,
+                    "products": profile.products or {},
+                    "snapshot_date": now,
+                    "updated_by": current_user.get("username") or current_user.get("email"),
+                }},
+                upsert=True
+            )
         await db.client_support_profiles.update_one(
             {"client_id": client_id}, {"$set": doc}
         )
@@ -6545,6 +6549,10 @@ async def copy_support_count_from_previous(
     if not target_month or not source_month:
         raise HTTPException(status_code=400, detail="target_month and source_month are required")
 
+    lock = await db.support_month_locks.find_one({"month": target_month, "locked": True})
+    if lock:
+        raise HTTPException(status_code=403, detail="Target month is locked and cannot be edited")
+
     # Get existing snapshots in target month so we don't overwrite them
     existing = await db.client_support_snapshots.find(
         {"month": target_month}, {"client_id": 1}
@@ -6592,6 +6600,10 @@ async def update_monthly_support_count(
     if not month:
         raise HTTPException(status_code=400, detail="Month is required")
 
+    lock = await db.support_month_locks.find_one({"month": month, "locked": True})
+    if lock:
+        raise HTTPException(status_code=403, detail="This month is locked and cannot be edited")
+
     now = datetime.now(timezone.utc)
     snap = {
         "client_id": client_id,
@@ -6625,6 +6637,65 @@ async def update_monthly_support_count(
         )
 
     return {"message": "Updated"}
+
+
+@api_router.delete("/support/monthly-count/{client_id}")
+async def remove_client_from_month(
+    client_id: str,
+    month: str = Query(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Remove a client's snapshot from a specific month"""
+    # Check month is not locked
+    lock = await db.support_month_locks.find_one({"month": month, "locked": True})
+    if lock:
+        raise HTTPException(status_code=403, detail="This month is locked and cannot be edited")
+    result = await db.client_support_snapshots.delete_one({"client_id": client_id, "month": month})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="No snapshot found for this client/month")
+    return {"message": "Removed"}
+
+
+@api_router.get("/support/monthly-count/locks")
+async def get_month_locks(current_user: dict = Depends(get_current_user)):
+    """Get lock status for all months"""
+    locks = await db.support_month_locks.find({}, {"_id": 0}).to_list(100)
+    return {l["month"]: l for l in locks}
+
+
+@api_router.post("/support/monthly-count/{month}/lock")
+async def lock_month(
+    month: str,
+    current_user: dict = Depends(require_admin)
+):
+    """Lock a month so it cannot be edited (admin only)"""
+    now = datetime.now(timezone.utc)
+    await db.support_month_locks.update_one(
+        {"month": month},
+        {"$set": {
+            "month": month,
+            "locked": True,
+            "locked_by": current_user.get("email"),
+            "locked_at": now,
+        }},
+        upsert=True
+    )
+    return {"message": f"{month} locked"}
+
+
+@api_router.post("/support/monthly-count/{month}/unlock")
+async def unlock_month(
+    month: str,
+    current_user: dict = Depends(require_admin)
+):
+    """Unlock a month (admin only)"""
+    await db.support_month_locks.update_one(
+        {"month": month},
+        {"$set": {"locked": False, "unlocked_by": current_user.get("email"), "unlocked_at": datetime.now(timezone.utc)}},
+        upsert=True
+    )
+    return {"message": f"{month} unlocked"}
+
 
 # ── Support Name Mappings ──────────────────────────────────
 # Links spreadsheet names to SynthOps clients or sites
