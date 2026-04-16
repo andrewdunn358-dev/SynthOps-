@@ -285,7 +285,23 @@ function HostingDomainsTab({ clients: initialClients }) {
     }
   };
 
-  const mapAccount = async (primaryDomain, clientId) => {
+  const [syncing, setSyncing] = useState(false);
+
+  const syncAllToSupportCount = async () => {
+    const confirmed = window.confirm(
+      `Add all ${mappedCount} mapped hosting accounts to the current month's support count?\n\nClients already in the count won't be duplicated.`
+    );
+    if (!confirmed) return;
+    setSyncing(true);
+    try {
+      const res = await apiClient.post('/hosting/sync-to-support-count');
+      toast.success(res.data.message);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to sync');
+    } finally {
+      setSyncing(false);
+    }
+  };
     setSaving(prev => ({ ...prev, [primaryDomain]: true }));
     try {
       await apiClient.put(`/hosting/accounts/${encodeURIComponent(primaryDomain)}/map`, { client_id: clientId || null });
@@ -364,6 +380,11 @@ function HostingDomainsTab({ clients: initialClients }) {
           ))}
         </div>
         <Button variant="outline" size="sm" onClick={fetchAccounts}><RefreshCw className="h-4 w-4 mr-1" /> Refresh</Button>
+        {mappedCount > 0 && (
+          <Button size="sm" onClick={syncAllToSupportCount} disabled={syncing}>
+            {syncing ? 'Syncing...' : `Sync ${mappedCount} Mapped to Support Count`}
+          </Button>
+        )}
       </div>
 
       <Card><CardContent className="p-0">

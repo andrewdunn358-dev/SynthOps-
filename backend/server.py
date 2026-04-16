@@ -6939,30 +6939,85 @@ async def map_hosting_account(
         }}
     )
 
-    # Auto-add to current month's support count if mapping (not unmapping)
     if client_id:
-        current_month = now.strftime("%Y-%m")
-        # Check month isn't locked
-        lock = await db.support_month_locks.find_one({"month": current_month, "locked": True})
-        if not lock:
-            # Only add if not already in this month
-            existing_snap = await db.client_support_snapshots.find_one(
-                {"client_id": client_id, "month": current_month}
-            )
-            if not existing_snap:
-                # Look up client name
-                client = await db.clients.find_one({"id": client_id}, {"_id": 0, "name": 1})
-                await db.client_support_snapshots.insert_one({
-                    "client_id": client_id,
-                    "month": current_month,
-                    "support_type": "Hosting",
-                    "products": {},
-                    "remarks": None,
-                    "snapshot_date": now,
-                    "updated_by": current_user.get("username") or current_user.get("email"),
-                })
+        await _add_hosting_client_to_month(client_id, primary_domain, now, current_user)
 
     return {"message": "Updated"}
+
+
+async def _add_hosting_client_to_month(client_id, primary_domain, now, current_user):
+    """Add a hosting client to the current month's support count with domain name populated."""
+    current_month = now.strftime("%Y-%m")
+    lock = await db.support_month_locks.find_one({"month": current_month, "locked": True})
+    if lock:
+        return
+    existing_snap = await db.client_support_snapshots.find_one(
+        {"client_id": client_id, "month": current_month, "removed": {"$ne": True}}
+    )
+    if not existing_snap:
+        # Get all domains mapped to this client to populate Domain Name
+        all_accounts = await db.hosting_accounts.find(
+            {"client_id": client_id}, {"_id": 0, "primary_domain": 1}
+        ).to_list(50)
+        domain_names = ", ".join(a["primary_domain"] for a in all_accounts)
+        await db.client_support_snapshots.insert_one({
+            "client_id": client_id,
+            "month": current_month,
+            "support_type": "Hosting",
+            "products": {"Domain Name": domain_names} if domain_names else {},
+            "remarks": None,
+            "snapshot_date": now,
+            "updated_by": current_user.get("username") or current_user.get("email"),
+        })
+
+
+@api_router.post("/hosting/sync-to-support-count")
+async def sync_hosting_to_support_count(
+    current_user: dict = Depends(get_current_user)
+):
+    """Add ALL mapped hosting accounts to the current month's support count."""
+    now = datetime.now(timezone.utc)
+    current_month = now.strftime("%Y-%m")
+    lock = await db.support_month_locks.find_one({"month": current_month, "locked": True})
+    if lock:
+        raise HTTPException(status_code=403, detail="Current month is locked")
+
+    # Get all mapped hosting accounts grouped by client
+    accounts = await db.hosting_accounts.find(
+        {"client_id": {"$ne": None}}, {"_id": 0, "primary_domain": 1, "client_id": 1}
+    ).to_list(1000)
+
+    # Group by client_id
+    by_client = {}
+    for acc in accounts:
+        cid = acc["client_id"]
+        if cid not in by_client:
+            by_client[cid] = []
+        by_client[cid].append(acc["primary_domain"])
+
+    added = 0
+    skipped = 0
+    for client_id, domains in by_client.items():
+        existing = await db.client_support_snapshots.find_one(
+            {"client_id": client_id, "month": current_month, "removed": {"$ne": True}}
+        )
+        if existing:
+            skipped += 1
+            continue
+        domain_names = ", ".join(domains)
+        await db.client_support_snapshots.insert_one({
+            "client_id": client_id,
+            "month": current_month,
+            "support_type": "Hosting",
+            "products": {"Domain Name": domain_names} if domain_names else {},
+            "remarks": None,
+            "snapshot_date": now,
+            "updated_by": current_user.get("username") or current_user.get("email"),
+        })
+        added += 1
+
+    return {"message": f"Added {added} hosting clients to {current_month}. {skipped} already present.", "added": added, "skipped": skipped}
+
 
 
 @api_router.delete("/support/monthly-count/wipe-month")
