@@ -6514,6 +6514,9 @@ async def get_monthly_support_count(
     seen_clients = set()
 
     for snap in snapshots:
+        if snap.get("removed"):
+            seen_clients.add(snap["client_id"])  # Mark as seen so profile fallback doesn't show it
+            continue
         client_id = snap["client_id"]
         seen_clients.add(client_id)
         rows.append({
@@ -6614,6 +6617,8 @@ async def copy_support_count_from_previous(
     now = datetime.now(timezone.utc)
     copied = 0
     for snap in source_snaps:
+        if snap.get("removed"):
+            continue
         client_id = snap["client_id"]
         if client_id in existing_ids:
             continue  # Don't overwrite existing data
@@ -6693,13 +6698,28 @@ async def remove_client_from_month(
     current_user: dict = Depends(get_current_user)
 ):
     """Remove a client's snapshot from a specific month"""
-    # Check month is not locked
     lock = await db.support_month_locks.find_one({"month": month, "locked": True})
     if lock:
         raise HTTPException(status_code=403, detail="This month is locked and cannot be edited")
+
+    # Try to delete an existing snapshot first
     result = await db.client_support_snapshots.delete_one({"client_id": client_id, "month": month})
+
     if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="No snapshot found for this client/month")
+        # No snapshot existed — row was showing from the live profile fallback.
+        # Insert a tombstone so the GET endpoint knows to exclude this client for this month.
+        await db.client_support_snapshots.update_one(
+            {"client_id": client_id, "month": month},
+            {"$set": {
+                "client_id": client_id,
+                "month": month,
+                "removed": True,
+                "snapshot_date": datetime.now(timezone.utc),
+                "updated_by": current_user.get("username") or current_user.get("email"),
+            }},
+            upsert=True
+        )
+
     return {"message": "Removed"}
 
 
