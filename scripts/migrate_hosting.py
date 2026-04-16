@@ -1,19 +1,12 @@
 """
 migrate_hosting.py — Import hosting accounts from CSV into SynthOps MongoDB
-
-Usage:
-  python scripts/migrate_hosting.py --csv /path/to/hosting.csv
-
-Run from /opt/synthops on the server, or locally with access to MongoDB.
+Usage: python3 scripts/migrate_hosting.py --csv scripts/hosting.csv
 """
-
-import asyncio
 import csv
 import os
-import sys
 import argparse
 from datetime import datetime, timezone
-from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import MongoClient
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -23,9 +16,8 @@ load_dotenv(ROOT_DIR / 'backend' / '.env')
 MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 DB_NAME = os.environ.get('DB_NAME', 'synthops')
 
-
-async def main(csv_path: str):
-    client = AsyncIOMotorClient(MONGO_URL)
+def main(csv_path):
+    client = MongoClient(MONGO_URL)
     db = client[DB_NAME]
 
     with open(csv_path, newline='', encoding='utf-8-sig') as f:
@@ -35,22 +27,11 @@ async def main(csv_path: str):
             primary = row.get('Primary Domain', '').strip()
             if not primary:
                 continue
-
-            all_domains_raw = row.get('All Domains', '')
-            all_domains = [d.strip() for d in all_domains_raw.split('|') if d.strip()]
-
-            created_raw = row.get('Created', '')
+            all_domains = [d.strip() for d in row.get('All Domains', '').split('|') if d.strip()]
             try:
-                created = datetime.fromisoformat(created_raw.replace('Z', '+00:00'))
+                created = datetime.fromisoformat(row.get('Created', '').replace('Z', '+00:00'))
             except Exception:
                 created = None
-
-            disabled_raw = row.get('Disabled Date', '')
-            try:
-                disabled_date = datetime.fromisoformat(disabled_raw.replace('Z', '+00:00')) if disabled_raw else None
-            except Exception:
-                disabled_date = None
-
             accounts.append({
                 'primary_domain': primary,
                 'all_domains': all_domains,
@@ -58,37 +39,25 @@ async def main(csv_path: str):
                 'package': row.get('Package', '').strip(),
                 'enabled': row.get('Enabled', '0').strip() == '1',
                 'created': created,
-                'disabled_date': disabled_date,
-                'client_id': None,  # unmapped initially
+                'client_id': None,
             })
 
-    imported = 0
-    skipped = 0
+    imported = skipped = 0
     for acc in accounts:
-        # Upsert — preserve existing client_id mapping if already mapped
-        existing = await db.hosting_accounts.find_one({'primary_domain': acc['primary_domain']})
+        existing = db.hosting_accounts.find_one({'primary_domain': acc['primary_domain']})
         if existing and existing.get('client_id'):
-            # Don't overwrite an existing mapping
             update = {k: v for k, v in acc.items() if k != 'client_id'}
-            await db.hosting_accounts.update_one(
-                {'primary_domain': acc['primary_domain']},
-                {'$set': update}
-            )
+            db.hosting_accounts.update_one({'primary_domain': acc['primary_domain']}, {'$set': update})
             skipped += 1
         else:
-            await db.hosting_accounts.update_one(
-                {'primary_domain': acc['primary_domain']},
-                {'$set': acc},
-                upsert=True
-            )
+            db.hosting_accounts.update_one({'primary_domain': acc['primary_domain']}, {'$set': acc}, upsert=True)
         imported += 1
 
     print(f"Done. {imported} accounts imported/updated. {skipped} existing mappings preserved.")
     client.close()
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--csv', required=True, help='Path to hosting CSV file')
+    parser.add_argument('--csv', required=True)
     args = parser.parse_args()
-    asyncio.run(main(args.csv))
+    main(args.csv)
