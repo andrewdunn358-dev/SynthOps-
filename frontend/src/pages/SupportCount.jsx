@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../components/ui/select';
-import { Save, Download, Search, ChevronLeft, ChevronRight, Edit, X, Plus, Copy, Lock, Unlock, Trash2 } from 'lucide-react';
+import { Save, Download, Search, ChevronLeft, ChevronRight, Edit, X, Plus, Copy, Lock, Unlock, Trash2, Globe } from 'lucide-react';
 
 const CATEGORY_LABELS = {
   security: 'Security', backup: 'Backup', devices: 'Devices', onsite: 'Onsite',
@@ -222,7 +222,23 @@ export default function SupportCount() {
 
   const visibleProducts = (data?.products || []).filter(p => !hiddenCategories[p.category]);
 
-  const renderCellValue = (product, value) => {
+  const renderCellValue = (product, value, row) => {
+    if (product.name === 'Domain Name' && row?.hosting_domains?.length > 0) {
+      return (
+        <div className="space-y-0.5">
+          {value !== null && value !== undefined && value !== '' && (
+            <div><span className="text-sm font-medium">{value}</span></div>
+          )}
+          <div className="flex flex-wrap gap-0.5">
+            {row.hosting_domains.map(d => (
+              <span key={d} className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-mono">
+                <Globe className="h-2.5 w-2.5 shrink-0" />{d}
+              </span>
+            ))}
+          </div>
+        </div>
+      );
+    }
     if (value === null || value === undefined || value === '') return <span className="text-gray-300">—</span>;
     if (product.unit === 'yes/no') return value ? <span className="text-green-600 font-medium">✓</span> : <span className="text-gray-300">—</span>;
     if (product.unit === 'gb') return <span className="text-xs">{value}GB</span>;
@@ -403,7 +419,7 @@ export default function SupportCount() {
 
                   {visibleProducts.map(p => (
                     <td key={p.id} className="border-r px-2 py-1.5 text-center">
-                      {isEditing ? renderEditCell(p, editValues, setEditValues) : renderCellValue(p, row.products?.[p.name])}
+                      {isEditing ? renderEditCell(p, editValues, setEditValues) : renderCellValue(p, row.products?.[p.name], row)}
                     </td>
                   ))}
 

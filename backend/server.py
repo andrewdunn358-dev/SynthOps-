@@ -6573,6 +6573,20 @@ async def get_monthly_support_count(
 
     rows.sort(key=sort_key)
 
+    # Attach hosting domains — build a map of client_id → list of primary domains
+    hosting_accounts = await db.hosting_accounts.find(
+        {"client_id": {"$ne": None}}, {"_id": 0, "primary_domain": 1, "client_id": 1, "has_ssl": 1, "enabled": 1}
+    ).to_list(1000)
+    hosting_by_client = {}
+    for ha in hosting_accounts:
+        cid = ha["client_id"]
+        if cid not in hosting_by_client:
+            hosting_by_client[cid] = []
+        hosting_by_client[cid].append(ha["primary_domain"])
+
+    for row in rows:
+        row["hosting_domains"] = hosting_by_client.get(row["client_id"], [])
+
     # Get available months list
     pipeline = [
         {"$group": {"_id": "$month"}},
@@ -6881,6 +6895,52 @@ async def delete_support_mapping(
     """Delete a mapping"""
     await db.support_mappings.delete_one({"raw_id": raw_id})
     return {"message": "Mapping deleted"}
+
+# ── Hosting Accounts ──────────────────────────────────────
+# Stores live hosting data imported from cPanel/WHM CSV export
+
+@api_router.get("/hosting/accounts")
+async def list_hosting_accounts(current_user: dict = Depends(get_current_user)):
+    """List all hosting accounts"""
+    accounts = await db.hosting_accounts.find({}, {"_id": 0}).sort("primary_domain", 1).to_list(1000)
+    return accounts
+
+@api_router.put("/hosting/accounts/{primary_domain}/map")
+async def map_hosting_account(
+    primary_domain: str,
+    data: dict = Body(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Map a hosting account to a SynthOps client"""
+    client_id = data.get("client_id")  # None to unmap
+    now = datetime.now(timezone.utc)
+    await db.hosting_accounts.update_one(
+        {"primary_domain": primary_domain},
+        {"$set": {
+            "client_id": client_id,
+            "mapped_at": now,
+            "mapped_by": current_user.get("username") or current_user.get("email"),
+        }}
+    )
+    return {"message": "Updated"}
+
+@api_router.post("/hosting/import")
+async def import_hosting_accounts(
+    data: dict = Body(...),
+    current_user: dict = Depends(require_admin)
+):
+    """Bulk import hosting accounts (upsert by primary_domain)"""
+    accounts = data.get("accounts", [])
+    imported = 0
+    for acc in accounts:
+        await db.hosting_accounts.update_one(
+            {"primary_domain": acc["primary_domain"]},
+            {"$set": acc},
+            upsert=True
+        )
+        imported += 1
+    return {"message": f"Imported {imported} accounts", "imported": imported}
+
 
 # Include the router after all routes are defined
 app.include_router(api_router)
