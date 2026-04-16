@@ -6513,15 +6513,21 @@ async def get_monthly_support_count(
         {}, {"_id": 0}
     ).to_list(500)
 
-    def resolve_row_name(client_id):
+    def resolve_row_name(client_id, snap_or_profile=None):
         """Returns (display_name, parent_client_name, is_site)"""
+        # Use site_name/display_name baked into the snapshot from historical import
+        if snap_or_profile:
+            site_name = snap_or_profile.get("site_name") or snap_or_profile.get("display_name")
+            if site_name and site_name != client_map.get(client_id, ""):
+                parent_name = client_map.get(client_id, "")
+                return site_name, parent_name, True
+        # Fall back to site_map for live-created site rows
         if client_id in site_map:
             site = site_map[client_id]
             parent_name = client_map.get(site["client_id"], "")
             return site["name"], parent_name, True
         if client_id in client_map:
             return client_map[client_id], "", False
-        # Unresolved
         return client_id.replace("UNRESOLVED:", ""), "", False
 
     # Build rows - prefer snapshot, fall back to current profile
@@ -6533,10 +6539,16 @@ async def get_monthly_support_count(
             seen_clients.add(snap["client_id"])
             continue
         client_id = snap["client_id"]
-        seen_clients.add(client_id)
-        display_name, parent_name, is_site = resolve_row_name(client_id)
+        # Use client_id + site_id as unique key so multi-site clients all appear
+        unique_key = client_id + (snap.get("site_id") or "")
+        if unique_key in seen_clients:
+            continue
+        seen_clients.add(unique_key)
+        seen_clients.add(client_id)  # still track client_id for profile fallback
+        display_name, parent_name, is_site = resolve_row_name(client_id, snap)
         rows.append({
             "client_id": client_id,
+            "site_id": snap.get("site_id"),
             "client_name": display_name,
             "parent_client_name": parent_name,
             "is_site": is_site,
@@ -6553,7 +6565,7 @@ async def get_monthly_support_count(
             client_id = profile["client_id"]
             if client_id not in seen_clients:
                 seen_clients.add(client_id)
-                display_name, parent_name, is_site = resolve_row_name(client_id)
+                display_name, parent_name, is_site = resolve_row_name(client_id, profile)
                 rows.append({
                     "client_id": client_id,
                     "client_name": display_name,
