@@ -42,6 +42,9 @@ JWT_ALGORITHM = os.environ.get('JWT_ALGORITHM', 'HS256')
 ACCESS_TOKEN_EXPIRE = int(os.environ.get('ACCESS_TOKEN_EXPIRE_MINUTES', 30))
 REFRESH_TOKEN_EXPIRE = int(os.environ.get('REFRESH_TOKEN_EXPIRE_DAYS', 7))
 
+# 20i API config
+TWENTY_I_API_KEY = os.environ.get('TWENTY_I_API_KEY', '')
+
 # Encryption key for sensitive fields
 def get_encryption_key():
     key = os.environ.get('ENCRYPTION_KEY', 'default-key-change-me-32bytes!')
@@ -7047,6 +7050,83 @@ async def import_hosting_accounts(
     return {"message": f"Imported {imported} accounts", "imported": imported}
 
 
+# ── 20i Hosting Integration ───────────────────────────────
+
+async def sync_20i_packages():
+    """Sync hosting packages from 20i API into hosting_accounts collection."""
+    api_key = os.environ.get('TWENTY_I_API_KEY', '')
+    if not api_key:
+        logger.warning("20i sync skipped — TWENTY_I_API_KEY not set")
+        return {"synced": 0, "error": "API key not configured"}
+
+    token = base64.b64encode(api_key.encode()).decode()
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client_http:
+            resp = await client_http.get("https://api.20i.com/package", headers=headers)
+            resp.raise_for_status()
+            packages = resp.json()
+    except Exception as e:
+        logger.error(f"20i API error: {e}")
+        return {"synced": 0, "error": str(e)}
+
+    synced = 0
+    for pkg in packages:
+        primary_domain = pkg.get("name", "").strip()
+        if not primary_domain:
+            continue
+        all_domains = [d.strip() for d in pkg.get("names", [primary_domain]) if d.strip()]
+        # Get existing to preserve client_id mapping
+        existing = await db.hosting_accounts.find_one({"primary_domain": primary_domain})
+        doc = {
+            "primary_domain": primary_domain,
+            "all_domains": all_domains,
+            "package": pkg.get("packageTypeName", ""),
+            "package_id": pkg.get("id"),
+            "enabled": pkg.get("enabled", True),
+            "created": pkg.get("created"),
+            "has_ssl": None,  # fetched separately below if needed
+            "source": "20i",
+            "last_synced": datetime.now(timezone.utc),
+        }
+        if existing:
+            # Preserve existing client mapping
+            if existing.get("client_id"):
+                doc["client_id"] = existing["client_id"]
+                doc["mapped_at"] = existing.get("mapped_at")
+                doc["mapped_by"] = existing.get("mapped_by")
+        await db.hosting_accounts.update_one(
+            {"primary_domain": primary_domain},
+            {"$set": doc},
+            upsert=True
+        )
+        synced += 1
+
+    logger.info(f"20i sync complete: {synced} packages")
+    return {"synced": synced}
+
+
+@api_router.post("/integrations/20i/sync")
+async def trigger_20i_sync(current_user: dict = Depends(require_admin)):
+    """Manually trigger a 20i hosting sync"""
+    result = await sync_20i_packages()
+    return result
+
+
+@api_router.get("/integrations/20i/status")
+async def get_20i_status(current_user: dict = Depends(get_current_user)):
+    """Check 20i integration status"""
+    api_key = os.environ.get('TWENTY_I_API_KEY', '')
+    count = await db.hosting_accounts.count_documents({"source": "20i"})
+    last = await db.hosting_accounts.find_one({"source": "20i"}, sort=[("last_synced", -1)])
+    return {
+        "configured": bool(api_key),
+        "package_count": count,
+        "last_synced": last.get("last_synced") if last else None,
+    }
+
+
 # Include the router after all routes are defined
 app.include_router(api_router)
 
@@ -7084,7 +7164,20 @@ async def start_scheduler():
         replace_existing=True,
         max_instances=1
     )
-    
+
+    # Add 20i hosting sync job
+    if os.environ.get('TWENTY_I_API_KEY'):
+        scheduler.add_job(
+            sync_20i_packages,
+            IntervalTrigger(minutes=sync_interval),
+            id="twenty_i_sync",
+            replace_existing=True,
+            max_instances=1
+        )
+        logger.info("20i sync job scheduled")
+        # Run immediately on startup
+        asyncio.create_task(sync_20i_packages())
+
     scheduler.start()
     logger.info("Scheduler started successfully")
 

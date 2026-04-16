@@ -30,11 +30,71 @@ import {
 } from '../components/ui/dialog';
 import { 
   Shield, Users, RefreshCw, Link2, CheckCircle, XCircle, Plus, 
-  UserPlus, Edit, Trash2, Key, Clock
+  UserPlus, Edit, Trash2, Key, Clock, Globe
 } from 'lucide-react';
 import {
   DialogFooter,
 } from '../components/ui/dialog';
+
+function TwentyICard() {
+  const [status, setStatus] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+
+  useEffect(() => {
+    apiClient.get('/integrations/20i/status').then(r => setStatus(r.data)).catch(() => {});
+  }, []);
+
+  const syncNow = async () => {
+    setSyncing(true);
+    try {
+      const res = await apiClient.post('/integrations/20i/sync');
+      toast.success(`20i sync complete — ${res.data.synced} packages synced`);
+      const s = await apiClient.get('/integrations/20i/status');
+      setStatus(s.data);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Sync failed');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Globe className="h-5 w-5 text-teal-500" />
+          20i Hosting
+        </CardTitle>
+        <CardDescription>Live sync of hosting packages and domains</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-2">
+          {status?.configured ? (
+            <CheckCircle className="h-5 w-5 text-emerald-400" />
+          ) : (
+            <XCircle className="h-5 w-5 text-red-400" />
+          )}
+          <span className={status?.configured ? 'text-emerald-400' : 'text-red-400'}>
+            {status?.configured ? 'API key configured' : 'Not configured — add TWENTY_I_API_KEY to .env'}
+          </span>
+        </div>
+        {status?.package_count > 0 && (
+          <p className="text-xs text-muted-foreground">{status.package_count} packages in database</p>
+        )}
+        {status?.last_synced && (
+          <p className="text-xs text-muted-foreground flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            Last synced: {new Date(status.last_synced).toLocaleString()}
+          </p>
+        )}
+        <Button size="sm" onClick={syncNow} disabled={syncing || !status?.configured}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
+          {syncing ? 'Syncing...' : 'Sync Now'}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function Admin() {
   const { user } = useAuth();
@@ -478,6 +538,9 @@ export default function Admin() {
             </div>
           </CardContent>
         </Card>
+
+        {/* 20i Hosting */}
+        <TwentyICard />
 
         {/* Bitdefender GravityZone */}
         <Card>
