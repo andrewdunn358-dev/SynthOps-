@@ -91,7 +91,7 @@ function NameMappingsTab({ clients, sites }) {
     try {
       const clientRes = await apiClient.post('/clients', {
         name: newClientForm.name, code: newClientForm.code.toUpperCase(),
-        client_type: 'service_only', service_category: newClientForm.service_category, contract_type: 'monthly',
+        client_type: 'web_services', service_category: newClientForm.service_category, contract_type: 'monthly',
       });
       const newClient = clientRes.data;
       const result = await apiClient.post('/support/mappings', {
@@ -227,8 +227,8 @@ function NameMappingsTab({ clients, sites }) {
       {mappings.map(m => m.raw_id === creatingClient ? (
         <Dialog key={m.raw_id} open={true} onOpenChange={() => setCreatingClient(null)}>
           <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle>Create Service Only Client</DialogTitle></DialogHeader>
-            <p className="text-sm text-muted-foreground">Creating a new Service Only client for "<strong>{m.raw_name}</strong>"</p>
+            <DialogHeader><DialogTitle>Create Web Services Client</DialogTitle></DialogHeader>
+            <p className="text-sm text-muted-foreground">Creating a new Web Services client for "<strong>{m.raw_name}</strong>"</p>
             <div className="space-y-4 py-2">
               <div><Label>Client Name *</Label><input className="w-full mt-1 border rounded px-3 py-2 text-sm bg-background" value={newClientForm.name} onChange={e => setNewClientForm(f => ({ ...f, name: e.target.value }))} /></div>
               <div><Label>Client Code *</Label><input className="w-full mt-1 border rounded px-3 py-2 text-sm bg-background uppercase" value={newClientForm.code} onChange={e => setNewClientForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} maxLength={10} /></div>
@@ -305,7 +305,7 @@ function HostingDomainsTab({ clients: initialClients }) {
       const clientRes = await apiClient.post('/clients', {
         name: newClientForm.name,
         code: newClientForm.code.toUpperCase(),
-        client_type: 'service_only',
+        client_type: 'web_services',
         service_category: newClientForm.service_category,
         contract_type: 'monthly',
       });
@@ -344,7 +344,7 @@ function HostingDomainsTab({ clients: initialClients }) {
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         Map each hosting account to a SynthOps client. Mapped domains appear automatically on the Support Count.
-        Use <strong>New</strong> to create a Service Only client on the spot.
+        Use <strong>New</strong> to create a Web Services client on the spot.
       </p>
 
       <div className="grid grid-cols-3 gap-4">
@@ -440,7 +440,7 @@ function HostingDomainsTab({ clients: initialClients }) {
                           <SelectItem value="none">— Unmapped —</SelectItem>
                           {clients.map(c => (
                             <SelectItem key={c.id} value={c.id}>
-                              {c.name}{c.client_type === 'service_only' && ' ★'}
+                              {c.name}{c.client_type === 'web_services' && ' ★'}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -468,12 +468,12 @@ function HostingDomainsTab({ clients: initialClients }) {
         </Table>
       </CardContent></Card>
 
-      {/* Create New Service Only Client Dialog */}
+      {/* Create New Web Services Client Dialog */}
       <Dialog open={!!creatingFor} onOpenChange={() => setCreatingFor(null)}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Create Service Only Client</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Create Web Services Client</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Creating a new Service Only client for <strong>{creatingFor}</strong>. It will appear in Support Count but not in monitoring views.
+            Creating a new Web Services client for <strong>{creatingFor}</strong>. It will appear in Support Count but not in monitoring views.
           </p>
           <div className="space-y-4 py-2">
             <div><Label>Client Name *</Label>

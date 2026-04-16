@@ -511,7 +511,7 @@ export default function SupportCount() {
             <SelectContent>
               <SelectItem value="none" disabled>Select client...</SelectItem>
               {allClients.filter(c => !data?.rows?.find(r => r.client_id === c.id)).map(c => (
-                <SelectItem key={c.id} value={c.id}>{c.name}{c.client_type === 'service_only' && ' (Service Only)'}</SelectItem>
+                <SelectItem key={c.id} value={c.id}>{c.name}{c.client_type === 'web_services' && ' (Service Only)'}</SelectItem>
               ))}
             </SelectContent>
           </Select>

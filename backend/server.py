@@ -168,7 +168,7 @@ class ClientCreate(BaseModel):
     contract_type: str = "monthly"
     contract_hours_monthly: Optional[int] = None
     notes: Optional[str] = None
-    client_type: str = "managed"  # managed | service_only
+    client_type: str = "managed"  # managed | unmanaged | web_services
     service_category: Optional[str] = None  # web_hosting | email_only | domain_only | broadband | mixed_services
 
 class ClientResponse(BaseModel):
@@ -6994,6 +6994,16 @@ async def import_hosting_accounts(
 
 # Include the router after all routes are defined
 app.include_router(api_router)
+
+@app.on_event("startup")
+async def migrate_client_types():
+    """One-time migration: rename service_only → web_services"""
+    result = await db.clients.update_many(
+        {"client_type": "service_only"},
+        {"$set": {"client_type": "web_services"}}
+    )
+    if result.modified_count:
+        logger.info(f"Migrated {result.modified_count} clients from service_only → web_services")
 
 @app.on_event("startup")
 async def start_scheduler():

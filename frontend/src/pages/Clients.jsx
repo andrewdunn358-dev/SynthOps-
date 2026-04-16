@@ -160,7 +160,8 @@ export default function Clients() {
       c.code.toLowerCase().includes(search.toLowerCase());
     const matchesType = typeFilter === 'all' ||
       (typeFilter === 'managed' && (c.client_type === 'managed' || !c.client_type)) ||
-      (typeFilter === 'service_only' && c.client_type === 'service_only');
+      (typeFilter === 'unmanaged' && c.client_type === 'unmanaged') ||
+      (typeFilter === 'web_services' && (c.client_type === 'web_services' || c.client_type === 'service_only'));
     return matchesSearch && matchesType;
   });
 
@@ -312,13 +313,14 @@ export default function Clients() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="managed">Managed — Full MSP client with hardware monitoring</SelectItem>
-                      <SelectItem value="service_only">Service Only — Hosting, email, domains etc (no monitoring)</SelectItem>
+                      <SelectItem value="managed">Managed — Full MSP, RMM monitoring, support contract</SelectItem>
+                      <SelectItem value="unmanaged">Unmanaged — Ad-hoc or PAYG, no RMM monitoring</SelectItem>
+                      <SelectItem value="web_services">Web Services — Hosting, domains, email only</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                {form.client_type === 'service_only' && (
+                {form.client_type === 'web_services' && (
                   <div className="space-y-2">
                     <Label>Service Category</Label>
                     <Select value={form.service_category || 'none'} onValueChange={(v) => setForm({ ...form, service_category: v === 'none' ? '' : v })}>
@@ -378,7 +380,8 @@ export default function Clients() {
           {[
             { value: 'all', label: `All (${clients.length})` },
             { value: 'managed', label: `Managed (${clients.filter(c => !c.client_type || c.client_type === 'managed').length})` },
-            { value: 'service_only', label: `Service Only (${clients.filter(c => c.client_type === 'service_only').length})` },
+            { value: 'unmanaged', label: `Unmanaged (${clients.filter(c => c.client_type === 'unmanaged').length})` },
+            { value: 'web_services', label: `Web Services (${clients.filter(c => c.client_type === 'web_services' || c.client_type === 'service_only').length})` },
           ].map(f => (
             <Button
               key={f.value}
@@ -431,9 +434,14 @@ export default function Clients() {
                     <div>
                       <div className="flex items-center gap-2">
                         <h3 className="font-semibold">{client.name}</h3>
-                        {client.client_type === 'service_only' && (
+                        {(client.client_type === 'web_services' || client.client_type === 'service_only') && (
                           <Badge variant="outline" className="text-xs text-purple-600 border-purple-400">
-                            {client.service_category ? getServiceCategoryLabel(client.service_category) : 'Service Only'}
+                            {client.service_category ? getServiceCategoryLabel(client.service_category) : 'Web Services'}
+                          </Badge>
+                        )}
+                        {client.client_type === 'unmanaged' && (
+                          <Badge variant="outline" className="text-xs text-orange-600 border-orange-400">
+                            Unmanaged
                           </Badge>
                         )}
                       </div>
