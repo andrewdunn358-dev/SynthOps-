@@ -103,7 +103,7 @@ export default function SupportCount() {
 
   const startEdit = (row) => {
     if (isLocked) { toast.error('This month is locked'); return; }
-    setEditingRow(row.client_id);
+    setEditingRow(row.snapshot_key || row.client_id);
     setEditValues({
       support_type: row.support_type || '',
       products: { ...row.products },
@@ -113,10 +113,14 @@ export default function SupportCount() {
 
   const cancelEdit = () => { setEditingRow(null); setEditValues({}); };
 
-  const saveRow = async (clientId) => {
+  const saveRow = async (row) => {
     setSaving(true);
     try {
-      await apiClient.put(`/support/monthly-count/${clientId}`, { month: selectedMonth, ...editValues });
+      await apiClient.put(`/support/monthly-count/${row.client_id}`, {
+        month: selectedMonth,
+        site_name: row.site_name || null,
+        ...editValues,
+      });
       toast.success('Saved');
       setEditingRow(null);
       fetchData(selectedMonth);
@@ -457,7 +461,7 @@ export default function SupportCount() {
                 <td colSpan={visibleProducts.length + 9} className="text-center py-12 text-muted-foreground">No data for this month</td>
               </tr>
             ) : filteredRows.map((row, idx) => {
-              const isEditing = editingRow === row.client_id;
+              const isEditing = editingRow === (row.snapshot_key || row.client_id);
               return (
                 <tr key={row.client_id}
                   className={`border-b hover:bg-accent/30 transition-colors group ${idx % 2 === 0 ? 'bg-white dark:bg-gray-950' : 'bg-gray-50 dark:bg-gray-900'} ${isEditing ? '!bg-accent' : ''}`}>
@@ -549,7 +553,7 @@ export default function SupportCount() {
                   <td className="px-2 py-1.5 whitespace-nowrap">
                     {isEditing ? (
                       <div className="flex gap-1">
-                        <Button size="sm" className="h-6 text-xs px-2" onClick={() => saveRow(row.client_id)} disabled={saving}>
+                        <Button size="sm" className="h-6 text-xs px-2" onClick={() => saveRow(row)} disabled={saving}>
                           <Save className="h-3 w-3 mr-1" />{saving ? '...' : 'Save'}
                         </Button>
                         <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={cancelEdit}>

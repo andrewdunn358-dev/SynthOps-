@@ -6641,15 +6641,18 @@ async def get_monthly_support_count(
             continue
         client_id = snap["client_id"]
         # Use client_id + site_id as unique key so multi-site clients all appear
-        unique_key = client_id + (snap.get("site_id") or "")
+        unique_key = client_id + (snap.get("site_id") or snap.get("display_name") or snap.get("site_name") or "")
         if unique_key in seen_clients:
             continue
         seen_clients.add(unique_key)
         seen_clients.add(client_id)  # still track client_id for profile fallback
         display_name, parent_name, is_site = resolve_row_name(client_id, snap)
         rows.append({
+            "snapshot_id": str(snap.get("_id", "")) or unique_key,
+            "snapshot_key": unique_key,
             "client_id": client_id,
             "site_id": snap.get("site_id"),
+            "site_name": snap.get("site_name") or snap.get("display_name"),
             "client_name": display_name,
             "parent_client_name": parent_name,
             "is_site": is_site,
@@ -6729,6 +6732,12 @@ async def get_monthly_support_count(
     giacom_client_map = {c["client_id"]: c["customer_id"] for c in giacom_customers}
 
     for row in rows:
+        # Only attach Giacom data to the parent client row, not individual site sub-rows
+        # Site sub-rows all share the same client_id so they'd all show the full total
+        if row.get("is_site"):
+            row["giacom_products"] = {}
+            row["giacom_monthly_cost"] = None
+            continue
         customer_id = giacom_client_map.get(row["client_id"])
         if customer_id:
             subs = await db.giacom_subscriptions.find(
@@ -6830,6 +6839,8 @@ async def update_monthly_support_count(
         raise HTTPException(status_code=403, detail="This month is locked and cannot be edited")
 
     now = datetime.now(timezone.utc)
+    site_name = data.get("site_name")  # set for multi-site rows to disambiguate
+
     snap = {
         "client_id": client_id,
         "month": month,
@@ -6840,15 +6851,16 @@ async def update_monthly_support_count(
         "updated_by": current_user.get("username") or current_user.get("email"),
     }
 
-    await db.client_support_snapshots.update_one(
-        {"client_id": client_id, "month": month},
-        {"$set": snap},
-        upsert=True
-    )
+    # Build the query — for multi-site clients, also match on site_name/display_name
+    query = {"client_id": client_id, "month": month}
+    if site_name:
+        query["$or"] = [{"site_name": site_name}, {"display_name": site_name}]
 
-    # If it's the current month, also update the live profile
+    await db.client_support_snapshots.update_one(query, {"$set": snap}, upsert=True)
+
+    # Only update live profile for non-site rows (single-client rows)
     current_month = now.strftime("%Y-%m")
-    if month == current_month:
+    if month == current_month and not site_name:
         await db.client_support_profiles.update_one(
             {"client_id": client_id},
             {"$set": {
