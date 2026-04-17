@@ -7522,6 +7522,390 @@ async def get_giacom_summary(current_user: dict = Depends(get_current_user)):
     return summary
 
 
+# ── Reports ───────────────────────────────────────────────
+
+@api_router.get("/reports/billing-overview")
+async def report_billing_overview(user: dict = Depends(get_current_user)):
+    """Giacom billing per client with product breakdown"""
+    clients_list = await db.clients.find({}, {"_id": 0, "id": 1, "name": 1, "client_type": 1}).to_list(1000)
+    client_map = {c["id"]: c for c in clients_list}
+
+    customers = await db.giacom_customers.find({"client_id": {"$ne": None}}, {"_id": 0}).to_list(500)
+    rows = []
+    grand_total = 0.0
+
+    for cust in customers:
+        subs = await db.giacom_subscriptions.find({"customer_id": cust["customer_id"]}, {"_id": 0}).to_list(50)
+        client = client_map.get(cust["client_id"], {})
+        products = {}
+        total = 0.0
+        for s in subs:
+            key = s.get("product_key") or s.get("product", "")
+            products[key] = {"qty": products.get(key, {}).get("qty", 0) + s.get("quantity", 0),
+                             "cost": round(products.get(key, {}).get("cost", 0) + s.get("total_cost", 0), 2)}
+            total += s.get("total_cost", 0)
+        grand_total += total
+        rows.append({
+            "client_name": client.get("name", cust["customer_name"]),
+            "client_type": client.get("client_type", ""),
+            "giacom_customer": cust["customer_name"],
+            "products": products,
+            "total_monthly": round(total, 2),
+        })
+
+    rows.sort(key=lambda r: r["total_monthly"], reverse=True)
+    return {"rows": rows, "grand_total": round(grand_total, 2)}
+
+
+@api_router.get("/reports/monthly-client-summary")
+async def report_monthly_client_summary(month: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Per-client summary: devices, licences, hosting, support type, Giacom cost"""
+    if not month:
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+
+    clients_list = await db.clients.find({}, {"_id": 0}).to_list(1000)
+    client_map = {c["id"]: c for c in clients_list}
+
+    # Support snapshots for the month
+    snapshots = await db.client_support_snapshots.find(
+        {"month": month, "removed": {"$ne": True}}, {"_id": 0}
+    ).to_list(500)
+
+    # Giacom data
+    giacom_customers = await db.giacom_customers.find({"client_id": {"$ne": None}}, {"_id": 0}).to_list(500)
+    giacom_map = {c["client_id"]: c["customer_id"] for c in giacom_customers}
+
+    # Hosting data
+    hosting = await db.hosting_accounts.find(
+        {"client_id": {"$ne": None}, "ignored": {"$ne": True}}, {"_id": 0, "client_id": 1, "primary_domain": 1}
+    ).to_list(1000)
+    hosting_map = {}
+    for h in hosting:
+        hosting_map.setdefault(h["client_id"], []).append(h["primary_domain"])
+
+    rows = []
+    for snap in snapshots:
+        cid = snap["client_id"]
+        client = client_map.get(cid, {})
+
+        # Device counts
+        server_count = await db.servers.count_documents({"client_id": cid, "monitoring_type": "server"})
+        ws_count = await db.servers.count_documents({"client_id": cid, "monitoring_type": "workstation"})
+
+        # Giacom monthly cost
+        giacom_cost = 0.0
+        if cid in giacom_map:
+            subs = await db.giacom_subscriptions.find({"customer_id": giacom_map[cid]}, {"_id": 0, "total_cost": 1}).to_list(50)
+            giacom_cost = round(sum(s.get("total_cost", 0) for s in subs), 2)
+
+        rows.append({
+            "client_id": cid,
+            "client_name": client.get("name", snap.get("client_name", cid)),
+            "client_type": client.get("client_type", "managed"),
+            "support_type": snap.get("support_type"),
+            "servers": server_count,
+            "workstations": ws_count,
+            "domains": len(hosting_map.get(cid, [])),
+            "giacom_monthly": giacom_cost,
+            "products": snap.get("products", {}),
+        })
+
+    rows.sort(key=lambda r: r["client_name"].lower())
+    return {"month": month, "rows": rows}
+
+
+@api_router.get("/reports/device-health")
+async def report_device_health(user: dict = Depends(get_current_user)):
+    """Servers and workstations online/offline per client"""
+    clients_list = await db.clients.find({"client_type": "managed"}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
+    rows = []
+    for client in clients_list:
+        cid = client["id"]
+        servers = await db.servers.find({"client_id": cid, "monitoring_type": "server"}, {"_id": 0, "status": 1, "hostname": 1, "last_seen": 1}).to_list(500)
+        workstations = await db.servers.find({"client_id": cid, "monitoring_type": "workstation"}, {"_id": 0, "status": 1, "hostname": 1, "last_seen": 1}).to_list(500)
+
+        if not servers and not workstations:
+            continue
+
+        rows.append({
+            "client_name": client["name"],
+            "servers_total": len(servers),
+            "servers_online": sum(1 for s in servers if s.get("status") == "online"),
+            "servers_offline": sum(1 for s in servers if s.get("status") == "offline"),
+            "servers_maintenance": sum(1 for s in servers if s.get("status") == "maintenance"),
+            "workstations_total": len(workstations),
+            "workstations_online": sum(1 for w in workstations if w.get("status") == "online"),
+            "workstations_offline": sum(1 for w in workstations if w.get("status") == "offline"),
+        })
+
+    rows.sort(key=lambda r: r["servers_offline"] + r["workstations_offline"], reverse=True)
+    return {"rows": rows}
+
+
+@api_router.get("/reports/time-tracking")
+async def report_time_tracking(
+    month: Optional[str] = None,
+    client_id: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """Hours logged per client per month by engineer"""
+    if not month:
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+
+    query = {"entry_date": {"$regex": f"^{month}"}}
+    if client_id:
+        query["client_id"] = client_id
+
+    entries = await db.time_entries.find(query, {"_id": 0}).to_list(5000)
+
+    clients_list = await db.clients.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
+    client_map = {c["id"]: c["name"] for c in clients_list}
+    users_list = await db.users.find({}, {"_id": 0, "id": 1, "username": 1}).to_list(100)
+    user_map = {u["id"]: u["username"] for u in users_list}
+
+    # Group by client
+    by_client = {}
+    for e in entries:
+        cid = e.get("client_id", "unknown")
+        cname = client_map.get(cid, "Unknown")
+        if cname not in by_client:
+            by_client[cname] = {"total_hours": 0, "by_engineer": {}, "entries": 0}
+        hours = e.get("hours", 0) or 0
+        by_client[cname]["total_hours"] = round(by_client[cname]["total_hours"] + hours, 2)
+        by_client[cname]["entries"] += 1
+        eng = user_map.get(e.get("user_id"), e.get("engineer", "Unknown"))
+        by_client[cname]["by_engineer"][eng] = round(by_client[cname]["by_engineer"].get(eng, 0) + hours, 2)
+
+    rows = [{"client_name": k, **v} for k, v in by_client.items()]
+    rows.sort(key=lambda r: r["total_hours"], reverse=True)
+    total_hours = round(sum(r["total_hours"] for r in rows), 2)
+    return {"month": month, "rows": rows, "total_hours": total_hours}
+
+
+@api_router.get("/reports/licence-reconciliation")
+async def report_licence_reconciliation(month: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Compare Giacom licence counts against support count snapshot"""
+    if not month:
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+
+    snapshots = await db.client_support_snapshots.find(
+        {"month": month, "removed": {"$ne": True}}, {"_id": 0}
+    ).to_list(500)
+    clients_list = await db.clients.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
+    client_map = {c["id"]: c["name"] for c in clients_list}
+
+    giacom_customers = await db.giacom_customers.find({"client_id": {"$ne": None}}, {"_id": 0}).to_list(500)
+    giacom_map = {c["client_id"]: c["customer_id"] for c in giacom_customers}
+
+    RECONCILE_PRODUCTS = ["O365 Standard", "O365 Basic", "O365 Apps", "Message Labs", "Exchange Online P1", "Exchange Online P2"]
+
+    rows = []
+    for snap in snapshots:
+        cid = snap["client_id"]
+        if cid not in giacom_map:
+            continue
+
+        subs = await db.giacom_subscriptions.find({"customer_id": giacom_map[cid]}, {"_id": 0}).to_list(50)
+        giacom_products = {}
+        for s in subs:
+            key = s.get("product_key") or s.get("product", "")
+            giacom_products[key] = giacom_products.get(key, 0) + s.get("quantity", 0)
+
+        discrepancies = []
+        for prod in RECONCILE_PRODUCTS:
+            giacom_qty = giacom_products.get(prod, 0)
+            support_qty = snap.get("products", {}).get(prod)
+            support_qty = int(support_qty) if support_qty is not None else None
+            if giacom_qty > 0 or (support_qty and support_qty > 0):
+                diff = (support_qty or 0) - giacom_qty
+                if diff != 0:
+                    discrepancies.append({"product": prod, "giacom": giacom_qty, "support_count": support_qty, "diff": diff})
+
+        rows.append({
+            "client_name": client_map.get(cid, cid),
+            "discrepancies": discrepancies,
+            "has_discrepancy": len(discrepancies) > 0,
+        })
+
+    rows.sort(key=lambda r: (-len(r["discrepancies"]), r["client_name"].lower()))
+    return {"month": month, "rows": rows}
+
+
+@api_router.get("/reports/ssl-domain-expiry")
+async def report_ssl_domain_expiry(days: int = 90, user: dict = Depends(get_current_user)):
+    """All expiring SSL certs and domain renewals"""
+    now = datetime.now(timezone.utc)
+    accounts = await db.hosting_accounts.find(
+        {"client_id": {"$ne": None}, "ignored": {"$ne": True}}, {"_id": 0}
+    ).to_list(1000)
+    clients_list = await db.clients.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
+    client_map = {c["id"]: c["name"] for c in clients_list}
+
+    rows = []
+    for acc in accounts:
+        client_name = client_map.get(acc.get("client_id"), acc.get("primary_domain", ""))
+        for alert_type, field, label in [("ssl", "ssl_expiry", "SSL"), ("domain", "domain_renewal", "Domain")]:
+            raw = acc.get(field)
+            if not raw:
+                continue
+            try:
+                dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                days_left = (dt - now).days
+                rows.append({
+                    "client_name": client_name,
+                    "domain": acc["primary_domain"],
+                    "type": label,
+                    "expiry_date": dt.strftime("%d/%m/%Y"),
+                    "days_left": days_left,
+                    "status": "expired" if days_left < 0 else "critical" if days_left < 14 else "warning" if days_left < 30 else "ok",
+                })
+            except Exception:
+                pass
+
+    rows.sort(key=lambda r: r["days_left"])
+    return {"rows": [r for r in rows if r["days_left"] <= days], "days_filter": days}
+
+
+@api_router.get("/reports/backup-compliance")
+async def report_backup_compliance(user: dict = Depends(get_current_user)):
+    """Backup status per client from Altaro and Ahsay"""
+    clients_list = await db.clients.find({"client_type": "managed"}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
+
+    altaro_cache = await db.altaro_cache.find_one({})
+    ahsay_cache = await db.ahsay_cache.find_one({})
+
+    altaro_by_client = {}
+    if altaro_cache and altaro_cache.get("computers"):
+        for comp in altaro_cache["computers"]:
+            cname = comp.get("CustomerName") or comp.get("customer_name", "")
+            if cname not in altaro_by_client:
+                altaro_by_client[cname] = {"total": 0, "success": 0, "failed": 0, "warning": 0}
+            altaro_by_client[cname]["total"] += 1
+            result = (comp.get("LastBackupResult") or "").lower()
+            if "success" in result:
+                altaro_by_client[cname]["success"] += 1
+            elif "fail" in result:
+                altaro_by_client[cname]["failed"] += 1
+            else:
+                altaro_by_client[cname]["warning"] += 1
+
+    rows = []
+    for client in clients_list:
+        altaro = altaro_by_client.get(client["name"], {})
+        rows.append({
+            "client_name": client["name"],
+            "altaro_total": altaro.get("total", 0),
+            "altaro_success": altaro.get("success", 0),
+            "altaro_failed": altaro.get("failed", 0),
+            "altaro_warning": altaro.get("warning", 0),
+            "status": "ok" if altaro.get("failed", 0) == 0 and altaro.get("total", 0) > 0 else "warning" if altaro.get("total", 0) == 0 else "failed",
+        })
+
+    rows.sort(key=lambda r: (r["altaro_failed"] == 0, r["client_name"]))
+    return {"rows": rows}
+
+
+@api_router.get("/reports/incident-summary")
+async def report_incident_summary(
+    months: int = 3,
+    client_id: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """Incident counts per client by severity"""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=months * 30)).isoformat()
+    query = {"date_opened": {"$gte": cutoff}}
+    if client_id:
+        query["client_id"] = client_id
+
+    incidents = await db.incidents.find(query, {"_id": 0}).to_list(5000)
+    clients_list = await db.clients.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
+    client_map = {c["id"]: c["name"] for c in clients_list}
+
+    by_client = {}
+    for inc in incidents:
+        cid = inc.get("client_id", "unknown")
+        cname = client_map.get(cid, "Unknown")
+        if cname not in by_client:
+            by_client[cname] = {"total": 0, "open": 0, "closed": 0, "p1": 0, "p2": 0, "p3": 0, "p4": 0}
+        by_client[cname]["total"] += 1
+        if inc.get("status") == "open":
+            by_client[cname]["open"] += 1
+        else:
+            by_client[cname]["closed"] += 1
+        sev = str(inc.get("severity", "p4")).lower().replace(" ", "")
+        if sev in by_client[cname]:
+            by_client[cname][sev] += 1
+
+    rows = [{"client_name": k, **v} for k, v in by_client.items()]
+    rows.sort(key=lambda r: r["total"], reverse=True)
+    return {"rows": rows, "months": months, "total_incidents": len(incidents)}
+
+
+@api_router.get("/reports/support-contract-overview")
+async def report_support_contract_overview(month: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """All clients with their support type and key product counts"""
+    if not month:
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+
+    snapshots = await db.client_support_snapshots.find(
+        {"month": month, "removed": {"$ne": True}}, {"_id": 0}
+    ).to_list(500)
+    clients_list = await db.clients.find({}, {"_id": 0, "id": 1, "name": 1, "client_type": 1}).to_list(1000)
+    client_map = {c["id"]: c for c in clients_list}
+
+    rows = []
+    for snap in snapshots:
+        client = client_map.get(snap["client_id"], {})
+        rows.append({
+            "client_name": client.get("name", snap.get("client_name", snap["client_id"])),
+            "client_type": client.get("client_type", "managed"),
+            "support_type": snap.get("support_type") or "—",
+            "products": snap.get("products", {}),
+            "remarks": snap.get("remarks") or "",
+        })
+
+    rows.sort(key=lambda r: (r["support_type"], r["client_name"].lower()))
+    return {"month": month, "rows": rows}
+
+
+@api_router.get("/reports/health-check-compliance")
+async def report_health_check_compliance(user: dict = Depends(get_current_user)):
+    """Which clients have had health checks done and when"""
+    clients_list = await db.clients.find({"client_type": "managed"}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
+    now = datetime.now(timezone.utc)
+    rows = []
+
+    for client in clients_list:
+        latest_hc = await db.monthly_health_checks.find_one(
+            {"client_id": client["id"]}, sort=[("created_at", -1)]
+        )
+        last_date = None
+        days_since = None
+        if latest_hc:
+            raw = latest_hc.get("created_at")
+            if raw:
+                try:
+                    dt = raw if isinstance(raw, datetime) else datetime.fromisoformat(str(raw))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    last_date = dt.strftime("%d/%m/%Y")
+                    days_since = (now - dt).days
+                except Exception:
+                    pass
+
+        rows.append({
+            "client_name": client["name"],
+            "last_health_check": last_date,
+            "days_since": days_since,
+            "status": "ok" if days_since is not None and days_since <= 35 else "overdue" if days_since is not None else "never",
+        })
+
+    rows.sort(key=lambda r: (r["status"] == "ok", r["days_since"] or 9999))
+    return {"rows": rows}
+
+
 # Include the router after all routes are defined
 app.include_router(api_router)
 
