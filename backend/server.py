@@ -204,6 +204,9 @@ class SiteCreate(BaseModel):
     address: Optional[str] = None
     contact_name: Optional[str] = None
     contact_phone: Optional[str] = None
+    contact_email: Optional[str] = None
+    notes: Optional[str] = None
+    licences: Optional[dict] = None  # e.g. {"O365 Standard": 7, "Message Labs": 7}
 
 class SiteResponse(BaseModel):
     id: str
@@ -213,6 +216,9 @@ class SiteResponse(BaseModel):
     address: Optional[str]
     contact_name: Optional[str]
     contact_phone: Optional[str]
+    contact_email: Optional[str] = None
+    notes: Optional[str] = None
+    licences: Optional[dict] = None
     tactical_rmm_site_id: Optional[int]
     is_active: bool
     created_at: datetime
@@ -930,17 +936,56 @@ async def list_sites(client_id: Optional[str] = None, user: dict = Depends(get_c
     for s in sites:
         client = await db.clients.find_one({"id": s["client_id"]}, {"name": 1})
         server_count = await db.servers.count_documents({"site_id": s["id"]})
+        created = s["created_at"]
+        if not isinstance(created, datetime):
+            created = datetime.fromisoformat(str(created))
         result.append(SiteResponse(
             id=s["id"], client_id=s["client_id"],
             client_name=client["name"] if client else None,
             name=s["name"], address=s.get("address"),
             contact_name=s.get("contact_name"), contact_phone=s.get("contact_phone"),
+            contact_email=s.get("contact_email"), notes=s.get("notes"),
+            licences=s.get("licences"),
             tactical_rmm_site_id=s.get("tactical_rmm_site_id"),
             is_active=s.get("is_active", True),
-            created_at=datetime.fromisoformat(s["created_at"]),
+            created_at=created,
             server_count=server_count
         ))
     return result
+
+
+@api_router.put("/sites/{site_id}", response_model=SiteResponse)
+async def update_site(site_id: str, site_data: SiteCreate, user: dict = Depends(get_current_user)):
+    existing = await db.sites.find_one({"id": site_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Site not found")
+    update = {
+        "name": site_data.name,
+        "address": site_data.address,
+        "contact_name": site_data.contact_name,
+        "contact_phone": site_data.contact_phone,
+        "contact_email": site_data.contact_email,
+        "notes": site_data.notes,
+        "licences": site_data.licences or {},
+    }
+    await db.sites.update_one({"id": site_id}, {"$set": update})
+    client = await db.clients.find_one({"id": existing["client_id"]}, {"name": 1})
+    server_count = await db.servers.count_documents({"site_id": site_id})
+    created = existing["created_at"]
+    if not isinstance(created, datetime):
+        created = datetime.fromisoformat(str(created))
+    return SiteResponse(
+        id=site_id, client_id=existing["client_id"],
+        client_name=client["name"] if client else None,
+        name=site_data.name, address=site_data.address,
+        contact_name=site_data.contact_name, contact_phone=site_data.contact_phone,
+        contact_email=site_data.contact_email, notes=site_data.notes,
+        licences=site_data.licences or {},
+        tactical_rmm_site_id=existing.get("tactical_rmm_site_id"),
+        is_active=existing.get("is_active", True),
+        created_at=created, server_count=server_count
+    )
+
 
 @api_router.post("/sites", response_model=SiteResponse)
 async def create_site(site_data: SiteCreate, user: dict = Depends(get_current_user)):

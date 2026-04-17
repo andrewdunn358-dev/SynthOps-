@@ -15,6 +15,143 @@ import {
   ExternalLink, MessageSquare, Save, X, User, Globe, FileText
 } from 'lucide-react';
 
+function SitesTab({ sites, clientId, products, onSaved }) {
+  const [editingSite, setEditingSite] = useState(null);
+  const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = (site) => {
+    setEditingSite(site.id);
+    setForm({
+      name: site.name || '',
+      address: site.address || '',
+      contact_name: site.contact_name || '',
+      contact_phone: site.contact_phone || '',
+      contact_email: site.contact_email || '',
+      notes: site.notes || '',
+      licences: { ...(site.licences || {}) },
+    });
+  };
+
+  const save = async (site) => {
+    setSaving(true);
+    try {
+      await apiClient.put(`/sites/${site.id}`, {
+        client_id: site.client_id,
+        name: form.name,
+        address: form.address,
+        contact_name: form.contact_name,
+        contact_phone: form.contact_phone,
+        contact_email: form.contact_email,
+        notes: form.notes,
+        licences: form.licences,
+      });
+      toast.success(`${form.name} saved`);
+      setEditingSite(null);
+      onSaved();
+    } catch (e) {
+      toast.error('Failed to save site');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Only show licence products (count/licences unit types)
+  const licenceProducts = products.filter(p => ['count', 'licences'].includes(p.unit) || p.category === 'office365');
+
+  return (
+    <div className="space-y-3">
+      {sites.length === 0 ? (
+        <Card><CardContent className="py-12 text-center text-muted-foreground"><MapPin className="h-10 w-10 mx-auto mb-2 opacity-30" /><p>No sites found</p></CardContent></Card>
+      ) : sites.map(site => (
+        <Card key={site.id}>
+          <CardHeader className="py-3 px-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <CardTitle className="text-base">{editingSite === site.id ? (
+                  <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="h-7 text-sm w-48" />
+                ) : site.name}</CardTitle>
+                <Badge variant="outline" className="text-xs">{site.server_count || 0} devices</Badge>
+              </div>
+              <div className="flex gap-1">
+                {editingSite === site.id ? (
+                  <>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingSite(null)}><X className="h-3 w-3" /></Button>
+                    <Button size="sm" className="h-7 text-xs" onClick={() => save(site)} disabled={saving}>
+                      <Save className="h-3 w-3 mr-1" />{saving ? 'Saving...' : 'Save'}
+                    </Button>
+                  </>
+                ) : (
+                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => startEdit(site)}>
+                    <Edit className="h-3 w-3 mr-1" />Edit
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          {editingSite === site.id ? (
+            <CardContent className="pt-0 pb-4 px-4">
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                {[
+                  ['Contact', 'contact_name', 'text'],
+                  ['Phone', 'contact_phone', 'text'],
+                  ['Email', 'contact_email', 'email'],
+                  ['Address', 'address', 'text'],
+                ].map(([label, key, type]) => (
+                  <div key={key}>
+                    <Label className="text-xs text-muted-foreground mb-1 block">{label}</Label>
+                    <Input type={type} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} className="h-7 text-sm" />
+                  </div>
+                ))}
+                <div className="col-span-2">
+                  <Label className="text-xs text-muted-foreground mb-1 block">Notes</Label>
+                  <textarea className="w-full border rounded px-2 py-1 text-sm bg-background min-h-12 resize-none"
+                    value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+                </div>
+              </div>
+              {licenceProducts.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Licences at this site</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {licenceProducts.map(p => (
+                      <div key={p.id} className="flex items-center gap-2">
+                        <Label className="text-xs w-32 truncate" title={p.name}>{p.name}</Label>
+                        <Input type="number" min="0"
+                          value={form.licences[p.name] ?? ''}
+                          onChange={e => setForm(f => ({ ...f, licences: { ...f.licences, [p.name]: e.target.value === '' ? undefined : Number(e.target.value) } }))}
+                          className="h-7 w-16 text-sm text-center" placeholder="0" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          ) : (
+            <CardContent className="pt-0 pb-3 px-4">
+              <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+                {site.contact_name && <span className="text-muted-foreground"><User className="h-3 w-3 inline mr-1" />{site.contact_name}</span>}
+                {site.contact_phone && <span className="text-muted-foreground"><Phone className="h-3 w-3 inline mr-1" />{site.contact_phone}</span>}
+                {site.contact_email && <span className="text-muted-foreground"><Mail className="h-3 w-3 inline mr-1" />{site.contact_email}</span>}
+                {site.address && <span className="text-muted-foreground"><MapPin className="h-3 w-3 inline mr-1" />{site.address}</span>}
+              </div>
+              {site.licences && Object.keys(site.licences).length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {Object.entries(site.licences).filter(([, v]) => v > 0).map(([prod, qty]) => (
+                    <span key={prod} className="text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded">
+                      {prod}: {qty}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {site.notes && <p className="text-xs text-muted-foreground mt-1 italic">{site.notes}</p>}
+            </CardContent>
+          )}
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 function ContactTab({ client, onSaved }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -132,6 +269,7 @@ export default function ClientDetail() {
   const [tasks, setTasks] = useState([]);
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState([]);
 
   useEffect(() => {
     fetchData();
@@ -139,25 +277,26 @@ export default function ClientDetail() {
 
   const fetchData = async () => {
     try {
-      const [clientRes, sitesRes, serversRes, tasksRes, incidentsRes] = await Promise.all([
+      const [clientRes, sitesRes, serversRes, tasksRes, incidentsRes, productsRes] = await Promise.all([
         apiClient.get(`/clients/${id}`),
         apiClient.get(`/sites?client_id=${id}`),
         apiClient.get(`/servers?client_id=${id}`),
         apiClient.get(`/tasks?client_id=${id}`),
-        apiClient.get(`/incidents?client_id=${id}`)
+        apiClient.get(`/incidents?client_id=${id}`),
+        apiClient.get('/support/products'),
       ]);
       setClient(clientRes.data);
       setSites(sitesRes.data);
       setServers(serversRes.data);
       setTasks(tasksRes.data);
       setIncidents(incidentsRes.data);
+      setProducts(productsRes.data || []);
       
-      // Try to fetch workstations (endpoint may not exist on older backends)
+      // Try to fetch workstations
       try {
         const wsRes = await apiClient.get(`/workstations?client_id=${id}`);
         setWorkstations(wsRes.data || []);
       } catch (e) {
-        // Workstations endpoint not available, set empty
         setWorkstations([]);
       }
     } catch (error) {
@@ -320,28 +459,7 @@ export default function ClientDetail() {
         </TabsList>
 
         <TabsContent value="sites" className="mt-4">
-          <Card>
-            <CardContent className="p-4">
-              {sites.length === 0 ? (
-                <div className="empty-state py-8">
-                  <MapPin className="h-12 w-12" />
-                  <p>No sites found</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {sites.map((site) => (
-                    <div key={site.id} className="flex items-center justify-between p-3 rounded-sm bg-muted/50 hover:bg-muted">
-                      <div>
-                        <p className="font-medium">{site.name}</p>
-                        {site.address && <p className="text-sm text-muted-foreground">{site.address}</p>}
-                      </div>
-                      <Badge variant="outline">{site.server_count || 0} devices</Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <SitesTab sites={sites} clientId={id} products={products} onSaved={fetchData} />
         </TabsContent>
 
         <TabsContent value="servers" className="mt-4">
