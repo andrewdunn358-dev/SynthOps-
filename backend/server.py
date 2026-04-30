@@ -758,21 +758,107 @@ async def list_users(user: dict = Depends(get_current_user)):
         created_at=datetime.fromisoformat(u["created_at"])
     ) for u in users]
 
+VALID_ROLES = ["admin", "engineer", "viewer"]
+
+
+async def _ensure_not_last_admin(user_id: str, *, new_role: Optional[str] = None, new_is_active: Optional[bool] = None):
+    """Guardrail: prevent demoting or deactivating the only active admin.
+    Called before any change that would remove an admin. Raises 400 if violated."""
+    target = await db.users.find_one({"id": user_id})
+    if not target:
+        return  # caller will produce a clearer 404
+    target_is_admin = target.get("role") == "admin" and target.get("is_active", True)
+    if not target_is_admin:
+        return  # changing a non-admin, or already-inactive admin: nothing to guard
+    losing_admin = (new_role is not None and new_role != "admin") or (new_is_active is False)
+    if not losing_admin:
+        return
+    active_admins = await db.users.count_documents({"role": "admin", "is_active": True})
+    if active_admins <= 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot demote or deactivate the only active admin. Promote another user first."
+        )
+
+
 @api_router.put("/users/{user_id}/role")
 async def update_user_role(user_id: str, role: str = Body(..., embed=True), admin: dict = Depends(require_admin)):
-    if role not in ["admin", "engineer", "viewer"]:
+    if role not in VALID_ROLES:
         raise HTTPException(status_code=400, detail="Invalid role")
+    await _ensure_not_last_admin(user_id, new_role=role)
     result = await db.users.update_one({"id": user_id}, {"$set": {"role": role}})
-    if result.modified_count == 0:
+    if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
     return {"message": "Role updated"}
 
 @api_router.put("/users/{user_id}/status")
 async def toggle_user_status(user_id: str, is_active: bool = Body(..., embed=True), admin: dict = Depends(require_admin)):
+    await _ensure_not_last_admin(user_id, new_is_active=is_active)
     result = await db.users.update_one({"id": user_id}, {"$set": {"is_active": is_active}})
-    if result.modified_count == 0:
+    if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
     return {"message": "Status updated"}
+
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    email: Optional[EmailStr] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@api_router.put("/users/{user_id}", response_model=UserResponse)
+async def update_user(user_id: str, update: UserUpdate, admin: dict = Depends(require_admin)):
+    """Admin: update any combination of username / email / role / is_active in one call."""
+    target = await db.users.find_one({"id": user_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    changes: Dict[str, Any] = {}
+
+    if update.role is not None:
+        if update.role not in VALID_ROLES:
+            raise HTTPException(status_code=400, detail="Invalid role")
+        changes["role"] = update.role
+
+    if update.is_active is not None:
+        changes["is_active"] = update.is_active
+
+    # Enforce the last-admin rule once, using the combined change set
+    await _ensure_not_last_admin(
+        user_id,
+        new_role=changes.get("role"),
+        new_is_active=changes.get("is_active"),
+    )
+
+    if update.username is not None:
+        new_username = update.username.strip().lower()
+        if not new_username:
+            raise HTTPException(status_code=400, detail="Username cannot be empty")
+        if new_username != target.get("username"):
+            clash = await db.users.find_one({"username": new_username, "id": {"$ne": user_id}})
+            if clash:
+                raise HTTPException(status_code=400, detail="Username already taken")
+            changes["username"] = new_username
+
+    if update.email is not None:
+        new_email = update.email.strip().lower()
+        if new_email != target.get("email"):
+            clash = await db.users.find_one({"email": new_email, "id": {"$ne": user_id}})
+            if clash:
+                raise HTTPException(status_code=400, detail="Email already in use")
+            changes["email"] = new_email
+
+    if changes:
+        await db.users.update_one({"id": user_id}, {"$set": changes})
+
+    fresh = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0, "totp_secret": 0})
+    return UserResponse(
+        id=fresh["id"], email=fresh["email"], username=fresh["username"],
+        role=fresh["role"], is_active=fresh.get("is_active", True),
+        totp_enabled=fresh.get("totp_enabled", False),
+        created_at=datetime.fromisoformat(fresh["created_at"])
+    )
 
 @api_router.put("/users/{user_id}/reset-password")
 async def reset_user_password(user_id: str, password: str = Body(..., embed=True), admin: dict = Depends(require_admin)):

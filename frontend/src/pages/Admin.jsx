@@ -133,6 +133,17 @@ export default function Admin() {
   });
   const [creatingUser, setCreatingUser] = useState(false);
 
+  // User edit dialog
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingUserId, setEditingUserId] = useState(null);
+  const [editForm, setEditForm] = useState({
+    username: '',
+    email: '',
+    role: 'engineer',
+    is_active: true,
+  });
+  const [savingUser, setSavingUser] = useState(false);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -176,7 +187,35 @@ export default function Admin() {
       toast.success('Role updated');
       fetchData();
     } catch (error) {
-      toast.error('Failed to update role');
+      toast.error(getErrorMessage(error, 'Failed to update role'));
+    }
+  };
+
+  const openEditUser = (u) => {
+    setEditingUserId(u.id);
+    setEditForm({
+      username: u.username || '',
+      email: u.email || '',
+      role: u.role || 'engineer',
+      is_active: u.is_active !== false,
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleUpdateUser = async (e) => {
+    e.preventDefault();
+    if (!editingUserId) return;
+    setSavingUser(true);
+    try {
+      await apiClient.put(`/users/${editingUserId}`, editForm);
+      toast.success('User updated');
+      setEditDialogOpen(false);
+      setEditingUserId(null);
+      fetchData();
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to update user'));
+    } finally {
+      setSavingUser(false);
     }
   };
 
@@ -445,6 +484,15 @@ export default function Admin() {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => openEditUser(u)}
+                          title="Edit user"
+                          data-testid={`edit-user-${u.id}`}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
                         <Button 
                           variant="ghost" 
                           size="icon"
@@ -797,6 +845,80 @@ export default function Admin() {
               </Button>
               <Button type="submit" disabled={creatingUser} data-testid="submit-create-user">
                 {creatingUser ? 'Creating...' : 'Create User'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit User Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit User</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleUpdateUser} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Username *</Label>
+              <Input
+                value={editForm.username}
+                onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
+                required
+                data-testid="edit-user-username"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Email *</Label>
+              <Input
+                type="email"
+                value={editForm.email}
+                onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                required
+                data-testid="edit-user-email"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Role</Label>
+              <Select
+                value={editForm.role}
+                onValueChange={(v) => setEditForm({ ...editForm, role: v })}
+              >
+                <SelectTrigger data-testid="edit-user-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Admin - Full access</SelectItem>
+                  <SelectItem value="engineer">Engineer - Operations</SelectItem>
+                  <SelectItem value="viewer">Viewer - Read only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center justify-between rounded-md border border-border p-3">
+              <div>
+                <Label className="text-sm">Active</Label>
+                <p className="text-xs text-muted-foreground">Inactive users cannot log in.</p>
+              </div>
+              <Button
+                type="button"
+                variant={editForm.is_active ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setEditForm({ ...editForm, is_active: !editForm.is_active })}
+                data-testid="edit-user-active-toggle"
+              >
+                {editForm.is_active ? 'Active' : 'Inactive'}
+              </Button>
+            </div>
+            {editingUserId === user?.id && (
+              <p className="text-xs text-amber-400">
+                You are editing your own account. The server will reject changes that would leave no active admin.
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={savingUser} data-testid="submit-edit-user">
+                {savingUser ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>
           </form>
