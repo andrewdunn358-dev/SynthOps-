@@ -6856,12 +6856,235 @@ async def get_monthly_support_count(
         "available_months": sorted(available_months, reverse=True),
     }
 
+
+# ── Monthly Rollover ────────────────────────────────────────
+# At month-end (or on the 1st via cron) the current "live" month is
+# locked and a new month is opened, seeded with the previous month's
+# snapshots. Removed clients are NOT carried forward.
+
+LONDON_TZ = None  # set lazily below
+def _london_now() -> datetime:
+    """Return current datetime in Europe/London, falling back to UTC if zoneinfo unavailable."""
+    global LONDON_TZ
+    if LONDON_TZ is None:
+        try:
+            from zoneinfo import ZoneInfo
+            LONDON_TZ = ZoneInfo("Europe/London")
+        except Exception:
+            LONDON_TZ = timezone.utc
+    return datetime.now(LONDON_TZ)
+
+
+def _next_month(month_str: str) -> str:
+    """Given 'YYYY-MM' return the next month as 'YYYY-MM' (handles year boundary)."""
+    y, m = month_str.split("-")
+    y = int(y); m = int(m)
+    if m == 12:
+        return f"{y+1}-01"
+    return f"{y}-{m+1:02d}"
+
+
+async def _is_month_locked(month: str) -> bool:
+    lock = await db.support_month_locks.find_one({"month": month, "locked": True})
+    return lock is not None
+
+
+async def _perform_monthly_rollover(*, triggered_by: str = "scheduler") -> Dict[str, Any]:
+    """Lock current live month, open the next month, seed from current.
+
+    - Current live month = current calendar month in Europe/London
+    - Idempotent: if next month already has snapshots, this is a no-op for those rows
+    - Removed snapshots are NOT carried forward (per spec)
+    - Site-level rows are preserved by matching on (client_id, site_id) AND site_name/display_name
+
+    Returns a dict describing what happened.
+    """
+    now_london = _london_now()
+    now_utc = datetime.now(timezone.utc)
+    current_month = now_london.strftime("%Y-%m")
+    next_month = _next_month(current_month)
+
+    # 1) Lock the current month if not already locked
+    already_locked = await _is_month_locked(current_month)
+    if not already_locked:
+        await db.support_month_locks.update_one(
+            {"month": current_month},
+            {"$set": {
+                "month": current_month,
+                "locked": True,
+                "locked_by": triggered_by,
+                "locked_at": now_utc,
+            }},
+            upsert=True,
+        )
+
+    # 2) Find existing snapshots in the next month so we don't overwrite anything
+    existing_next = await db.client_support_snapshots.find(
+        {"month": next_month}, {"_id": 0, "client_id": 1, "site_id": 1, "site_name": 1, "display_name": 1}
+    ).to_list(2000)
+    # Use a key combining client_id and site identifier to avoid collisions for multi-site clients
+    def _row_key(row: dict) -> str:
+        return "|".join([
+            str(row.get("client_id") or ""),
+            str(row.get("site_id") or ""),
+            str(row.get("site_name") or row.get("display_name") or ""),
+        ])
+    existing_keys = {_row_key(r) for r in existing_next}
+
+    # 3) Pull all current-month snapshots, skip removed
+    source_snaps = await db.client_support_snapshots.find(
+        {"month": current_month}, {"_id": 0}
+    ).to_list(2000)
+
+    copied = 0
+    skipped_removed = 0
+    skipped_existing = 0
+
+    for snap in source_snaps:
+        if snap.get("removed"):
+            skipped_removed += 1
+            continue
+        key = _row_key(snap)
+        if key in existing_keys:
+            skipped_existing += 1
+            continue
+        new_snap = {
+            "client_id": snap["client_id"],
+            "month": next_month,
+            "support_type": snap.get("support_type"),
+            "products": snap.get("products", {}),
+            "remarks": snap.get("remarks"),
+            "snapshot_date": now_utc,
+            "updated_by": f"rollover:{triggered_by}",
+        }
+        # Preserve site identifiers if present (multi-site clients)
+        if snap.get("site_id"):
+            new_snap["site_id"] = snap["site_id"]
+        if snap.get("site_name"):
+            new_snap["site_name"] = snap["site_name"]
+        if snap.get("display_name"):
+            new_snap["display_name"] = snap["display_name"]
+
+        # Match query mirrors the row key — preserves multi-site separation on upsert
+        match = {"client_id": snap["client_id"], "month": next_month}
+        if snap.get("site_id"):
+            match["site_id"] = snap["site_id"]
+        elif snap.get("site_name"):
+            match["site_name"] = snap["site_name"]
+        elif snap.get("display_name"):
+            match["display_name"] = snap["display_name"]
+
+        await db.client_support_snapshots.update_one(match, {"$set": new_snap}, upsert=True)
+        existing_keys.add(key)  # prevent duplicate within this run
+        copied += 1
+
+    return {
+        "from_month": current_month,
+        "to_month": next_month,
+        "copied": copied,
+        "skipped_removed": skipped_removed,
+        "skipped_already_present": skipped_existing,
+        "current_month_was_already_locked": already_locked,
+        "triggered_by": triggered_by,
+        "ran_at": now_utc.isoformat(),
+    }
+
+
+@api_router.post("/support/monthly-count/rollover")
+async def support_monthly_rollover(
+    current_user: dict = Depends(require_admin)
+):
+    """Lock the current month and open next month seeded from current.
+
+    Admin only. Idempotent — safe to click twice.
+    Also runs automatically on the 1st of each month at 00:05 Europe/London.
+    """
+    result = await _perform_monthly_rollover(
+        triggered_by=current_user.get("username") or current_user.get("email") or "admin"
+    )
+    return result
+
+
+async def scheduled_monthly_rollover():
+    """APScheduler entry point — runs at 00:05 on the 1st of each month (Europe/London).
+
+    NOTE: by 00:05 on the 1st of (say) May, _london_now() returns May. We want to
+    roll OVER from April to May. So we explicitly use yesterday's month as the source.
+    """
+    now_london = _london_now()
+    now_utc = datetime.now(timezone.utc)
+    # Yesterday in London time = the month we want to lock
+    yesterday = now_london - timedelta(days=1)
+    source_month = yesterday.strftime("%Y-%m")
+    target_month = now_london.strftime("%Y-%m")
+
+    logger.info(f"Scheduled monthly rollover: {source_month} -> {target_month}")
+
+    # Lock source month
+    if not await _is_month_locked(source_month):
+        await db.support_month_locks.update_one(
+            {"month": source_month},
+            {"$set": {
+                "month": source_month, "locked": True,
+                "locked_by": "scheduler", "locked_at": now_utc,
+            }},
+            upsert=True,
+        )
+
+    # Existing rows in target month
+    existing_next = await db.client_support_snapshots.find(
+        {"month": target_month}, {"_id": 0, "client_id": 1, "site_id": 1, "site_name": 1, "display_name": 1}
+    ).to_list(2000)
+    def _row_key(row: dict) -> str:
+        return "|".join([
+            str(row.get("client_id") or ""),
+            str(row.get("site_id") or ""),
+            str(row.get("site_name") or row.get("display_name") or ""),
+        ])
+    existing_keys = {_row_key(r) for r in existing_next}
+
+    source_snaps = await db.client_support_snapshots.find(
+        {"month": source_month}, {"_id": 0}
+    ).to_list(2000)
+
+    copied = 0
+    for snap in source_snaps:
+        if snap.get("removed"):
+            continue
+        if _row_key(snap) in existing_keys:
+            continue
+        new_snap = {
+            "client_id": snap["client_id"],
+            "month": target_month,
+            "support_type": snap.get("support_type"),
+            "products": snap.get("products", {}),
+            "remarks": snap.get("remarks"),
+            "snapshot_date": now_utc,
+            "updated_by": "rollover:scheduler",
+        }
+        for k in ("site_id", "site_name", "display_name"):
+            if snap.get(k):
+                new_snap[k] = snap[k]
+        match = {"client_id": snap["client_id"], "month": target_month}
+        for k in ("site_id", "site_name", "display_name"):
+            if snap.get(k):
+                match[k] = snap[k]
+                break
+        await db.client_support_snapshots.update_one(match, {"$set": new_snap}, upsert=True)
+        copied += 1
+
+    logger.info(f"Scheduled monthly rollover complete: copied {copied} clients into {target_month}")
+
+
 @api_router.post("/support/monthly-count/copy-from-previous")
 async def copy_support_count_from_previous(
     data: dict = Body(...),
     current_user: dict = Depends(get_current_user)
 ):
-    """Copy all snapshots from source_month into target_month, skipping clients that already have data in target_month."""
+    """[DEPRECATED] Copy all snapshots from source_month into target_month, skipping clients that already have data in target_month.
+
+    Kept for backwards compatibility. Use /support/monthly-count/rollover instead.
+    """
     target_month = data.get("target_month")
     source_month = data.get("source_month")
     if not target_month or not source_month:
@@ -8083,6 +8306,15 @@ async def start_scheduler():
         scheduled_backup_sync,
         CronTrigger(hour=7, minute=0, timezone="Europe/London"),
         id="backup_daily_sync",
+        replace_existing=True,
+        max_instances=1
+    )
+
+    # Add monthly support-count rollover - 00:05 on the 1st of each month
+    scheduler.add_job(
+        scheduled_monthly_rollover,
+        CronTrigger(day=1, hour=0, minute=5, timezone="Europe/London"),
+        id="support_monthly_rollover",
         replace_existing=True,
         max_instances=1
     )

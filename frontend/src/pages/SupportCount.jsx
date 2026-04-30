@@ -44,6 +44,7 @@ export default function SupportCount() {
   const [allClients, setAllClients] = useState([]);
   const [wiping, setWiping] = useState(false);
   const [copyingMonth, setCopyingMonth] = useState(false);
+  const [rollingOver, setRollingOver] = useState(false);
 
   const wipeMonth = async () => {
     const confirmed = window.confirm(
@@ -202,6 +203,34 @@ export default function SupportCount() {
     }
   };
 
+  const rolloverToNextMonth = async () => {
+    if (!isAdmin) { toast.error('Only admins can roll over months'); return; }
+    const confirmed = window.confirm(
+      `Roll over to next month?\n\nThis will:\n• Lock the current live month\n• Create a fresh sheet for next month, copying current values\n• Skip any clients marked as removed\n\nThis is also done automatically at 00:05 on the 1st of each month.\n\nContinue?`
+    );
+    if (!confirmed) return;
+    setRollingOver(true);
+    try {
+      const res = await apiClient.post('/support/monthly-count/rollover');
+      const r = res.data;
+      toast.success(
+        `Locked ${formatMonthLabel(r.from_month)}, opened ${formatMonthLabel(r.to_month)}. ` +
+        `${r.copied} clients carried forward` +
+        (r.skipped_removed > 0 ? `, ${r.skipped_removed} removed clients skipped` : '') +
+        (r.skipped_already_present > 0 ? `, ${r.skipped_already_present} already in next month` : '') +
+        '.'
+      );
+      // Jump the picker to the new live month and refresh
+      setSelectedMonth(r.to_month);
+      fetchData(r.to_month);
+      fetchLocks();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to roll over');
+    } finally {
+      setRollingOver(false);
+    }
+  };
+
   const navigateMonth = (direction) => {
     if (!data?.available_months?.length) return;
     const months = [...data.available_months].sort();
@@ -315,6 +344,14 @@ export default function SupportCount() {
     return months.indexOf(selectedMonth) > 0;
   })();
 
+  // Current live month = today's calendar month. Rollover is only meaningful
+  // when you're looking at the live month.
+  const currentLiveMonthStr = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  })();
+  const isViewingCurrentLiveMonth = selectedMonth === currentLiveMonthStr;
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -364,9 +401,16 @@ export default function SupportCount() {
               {isLocked ? <><Unlock className="h-4 w-4 mr-1" /> Unlock Month</> : <><Lock className="h-4 w-4 mr-1" /> Lock Month</>}
             </Button>
           )}
-          {!isLocked && hasPreviousMonth && (
-            <Button variant="outline" size="sm" onClick={copyFromPreviousMonth} disabled={copyingMonth}>
-              <Copy className="h-4 w-4 mr-1" /> {copyingMonth ? 'Copying...' : 'Copy from Previous Month'}
+          {isAdmin && isViewingCurrentLiveMonth && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={rolloverToNextMonth}
+              disabled={rollingOver}
+              title="Lock this month and open the next one. Auto-runs at 00:05 on the 1st of each month."
+              className="border-emerald-400 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+            >
+              <Copy className="h-4 w-4 mr-1" /> {rollingOver ? 'Rolling over...' : 'Roll Over to Next Month'}
             </Button>
           )}
           {!isLocked && (
