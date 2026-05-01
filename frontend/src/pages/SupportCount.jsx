@@ -279,6 +279,34 @@ export default function SupportCount() {
   // support_products entry — e.g. a renamed or removed product) are ignored
   // here, otherwise stale data invisibly keeps a row "non-empty" forever.
   const validProductNames = new Set((data?.products || []).map(p => p.name));
+
+  // Build the full list of domains for a row: mapped (from hosting_accounts +
+  // domain_registrations, already merged into row.hosting_domains by the
+  // backend) plus manual entries parsed from the Domain Names cell text.
+  // Deduped case-insensitively + trimmed; mapped entries take precedence.
+  // Returns [{ name, source: 'mapped' | 'manual' }, ...].
+  const getAllDomains = (row) => {
+    const seen = new Set();
+    const out = [];
+    for (const d of (row.hosting_domains || [])) {
+      const key = String(d || '').trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ name: d, source: 'mapped' });
+    }
+    const manualText = row.products?.['Domain Names'];
+    if (typeof manualText === 'string' && manualText.trim()) {
+      for (const raw of manualText.split(',')) {
+        const trimmed = raw.trim();
+        const key = trimmed.toLowerCase();
+        if (!trimmed || seen.has(key)) continue;
+        seen.add(key);
+        out.push({ name: trimmed, source: 'manual' });
+      }
+    }
+    return out;
+  };
+
   const isEmptyRow = (row) => {
     const hasProductValue = row.products && Object.entries(row.products).some(([k, v]) =>
       validProductNames.has(k) &&
@@ -656,7 +684,7 @@ export default function SupportCount() {
                   );
                   if (i === lastHostingIdx) {
                     cells.push(
-                      <th key="__domains_count__" className="px-2 py-2 text-center font-bold border-r text-xs min-w-16" title="Total unique domains for this client (hosting + registrations)">
+                      <th key="__domains_count__" className="px-2 py-2 text-center font-bold border-r text-xs min-w-16" title="Total unique domains for this client (mapped from 20i + manual entries in Domain Names cell)">
                         Domains
                       </th>
                     );
@@ -735,16 +763,17 @@ export default function SupportCount() {
                         </td>
                       );
                       if (i === lastHostingIdx) {
+                        const allDomains = getAllDomains(row);
                         cells.push(
                           <td key="__domains_count__" className="border-r px-2 py-1.5 text-center text-xs">
-                            {row.domain_count > 0 ? (
+                            {allDomains.length > 0 ? (
                               <button
                                 type="button"
-                                onClick={() => setDomainsPopup({ client: row.client_name, domains: row.hosting_domains || [] })}
+                                onClick={() => setDomainsPopup({ client: row.client_name, domains: allDomains })}
                                 className="font-medium text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-                                title="Click to view all domains"
+                                title="Click to view all domains (mapped + manual)"
                               >
-                                {row.domain_count}
+                                {allDomains.length}
                               </button>
                             ) : (
                               <span className="text-gray-300">—</span>
@@ -880,9 +909,19 @@ export default function SupportCount() {
             ) : (
               <div className="space-y-1">
                 {(domainsPopup?.domains || []).map(d => (
-                  <div key={d} className="flex items-center gap-2 text-sm font-mono px-2 py-1 rounded bg-muted/50">
-                    <Globe className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-                    <span className="truncate">{d}</span>
+                  <div key={d.name} className="flex items-center gap-2 text-sm font-mono px-2 py-1 rounded bg-muted/50">
+                    <Globe className={`h-3.5 w-3.5 shrink-0 ${d.source === 'mapped' ? 'text-blue-500' : 'text-gray-400'}`} />
+                    <span className="truncate flex-1">{d.name}</span>
+                    <span
+                      className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded shrink-0 font-sans ${
+                        d.source === 'mapped'
+                          ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                          : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                      }`}
+                      title={d.source === 'mapped' ? 'Mapped from 20i (hosting account or domain registration)' : 'Manually entered in the Domain Names cell'}
+                    >
+                      {d.source}
+                    </span>
                   </div>
                 ))}
               </div>
