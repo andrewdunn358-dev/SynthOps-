@@ -719,6 +719,159 @@ function GiacomTab({ clients }) {
 // ─────────────────────────────────────────────
 // Main page
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// Domain Registrations Tab (20i /domain entries)
+// ─────────────────────────────────────────────
+function DomainRegistrationsTab({ clients }) {
+  const [domains, setDomains] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('active'); // active | mapped | unmapped | ignored
+  const [saving, setSaving] = useState({});
+
+  useEffect(() => { fetchDomains(); }, []);
+
+  const fetchDomains = async () => {
+    setLoading(true);
+    try {
+      const res = await apiClient.get('/domains');
+      setDomains(res.data || []);
+    } catch (e) {
+      toast.error('Failed to load domain registrations');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const mapDomain = async (name, clientId) => {
+    setSaving(s => ({ ...s, [name]: true }));
+    try {
+      await apiClient.put(`/domains/${encodeURIComponent(name)}/map`, { client_id: clientId || null });
+      toast.success(clientId ? 'Domain mapped' : 'Domain unmapped');
+      fetchDomains();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to save');
+    } finally {
+      setSaving(s => ({ ...s, [name]: false }));
+    }
+  };
+
+  const toggleIgnore = async (name, currentlyIgnored) => {
+    setSaving(s => ({ ...s, [name]: true }));
+    try {
+      await apiClient.put(`/domains/${encodeURIComponent(name)}/ignore`, { ignored: !currentlyIgnored });
+      toast.success(currentlyIgnored ? 'Domain restored' : 'Domain ignored');
+      fetchDomains();
+    } catch (e) {
+      toast.error('Failed to update');
+    } finally {
+      setSaving(s => ({ ...s, [name]: false }));
+    }
+  };
+
+  const visible = domains.filter(d => {
+    if (filter === 'mapped' && !d.client_id) return false;
+    if (filter === 'unmapped' && (d.client_id || d.ignored)) return false;
+    if (filter === 'ignored' && !d.ignored) return false;
+    if (filter === 'active' && d.ignored) return false;
+    if (search && !d.name.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const mappedCount = domains.filter(d => d.client_id && !d.ignored).length;
+  const unmappedCount = domains.filter(d => !d.client_id && !d.ignored).length;
+  const ignoredCount = domains.filter(d => d.ignored).length;
+
+  if (loading) return <div className="py-8 text-center text-muted-foreground">Loading domain registrations...</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input className="pl-8 h-9 text-sm" placeholder="Search domains..." value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <div className="flex gap-1">
+          {[
+            { v: 'active', label: `Active (${domains.length - ignoredCount})` },
+            { v: 'mapped', label: `Mapped (${mappedCount})` },
+            { v: 'unmapped', label: `Unmapped (${unmappedCount})` },
+            { v: 'ignored', label: `Ignored (${ignoredCount})` },
+          ].map(opt => (
+            <Button key={opt.v} variant={filter === opt.v ? 'default' : 'outline'} size="sm" onClick={() => setFilter(opt.v)}>
+              {opt.label}
+            </Button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground ml-auto">
+          {domains.length} total · {mappedCount} mapped · {unmappedCount} unmapped
+        </p>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Domain</TableHead>
+                <TableHead>Renewal</TableHead>
+                <TableHead className="w-72">Mapped to client</TableHead>
+                <TableHead className="w-24 text-center">Ignore</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visible.length === 0 ? (
+                <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-8">No domains match this filter.</TableCell></TableRow>
+              ) : visible.map(d => (
+                <TableRow key={d.name} className={d.ignored ? 'opacity-50' : ''}>
+                  <TableCell className="font-mono text-sm">
+                    <div className="flex items-center gap-2">
+                      <Globe className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                      <span className="truncate">{d.name}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {d.renewal_date ? new Date(d.renewal_date).toLocaleDateString() : '—'}
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      value={d.client_id || 'none'}
+                      onValueChange={(v) => mapDomain(d.name, v === 'none' ? null : v)}
+                      disabled={!!saving[d.name] || d.ignored}
+                    >
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue placeholder="Not mapped" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">— Not mapped —</SelectItem>
+                        {clients.map(c => (
+                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Button
+                      size="sm"
+                      variant={d.ignored ? 'default' : 'ghost'}
+                      onClick={() => toggleIgnore(d.name, !!d.ignored)}
+                      disabled={!!saving[d.name]}
+                      title={d.ignored ? 'Restore (unignore)' : 'Ignore this domain'}
+                    >
+                      {d.ignored ? <ShieldOff className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+
 export default function SupportMappings() {
   const [clients, setClients] = useState([]);
   const [sites, setSites] = useState([]);
@@ -758,6 +911,7 @@ export default function SupportMappings() {
           <TabsList>
             <TabsTrigger value="names">Name Mappings</TabsTrigger>
             <TabsTrigger value="hosting">Hosting Domains</TabsTrigger>
+            <TabsTrigger value="domains">Domain Registrations</TabsTrigger>
             <TabsTrigger value="giacom">Giacom / M365</TabsTrigger>
           </TabsList>
           <TabsContent value="names" className="mt-4">
@@ -765,6 +919,9 @@ export default function SupportMappings() {
           </TabsContent>
           <TabsContent value="hosting" className="mt-4">
             <HostingDomainsTab clients={clients} />
+          </TabsContent>
+          <TabsContent value="domains" className="mt-4">
+            <DomainRegistrationsTab clients={clients} />
           </TabsContent>
           <TabsContent value="giacom" className="mt-4">
             <GiacomTab clients={clients} />

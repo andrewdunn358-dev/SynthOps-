@@ -6978,9 +6978,53 @@ async def get_monthly_support_count(
             if not existing_renewal or ha["domain_renewal"] < existing_renewal:
                 hosting_by_client[cid]["domain_renewal"] = ha["domain_renewal"]
 
+    # Domain registrations (separate mappings) — registration ownership wins.
+    # Also build a name→client_id index so we can move domains away from a package's
+    # default client when there's an explicit registration mapping elsewhere.
+    domain_regs = await db.domain_registrations.find(
+        {"client_id": {"$ne": None}, "ignored": {"$ne": True}},
+        {"_id": 0, "name": 1, "client_id": 1}
+    ).to_list(2000)
+    reg_owner_by_name = {d["name"].lower(): d["client_id"] for d in domain_regs}
+
+    # Re-bucket: any domain that has a registration mapping is owned by the
+    # registration's client, regardless of which package it's attached to.
+    rebucketed = {cid: {"domains": [], "ssl_expiry": data.get("ssl_expiry"), "domain_renewal": data.get("domain_renewal"), "website_turbo": data.get("website_turbo", False), "packages": data.get("packages", set())} for cid, data in hosting_by_client.items()}
+    for cid, data in hosting_by_client.items():
+        for dom in data["domains"]:
+            owner_cid = reg_owner_by_name.get(dom.lower(), cid)
+            if owner_cid not in rebucketed:
+                rebucketed[owner_cid] = {"domains": [], "ssl_expiry": None, "domain_renewal": None, "website_turbo": False, "packages": set()}
+            rebucketed[owner_cid]["domains"].append(dom)
+    # Now add registrations whose name didn't appear in any package
+    seen_in_packages = {dom.lower() for d in hosting_by_client.values() for dom in d["domains"]}
+    for d in domain_regs:
+        if d["name"].lower() in seen_in_packages:
+            continue  # already added via package, owner is already correct
+        cid = d["client_id"]
+        if cid not in rebucketed:
+            rebucketed[cid] = {"domains": [], "ssl_expiry": None, "domain_renewal": None, "website_turbo": False, "packages": set()}
+        rebucketed[cid]["domains"].append(d["name"])
+    # Replace original (clearing dupes that ended up in 'wrong' bucket)
+    hosting_by_client = {}
+    for cid, data in rebucketed.items():
+        # Dedupe domain list, case-insensitive, preserve original casing of first occurrence
+        seen = set()
+        deduped = []
+        for dom in data["domains"]:
+            key = (dom or "").lower()
+            if key and key not in seen:
+                seen.add(key)
+                deduped.append(dom)
+        if not deduped and not data.get("packages") and not data.get("ssl_expiry"):
+            continue  # nothing useful left
+        data["domains"] = deduped
+        hosting_by_client[cid] = data
+
     for row in rows:
         h = hosting_by_client.get(row["client_id"], {})
         row["hosting_domains"] = h.get("domains", [])
+        row["domain_count"] = len(h.get("domains", []))
         row["ssl_expiry"] = h.get("ssl_expiry")
         row["domain_renewal"] = h.get("domain_renewal")
         row["website_turbo"] = h.get("website_turbo", False)
@@ -7630,6 +7674,149 @@ async def ignore_hosting_account(
 
 
 
+# ── Domain Registrations (20i /domain) ──────────────────────
+# Domains are mappable to clients independently of hosting packages.
+# A domain registration mapping represents OWNERSHIP — used by support
+# count grid and client detail page to attribute the domain to a client
+# regardless of which package (if any) it's hosted on.
+
+@api_router.get("/domains")
+async def list_domain_registrations(current_user: dict = Depends(get_current_user)):
+    """List all domain registrations (sourced from 20i /domain).
+    Each row has name, renewal_date, optional client_id mapping, and ignored flag."""
+    rows = await db.domain_registrations.find({}, {"_id": 0, "raw": 0}).sort("name", 1).to_list(2000)
+    return rows
+
+
+@api_router.get("/clients/{client_id}/domains")
+async def list_client_domains(client_id: str, current_user: dict = Depends(get_current_user)):
+    """All domains attributed to this client, deduped, registration ownership wins.
+
+    Combines:
+    - Hosting package primary domains (where the package's mapping points here)
+    - Domain registrations directly mapped to this client
+    - Hosting package domains whose registration is mapped here (overrides package mapping)
+    Excludes: ignored hosting accounts, ignored domain registrations, AND hosting
+    package domains whose registration is mapped to a DIFFERENT client.
+    """
+    # Step 1 — domains owned via this client's hosting packages
+    own_packages = await db.hosting_accounts.find(
+        {"client_id": client_id, "ignored": {"$ne": True}},
+        {"_id": 0, "primary_domain": 1, "package": 1, "ssl_expiry": 1, "domain_renewal": 1}
+    ).to_list(500)
+
+    # Step 2 — domains directly mapped to this client via registrations
+    own_regs = await db.domain_registrations.find(
+        {"client_id": client_id, "ignored": {"$ne": True}},
+        {"_id": 0, "name": 1, "renewal_date": 1}
+    ).to_list(500)
+
+    # Step 3 — find which package domains have registration mappings elsewhere (must exclude)
+    pkg_names = [p["primary_domain"].lower() for p in own_packages if p.get("primary_domain")]
+    elsewhere_mapped = set()
+    if pkg_names:
+        elsewhere = await db.domain_registrations.find(
+            {"name": {"$in": pkg_names}, "client_id": {"$ne": None, "$ne": client_id}, "ignored": {"$ne": True}},
+            {"_id": 0, "name": 1}
+        ).to_list(500)
+        elsewhere_mapped = {r["name"].lower() for r in elsewhere}
+
+    # Step 4 — find package domains where registration mapping points HERE (claim them)
+    other_pkg_regs = await db.domain_registrations.find(
+        {"client_id": client_id, "ignored": {"$ne": True}},
+        {"_id": 0, "name": 1, "renewal_date": 1}
+    ).to_list(500)
+    own_reg_names = {r["name"].lower() for r in other_pkg_regs}
+    claimed_packages = []
+    if own_reg_names:
+        claimed = await db.hosting_accounts.find(
+            {"primary_domain": {"$in": [n for n in own_reg_names]}, "client_id": {"$ne": client_id}, "ignored": {"$ne": True}},
+            {"_id": 0, "primary_domain": 1, "package": 1, "ssl_expiry": 1}
+        ).to_list(500)
+        claimed_packages = claimed
+
+    # Combine + dedupe
+    seen = set()
+    out = []
+    def push(name, source, package=None, ssl_expiry=None, renewal=None):
+        key = (name or "").lower()
+        if not key or key in seen:
+            return
+        seen.add(key)
+        out.append({
+            "name": name, "source": source, "package": package,
+            "ssl_expiry": ssl_expiry, "renewal_date": renewal,
+        })
+
+    # Own packages first (exclude ones mapped elsewhere via registration)
+    for p in own_packages:
+        nm = p.get("primary_domain")
+        if nm and nm.lower() not in elsewhere_mapped:
+            push(nm, "package", p.get("package"), p.get("ssl_expiry"), p.get("domain_renewal"))
+    # Claimed packages (registration mapping pulled them here)
+    for c in claimed_packages:
+        push(c.get("primary_domain"), "registration_override_package", c.get("package"), c.get("ssl_expiry"), None)
+    # Direct registrations
+    for r in own_regs:
+        push(r.get("name"), "registration", None, None, r.get("renewal_date"))
+
+    return {"client_id": client_id, "count": len(out), "domains": out}
+
+
+@api_router.put("/domains/{name}/map")
+async def map_domain_to_client(
+    name: str,
+    data: dict = Body(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Map a domain registration to a client. Pass client_id=null to unmap."""
+    name_lower = name.lower().strip()
+    client_id = data.get("client_id")
+    update: Dict[str, Any] = {}
+    if client_id:
+        # Verify the client exists
+        client = await db.clients.find_one({"id": client_id})
+        if not client:
+            raise HTTPException(status_code=400, detail="Client not found")
+        update = {
+            "client_id": client_id,
+            "mapped_at": datetime.now(timezone.utc),
+            "mapped_by": current_user.get("username") or current_user.get("email"),
+        }
+    else:
+        # Unmap: clear the mapping fields
+        update = {"client_id": None, "mapped_at": None, "mapped_by": None}
+    result = await db.domain_registrations.update_one(
+        {"name": name_lower},
+        {"$set": update}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Domain not found")
+    return {"message": "Mapping updated"}
+
+
+@api_router.put("/domains/{name}/ignore")
+async def ignore_domain_registration(
+    name: str,
+    data: dict = Body(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Mark a domain as ignored (excluded from support count grid + client view)."""
+    name_lower = name.lower().strip()
+    ignored = data.get("ignored", True)
+    result = await db.domain_registrations.update_one(
+        {"name": name_lower},
+        {"$set": {
+            "ignored": ignored,
+            "ignored_by": current_user.get("username") or current_user.get("email"),
+            "ignored_at": datetime.now(timezone.utc),
+        }}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Domain not found")
+    return {"message": "Updated"}
+
+
 @api_router.post("/hosting/sync-to-support-count")
 async def sync_hosting_to_support_count(
     current_user: dict = Depends(get_current_user)
@@ -7746,7 +7933,7 @@ async def sync_20i_packages():
             resp.raise_for_status()
             packages = resp.json()
 
-            # Fetch all domains for renewal dates
+            # Fetch all domains for renewal dates AND persist as domain_registrations
             domain_renewal_map = {}
             try:
                 dresp = await client_http.get("https://api.20i.com/domain", headers=headers)
@@ -7755,8 +7942,35 @@ async def sync_20i_packages():
                     for d in (domains_data if isinstance(domains_data, list) else []):
                         name = d.get("name", "").lower().strip()
                         renewal = d.get("renewalDate") or d.get("renewal_date") or d.get("expiry") or d.get("expiryDate")
-                        if name and renewal:
+                        if not name:
+                            continue
+                        if renewal:
                             domain_renewal_map[name] = renewal
+
+                        # Persist into domain_registrations, preserving any
+                        # existing client_id mapping and ignored flag.
+                        existing_dom = await db.domain_registrations.find_one({"name": name})
+                        dom_doc = {
+                            "name": name,
+                            "renewal_date": renewal,
+                            "raw": d,
+                            "source": "20i",
+                            "last_synced": datetime.now(timezone.utc),
+                        }
+                        if existing_dom:
+                            if existing_dom.get("client_id"):
+                                dom_doc["client_id"] = existing_dom["client_id"]
+                                dom_doc["mapped_at"] = existing_dom.get("mapped_at")
+                                dom_doc["mapped_by"] = existing_dom.get("mapped_by")
+                            if existing_dom.get("ignored"):
+                                dom_doc["ignored"] = True
+                                dom_doc["ignored_by"] = existing_dom.get("ignored_by")
+                                dom_doc["ignored_at"] = existing_dom.get("ignored_at")
+                        await db.domain_registrations.update_one(
+                            {"name": name},
+                            {"$set": dom_doc},
+                            upsert=True,
+                        )
             except Exception as e:
                 logger.warning(f"20i domain fetch failed: {e}")
 

@@ -270,6 +270,7 @@ export default function ClientDetail() {
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState([]);
+  const [domains, setDomains] = useState([]);
 
   useEffect(() => {
     fetchData();
@@ -298,6 +299,14 @@ export default function ClientDetail() {
         setWorkstations(wsRes.data || []);
       } catch (e) {
         setWorkstations([]);
+      }
+
+      // Fetch domains attributed to this client (hosting + registrations, deduped)
+      try {
+        const domRes = await apiClient.get(`/clients/${id}/domains`);
+        setDomains(domRes.data?.domains || []);
+      } catch (e) {
+        setDomains([]);
       }
     } catch (error) {
       toast.error('Failed to load client details');
@@ -454,6 +463,10 @@ export default function ClientDetail() {
           </TabsTrigger>
           <TabsTrigger value="tasks">Tasks ({tasks.length})</TabsTrigger>
           <TabsTrigger value="incidents">Incidents ({incidents.length})</TabsTrigger>
+          <TabsTrigger value="domains">
+            <Globe className="h-4 w-4 mr-1" />
+            Domains ({domains.length})
+          </TabsTrigger>
           <TabsTrigger value="support">Support Contract</TabsTrigger>
           <TabsTrigger value="contact">Contact & Notes</TabsTrigger>
         </TabsList>
@@ -592,6 +605,53 @@ export default function ClientDetail() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="domains" className="mt-4">
+          <Card>
+            <CardContent className="p-4">
+              {domains.length === 0 ? (
+                <div className="empty-state py-8">
+                  <Globe className="h-12 w-12" />
+                  <p>No domains mapped to this client.</p>
+                  <p className="text-xs text-muted-foreground mt-1">Map domains via the Support Mappings page.</p>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    {domains.length} domain{domains.length === 1 ? '' : 's'} attributed to this client
+                    <span className="text-xs"> (hosting packages + direct registrations, deduped)</span>
+                  </p>
+                  <div className="space-y-1">
+                    {domains.map(d => (
+                      <div key={d.name} className="flex items-center gap-2 px-3 py-2 rounded border bg-muted/20 text-sm">
+                        <Globe className="h-4 w-4 text-blue-500 shrink-0" />
+                        <span className="font-mono flex-1 truncate">{d.name}</span>
+                        {d.package && (
+                          <Badge variant="outline" className="text-xs">{d.package}</Badge>
+                        )}
+                        {d.source === 'registration' && (
+                          <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-400 border-blue-500/40">Registration</Badge>
+                        )}
+                        {d.source === 'registration_override_package' && (
+                          <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-400 border-amber-500/40" title="This domain's hosting package is mapped elsewhere, but the registration mapping points here">Owned via registration</Badge>
+                        )}
+                        {d.renewal_date && (
+                          <span className="text-xs text-muted-foreground" title="Domain renewal">
+                            renewal: {new Date(d.renewal_date).toLocaleDateString()}
+                          </span>
+                        )}
+                        {d.ssl_expiry && (
+                          <span className="text-xs text-muted-foreground" title="SSL expiry">
+                            SSL: {new Date(d.ssl_expiry).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </CardContent>

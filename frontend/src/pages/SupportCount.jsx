@@ -50,6 +50,7 @@ export default function SupportCount() {
   const [copyingMonth, setCopyingMonth] = useState(false);
   const [rollingOver, setRollingOver] = useState(false);
   const [remarksPopup, setRemarksPopup] = useState(null);  // { client, text } | null
+  const [domainsPopup, setDomainsPopup] = useState(null);  // { client, domains } | null
 
   const wipeMonth = async () => {
     const confirmed = window.confirm(
@@ -588,6 +589,9 @@ export default function SupportCount() {
               <th colSpan={4} className="px-2 py-1 text-center font-bold border-r text-xs bg-teal-100/50 dark:bg-teal-900/30 text-teal-800 dark:text-teal-300">
                 20i
               </th>
+              <th className="px-2 py-1 text-center font-bold border-r text-xs bg-blue-100/50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300" rowSpan={2} title="Total unique domains for this client (hosting + registrations, deduped)">
+                Domains
+              </th>
               <th className="px-2 py-1 text-center font-bold border-r text-xs bg-purple-100/50 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300" rowSpan={2}>
                 Giacom<br/>Monthly
               </th>
@@ -608,7 +612,7 @@ export default function SupportCount() {
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={visibleProducts.length + 9} className="text-center py-12 text-muted-foreground">No data for this month</td>
+                <td colSpan={visibleProducts.length + 10} className="text-center py-12 text-muted-foreground">No data for this month</td>
               </tr>
             ) : filteredRows.map((row, idx) => {
               const rowBg = idx % 2 === 0 ? 'bg-white dark:bg-gray-950' : 'bg-gray-50 dark:bg-gray-900';
@@ -696,6 +700,22 @@ export default function SupportCount() {
                       : <span className="text-gray-300">—</span>}
                   </td>
 
+                  {/* Domains count — click to expand the full list */}
+                  <td className="border-r px-2 py-1.5 text-center text-xs">
+                    {row.domain_count > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setDomainsPopup({ client: row.client_name, domains: row.hosting_domains || [] })}
+                        className="font-medium text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                        title="Click to view all domains"
+                      >
+                        {row.domain_count}
+                      </button>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
+                  </td>
+
                   {/* Giacom monthly cost */}
                   <td className="border-r px-2 py-1.5 text-center text-xs">
                     {row.giacom_monthly_cost != null
@@ -770,6 +790,35 @@ export default function SupportCount() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRemarksPopup(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Domains popup — list of all domains for this client */}
+      <Dialog open={!!domainsPopup} onOpenChange={() => setDomainsPopup(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Domains · {domainsPopup?.client}</DialogTitle>
+          </DialogHeader>
+          <div className="py-2 max-h-96 overflow-y-auto">
+            {(domainsPopup?.domains || []).length === 0 ? (
+              <p className="text-sm text-muted-foreground">No domains.</p>
+            ) : (
+              <div className="space-y-1">
+                {(domainsPopup?.domains || []).map(d => (
+                  <div key={d} className="flex items-center gap-2 text-sm font-mono px-2 py-1 rounded bg-muted/50">
+                    <Globe className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                    <span className="truncate">{d}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground mt-3">
+              Total: {(domainsPopup?.domains || []).length} unique domain{(domainsPopup?.domains || []).length === 1 ? '' : 's'}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDomainsPopup(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
