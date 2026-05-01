@@ -7657,12 +7657,24 @@ async def sync_hosting_to_support_count(
 
     added = 0
     skipped = 0
+    skipped_tombstone = 0
     for client_id, domains in by_client.items():
-        existing = await db.client_support_snapshots.find_one(
+        # Check for ANY existing snapshot — including tombstones (removed:True).
+        # If a user has explicitly deleted this client from the month, we MUST
+        # respect that and not re-add them. Previously this checked for
+        # 'removed: {$ne: True}' which would skip tombstones and re-add the
+        # client every time this endpoint ran. Bug fix: tombstones now stick.
+        existing_active = await db.client_support_snapshots.find_one(
             {"client_id": client_id, "month": current_month, "removed": {"$ne": True}}
         )
-        if existing:
+        if existing_active:
             skipped += 1
+            continue
+        existing_tombstone = await db.client_support_snapshots.find_one(
+            {"client_id": client_id, "month": current_month, "removed": True}
+        )
+        if existing_tombstone:
+            skipped_tombstone += 1
             continue
         domain_names = ", ".join(domains)
         await db.client_support_snapshots.insert_one({
@@ -7676,7 +7688,15 @@ async def sync_hosting_to_support_count(
         })
         added += 1
 
-    return {"message": f"Added {added} hosting clients to {current_month}. {skipped} already present.", "added": added, "skipped": skipped}
+    msg_parts = [f"Added {added} hosting clients to {current_month}", f"{skipped} already present"]
+    if skipped_tombstone:
+        msg_parts.append(f"{skipped_tombstone} previously removed (skipped — use Restore to re-add)")
+    return {
+        "message": ". ".join(msg_parts) + ".",
+        "added": added,
+        "skipped": skipped,
+        "skipped_tombstone": skipped_tombstone,
+    }
 
 
 
@@ -8494,20 +8514,21 @@ async def start_scheduler():
         max_instances=1
     )
 
-    # Add 20i hosting sync job — twice daily at 06:00 and 18:00 Europe/London.
+    # Add 20i hosting sync job — every 3 hours.
     # Hosting data (SSL expiry, domain renewals, package info) changes slowly,
     # so polling every sync_interval was overkill and was causing 429 rate limits
     # from the ~240 sequential API calls per run (1 packages + 1 domains + 119*2
-    # for SSL/Turbo per package).
+    # for SSL/Turbo per package). Every 3 hours = 8 syncs/day, ~1900 API calls/day,
+    # well within 20i's tolerance.
     if os.environ.get('TWENTY_I_API_KEY'):
         scheduler.add_job(
             sync_20i_packages,
-            CronTrigger(hour="6,18", minute=0, timezone="Europe/London"),
+            CronTrigger(hour="*/3", minute=0, timezone="Europe/London"),
             id="twenty_i_sync",
             replace_existing=True,
             max_instances=1
         )
-        logger.info("20i sync job scheduled (06:00 and 18:00 Europe/London)")
+        logger.info("20i sync job scheduled (every 3 hours)")
         # No on-startup sync — that triggered a full hammering of the 20i API
         # on every container restart. Use POST /api/integrations/20i/sync to
         # force a fresh sync after deploy if needed.
