@@ -137,6 +137,23 @@ export default function Incidents() {
     }
   };
 
+  const handleConfirmResolution = async (incident) => {
+    if (!incident) return;
+    if (!confirm(
+      `Confirm resolution of "${incident.title}"?\n\n` +
+      `The system marked this resolved automatically — ` +
+      (incident.auto_resolved_reason || 'underlying issue cleared') +
+      `.\n\nClicking OK closes the incident.`
+    )) return;
+    try {
+      await apiClient.put(`/incidents/${incident.id}/confirm-resolution`, {});
+      toast.success('Resolution confirmed');
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to confirm resolution');
+    }
+  };
+
   const handleDelete = async (id) => {
     if (!confirm('Are you sure you want to delete this incident?')) return;
     try {
@@ -401,12 +418,26 @@ export default function Incidents() {
                       <div className="flex items-center gap-2">
                         {getStatusIcon(incident.status)}
                         <span className="capitalize">{incident.status}</span>
+                        {incident.awaiting_confirmation && (
+                          <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/40 text-xs">
+                            Awaiting confirmation
+                          </Badge>
+                        )}
+                        {incident.occurrence_count > 1 && (
+                          <Badge variant="outline" className="bg-purple-500/10 text-purple-400 border-purple-500/40 text-xs" title="This incident has recurred">
+                            ×{incident.occurrence_count}
+                          </Badge>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={incident.source === 'trmm' ? 'bg-cyan-500/10 text-cyan-400' : ''}>
-                        {incident.source === 'trmm' ? 'TRMM' : 'Manual'}
-                      </Badge>
+                      {(() => {
+                        const src = incident.source || 'manual';
+                        if (src === 'manual') return <Badge variant="outline">Manual</Badge>;
+                        if (src === 'trmm_offline') return <Badge variant="outline" className="bg-red-500/10 text-red-400 border-red-500/40">Server Offline</Badge>;
+                        if (src === 'trmm') return <Badge variant="outline" className="bg-cyan-500/10 text-cyan-400">TRMM</Badge>;
+                        return <Badge variant="outline" className="bg-cyan-500/10 text-cyan-400">{src.replace(/_/g, ' ')}</Badge>;
+                      })()}
                     </TableCell>
                     <TableCell className="font-medium">{incident.title}</TableCell>
                     <TableCell>{incident.client_name || '-'}</TableCell>
@@ -429,6 +460,12 @@ export default function Incidents() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          {incident.awaiting_confirmation && (
+                            <DropdownMenuItem onClick={() => handleConfirmResolution(incident)}>
+                              <CheckCircle className="h-4 w-4 mr-2 text-emerald-500" />
+                              Confirm Resolution
+                            </DropdownMenuItem>
+                          )}
                           {incident.status !== 'resolved' && (
                             <DropdownMenuItem onClick={() => {
                               setSelectedIncident(incident);

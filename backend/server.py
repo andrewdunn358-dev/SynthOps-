@@ -367,6 +367,14 @@ class IncidentResponse(BaseModel):
     resolution_notes: Optional[str]
     created_by: str
     resolved_by: Optional[str]
+    # Auto-incident fields (None for pre-existing manual incidents)
+    source: Optional[str] = None
+    dedup_key: Optional[str] = None
+    occurrence_count: Optional[int] = None
+    last_seen_at: Optional[datetime] = None
+    auto_resolved_at: Optional[datetime] = None
+    auto_resolved_reason: Optional[str] = None
+    awaiting_confirmation: Optional[bool] = None
 
 class MaintenanceCreate(BaseModel):
     server_id: str
@@ -1935,7 +1943,14 @@ async def list_incidents(status: Optional[str] = None, client_id: Optional[str] 
             description=decrypt_field(i.get("description")) if i.get("description") else None,
             root_cause=decrypt_field(i.get("root_cause")) if i.get("root_cause") else None,
             resolution_notes=decrypt_field(i.get("resolution_notes")) if i.get("resolution_notes") else None,
-            created_by=i["created_by"], resolved_by=i.get("resolved_by")
+            created_by=i["created_by"], resolved_by=i.get("resolved_by"),
+            source=i.get("source"),
+            dedup_key=i.get("dedup_key"),
+            occurrence_count=i.get("occurrence_count"),
+            last_seen_at=datetime.fromisoformat(i["last_seen_at"]) if i.get("last_seen_at") else None,
+            auto_resolved_at=datetime.fromisoformat(i["auto_resolved_at"]) if i.get("auto_resolved_at") else None,
+            auto_resolved_reason=i.get("auto_resolved_reason"),
+            awaiting_confirmation=i.get("awaiting_confirmation"),
         ))
     return result
 
@@ -1954,7 +1969,8 @@ async def create_incident(incident_data: IncidentCreate, user: dict = Depends(ge
         "root_cause": None,
         "resolution_notes": None,
         "created_by": user["id"],
-        "resolved_by": None
+        "resolved_by": None,
+        "source": "manual",
     }
     await db.incidents.insert_one(incident)
     incidents = await list_incidents(user=user)
@@ -1969,12 +1985,37 @@ async def resolve_incident(incident_id: str, root_cause: Optional[str] = Body(No
         "date_resolved": datetime.now(timezone.utc).isoformat(),
         "root_cause": encrypt_field(root_cause) if root_cause else None,
         "resolution_notes": encrypt_field(resolution_notes) if resolution_notes else None,
-        "resolved_by": user["id"]
+        "resolved_by": user["id"],
+        "awaiting_confirmation": False,  # explicit human resolution clears the flag
     }
     result = await db.incidents.update_one({"id": incident_id}, {"$set": update_data})
-    if result.modified_count == 0:
+    if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Incident not found")
     return {"message": "Incident resolved"}
+
+
+@api_router.put("/incidents/{incident_id}/confirm-resolution")
+async def confirm_incident_resolution(
+    incident_id: str,
+    resolution_notes: Optional[str] = Body(None),
+    user: dict = Depends(get_current_user),
+):
+    """Confirm an auto-resolved incident. Used when the system detected the
+    underlying issue cleared (e.g. server back online) and a human is signing off."""
+    incident = await db.incidents.find_one({"id": incident_id})
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    if not incident.get("awaiting_confirmation"):
+        raise HTTPException(status_code=400, detail="Incident is not awaiting confirmation")
+
+    update = {
+        "awaiting_confirmation": False,
+        "resolved_by": user["id"],
+    }
+    if resolution_notes:
+        update["resolution_notes"] = encrypt_field(resolution_notes)
+    await db.incidents.update_one({"id": incident_id}, {"$set": update})
+    return {"message": "Resolution confirmed"}
 
 @api_router.delete("/incidents/{incident_id}")
 async def delete_incident(incident_id: str, user: dict = Depends(get_current_user)):
@@ -5804,6 +5845,126 @@ app.add_middleware(
 
 scheduler = AsyncIOScheduler()
 
+async def _raise_or_update_auto_incident(
+    *,
+    source: str,
+    dedup_key: str,
+    title: str,
+    severity: str = "high",
+    server_id: Optional[str] = None,
+    server_name: Optional[str] = None,
+    client_id: Optional[str] = None,
+    client_name: Optional[str] = None,
+    description: Optional[str] = None,
+    teams_facts: Optional[List[Dict[str, str]]] = None,
+) -> dict:
+    """Create a new auto-incident or update an existing one with the same dedup_key.
+
+    - First occurrence: creates incident, sends ONE Teams ping with link
+    - Repeat occurrences: bumps occurrence_count + last_seen_at, no Teams ping
+    - If a previously-resolved incident with same dedup_key exists, opens a NEW one
+      (the previous outage was resolved, this is a fresh event)
+    """
+    now_utc = datetime.now(timezone.utc)
+    now_iso = now_utc.isoformat()
+
+    # Look for an OPEN or AWAITING-CONFIRMATION incident with this dedup_key
+    existing = await db.incidents.find_one({
+        "dedup_key": dedup_key,
+        "status": {"$in": ["open"]},  # only "open" — once resolved, a recurrence opens a fresh one
+    })
+
+    if existing:
+        # Repeat occurrence — bump counter, no Teams ping
+        await db.incidents.update_one(
+            {"id": existing["id"]},
+            {"$set": {"last_seen_at": now_iso}, "$inc": {"occurrence_count": 1}},
+        )
+        logger.info(f"Auto-incident {existing['id']} ({dedup_key}) - occurrence bumped")
+        return existing
+
+    # First occurrence — create new incident
+    incident = {
+        "id": str(uuid.uuid4()),
+        "title": title,
+        "server_id": server_id,
+        "client_id": client_id,
+        "severity": severity,
+        "status": "open",
+        "date_opened": now_iso,
+        "date_resolved": None,
+        "description": encrypt_field(description) if description else None,
+        "root_cause": None,
+        "resolution_notes": None,
+        "created_by": "system",
+        "resolved_by": None,
+        # Auto-incident fields
+        "source": source,
+        "dedup_key": dedup_key,
+        "occurrence_count": 1,
+        "last_seen_at": now_iso,
+        "auto_resolved_at": None,
+        "auto_resolved_reason": None,
+        "awaiting_confirmation": False,
+    }
+    await db.incidents.insert_one(incident)
+    logger.info(f"Auto-incident {incident['id']} created ({dedup_key})")
+
+    # Single Teams ping with link to the incident page
+    facts = list(teams_facts or [])
+    facts.append({"name": "Incident", "value": f"#{incident['id'][:8]}"})
+    facts.append({"name": "Detected", "value": now_utc.strftime('%Y-%m-%d %H:%M:%S UTC')})
+
+    # Construct link to incident page if APP_URL is set
+    app_url = os.environ.get("APP_URL", "").rstrip("/")
+    incident_link = f"{app_url}/incidents" if app_url else "Open the Incidents page in SynthOps"
+    msg = (description or title) + f"\n\n[View incident]({incident_link})"
+
+    asyncio.create_task(send_teams_notification(
+        title=f"🚨 {title}",
+        message=msg,
+        color="FF0000" if severity in ("high", "critical") else "FFA500",
+        facts=facts,
+    ))
+
+    return incident
+
+
+async def _auto_resolve_incident_by_dedup_key(
+    *,
+    dedup_key: str,
+    reason: str,
+) -> Optional[dict]:
+    """Mark an open auto-incident as resolved-awaiting-confirmation when the
+    underlying condition clears (e.g. server back online).
+
+    The incident is set to status=resolved + awaiting_confirmation=True.
+    A human must click 'Confirm Resolution' on the incidents page to fully close it.
+    """
+    now_utc = datetime.now(timezone.utc)
+    now_iso = now_utc.isoformat()
+
+    existing = await db.incidents.find_one({
+        "dedup_key": dedup_key,
+        "status": "open",
+    })
+    if not existing:
+        return None
+
+    await db.incidents.update_one(
+        {"id": existing["id"]},
+        {"$set": {
+            "status": "resolved",
+            "date_resolved": now_iso,
+            "auto_resolved_at": now_iso,
+            "auto_resolved_reason": reason,
+            "awaiting_confirmation": True,
+        }},
+    )
+    logger.info(f"Auto-incident {existing['id']} ({dedup_key}) auto-resolved: {reason}")
+    return existing
+
+
 async def scheduled_trmm_sync():
     """Background task to sync TRMM data"""
     api_url = os.environ.get("TACTICAL_RMM_API_URL", "").rstrip("/")
@@ -5907,27 +6068,41 @@ async def scheduled_trmm_sync():
                                 "new_value": new_status,
                                 "created_at": datetime.now(timezone.utc).isoformat()
                             })
-                            
-                            # Send Teams notification if server went offline
+
+                            # Auto-incident: server went offline → raise (or bump if recurring)
                             if new_status == "offline" and old_status == "online":
-                                # Get client info for notification
+                                # Get client info for the incident
                                 site = await db.sites.find_one({"id": existing_server.get("site_id")}, {"client_id": 1})
-                                client_name = "Unknown"
+                                local_client_for_inc = None
+                                client_name_for_inc = "Unknown"
                                 if site:
-                                    client = await db.clients.find_one({"id": site.get("client_id")}, {"name": 1})
-                                    client_name = client.get("name") if client else "Unknown"
-                                
-                                asyncio.create_task(send_teams_notification(
-                                    title="🚨 Server Offline Alert",
-                                    message=f"Server **{hostname}** has gone offline.",
-                                    color="FF0000",
-                                    facts=[
+                                    local_client_for_inc = await db.clients.find_one({"id": site.get("client_id")}, {"id": 1, "name": 1})
+                                    if local_client_for_inc:
+                                        client_name_for_inc = local_client_for_inc.get("name", "Unknown")
+
+                                await _raise_or_update_auto_incident(
+                                    source="trmm_offline",
+                                    dedup_key=f"trmm-offline-{existing_server['id']}",
+                                    title=f"Server offline: {hostname}",
+                                    severity="high",
+                                    server_id=existing_server["id"],
+                                    server_name=hostname,
+                                    client_id=local_client_for_inc["id"] if local_client_for_inc else None,
+                                    client_name=client_name_for_inc,
+                                    description=f"Server {hostname} ({client_name_for_inc}) has gone offline. Detected by TRMM sync.",
+                                    teams_facts=[
                                         {"name": "Server", "value": hostname},
-                                        {"name": "Client", "value": client_name},
+                                        {"name": "Client", "value": client_name_for_inc},
                                         {"name": "IP Address", "value": existing_server.get("ip_address", "Unknown")},
-                                        {"name": "Detected", "value": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
-                                    ]
-                                ))
+                                    ],
+                                )
+
+                            # Auto-resolve: server came back online → mark awaiting confirmation
+                            elif new_status == "online" and old_status == "offline":
+                                await _auto_resolve_incident_by_dedup_key(
+                                    dedup_key=f"trmm-offline-{existing_server['id']}",
+                                    reason="Server back online (detected by TRMM sync)",
+                                )
                         
                         # Update server
                         await db.servers.update_one(
