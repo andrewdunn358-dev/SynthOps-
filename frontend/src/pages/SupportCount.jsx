@@ -7,6 +7,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../components/ui/select';
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetDescription,
+} from '../components/ui/sheet';
 import { Save, Download, Search, ChevronLeft, ChevronRight, Edit, X, Plus, Copy, Lock, Unlock, Trash2, Globe } from 'lucide-react';
 
 const CATEGORY_LABELS = {
@@ -476,9 +479,9 @@ export default function SupportCount() {
         <table className="text-xs border-collapse w-full">
           <thead className="sticky top-0 z-20 bg-background">
             <tr className="border-b">
-              <th className="sticky left-0 z-30 bg-white dark:bg-gray-950 border-r px-3 py-2 text-left font-bold min-w-52 text-sm" rowSpan={2}>Client</th>
+              <th className="sticky left-0 z-30 bg-white dark:bg-gray-950 border-r px-2 py-2 text-center font-bold text-xs" style={{ width: '64px', minWidth: '64px' }} rowSpan={2}>Actions</th>
+              <th className="sticky z-30 bg-white dark:bg-gray-950 border-r px-3 py-2 text-left font-bold min-w-52 text-sm" style={{ left: '64px' }} rowSpan={2}>Client</th>
               <th className="border-r px-2 py-2 text-left font-bold min-w-28 text-xs" rowSpan={2}>Support Type</th>
-              <th className="sticky z-30 bg-white dark:bg-gray-950 border-r px-2 py-2 text-center font-bold min-w-16 text-xs" style={{ left: '20rem' }} rowSpan={2}>Actions</th>
               {Object.entries(productsByCategory).map(([cat, prods]) => {
                 if (hiddenCategories[cat]) return null;
                 return (
@@ -513,12 +516,29 @@ export default function SupportCount() {
                 <td colSpan={visibleProducts.length + 9} className="text-center py-12 text-muted-foreground">No data for this month</td>
               </tr>
             ) : filteredRows.map((row, idx) => {
-              const isEditing = editingRow === (row.snapshot_key || row.client_id);
+              const rowBg = idx % 2 === 0 ? 'bg-white dark:bg-gray-950' : 'bg-gray-50 dark:bg-gray-900';
               return (
                 <tr key={row.client_id}
-                  className={`border-b hover:bg-accent/30 transition-colors group ${idx % 2 === 0 ? 'bg-white dark:bg-gray-950' : 'bg-gray-50 dark:bg-gray-900'} ${isEditing ? '!bg-accent' : ''}`}>
+                  className={`border-b hover:bg-accent/30 transition-colors group ${rowBg}`}>
 
-                  <td className={`sticky left-0 z-10 border-r px-3 py-1.5 font-medium min-w-52 ${stickyBg(idx, isEditing)}`}>
+                  {/* Actions — sticky leftmost */}
+                  <td className={`sticky left-0 z-10 border-r px-2 py-1.5 whitespace-nowrap text-center ${rowBg}`} style={{ width: '64px', minWidth: '64px' }}>
+                    {!isLocked ? (
+                      <div className="flex gap-0.5 justify-center">
+                        <Button size="sm" variant="ghost" className="h-6 px-1.5 text-muted-foreground hover:text-foreground" onClick={() => startEdit(row)} title="Edit">
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-6 px-1.5 text-muted-foreground hover:text-red-600" onClick={() => setDeleteConfirm(row.client_id)} title="Remove from this month">
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Lock className="h-3 w-3 text-amber-400 mx-auto" />
+                    )}
+                  </td>
+
+                  {/* Client name — sticky next */}
+                  <td className={`sticky z-10 border-r px-3 py-1.5 font-medium min-w-52 ${rowBg}`} style={{ left: '64px' }}>
                     <div className="flex items-center gap-2">
                       {row.is_site ? (
                         <div className="flex flex-col min-w-0">
@@ -535,46 +555,15 @@ export default function SupportCount() {
                   </td>
 
                   <td className="border-r px-2 py-1.5 text-left min-w-28">
-                    {isEditing ? (
-                      <select className="text-xs border rounded px-1 py-0.5 w-full" value={editValues.support_type || ''} onChange={e => setEditValues(v => ({ ...v, support_type: e.target.value }))}>
-                        <option value="">—</option>
-                        {['Monthly', 'PAYG', 'Support Fund', 'Hosting'].map(t => <option key={t} value={t}>{t}</option>)}
-                      </select>
-                    ) : (
-                      row.support_type
-                        ? <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">{row.support_type}</span>
-                        : <span className="text-gray-300">—</span>
-                    )}
-                  </td>
-
-                  {/* Sticky Actions column — Edit / Delete / Save / Cancel */}
-                  <td className={`sticky z-10 border-r px-2 py-1.5 whitespace-nowrap text-center min-w-16 ${stickyBg(idx, isEditing)}`} style={{ left: '20rem' }}>
-                    {isEditing ? (
-                      <div className="flex gap-1 justify-center">
-                        <Button size="sm" className="h-6 text-xs px-2" onClick={() => saveRow(row)} disabled={saving}>
-                          <Save className="h-3 w-3 mr-1" />{saving ? '...' : 'Save'}
-                        </Button>
-                        <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={cancelEdit}>
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ) : !isLocked ? (
-                      <div className="flex gap-0.5 justify-center">
-                        <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-muted-foreground hover:text-foreground" onClick={() => startEdit(row)} title="Edit">
-                          <Edit className="h-3 w-3" />
-                        </Button>
-                        <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-muted-foreground hover:text-red-600" onClick={() => setDeleteConfirm(row.client_id)} title="Remove from this month">
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <Lock className="h-3 w-3 text-amber-400 mx-auto" />
-                    )}
+                    {row.support_type
+                      ? <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800">{row.support_type}</span>
+                      : <span className="text-gray-300">—</span>
+                    }
                   </td>
 
                   {visibleProducts.map(p => (
                     <td key={p.id} className="border-r px-2 py-1.5 text-center">
-                      {isEditing ? renderEditCell(p, editValues, setEditValues) : renderCellValue(p, row.products?.[p.name], row)}
+                      {renderCellValue(p, row.products?.[p.name], row)}
                     </td>
                   ))}
 
@@ -620,9 +609,7 @@ export default function SupportCount() {
                   </td>
 
                   <td className="px-3 py-1.5 text-xs text-muted-foreground">
-                    {isEditing ? (
-                      <input className="w-full text-xs border rounded px-1 py-0.5" value={editValues.remarks || ''} onChange={e => setEditValues(v => ({ ...v, remarks: e.target.value }))} />
-                    ) : row.remarks ? (
+                    {row.remarks ? (
                       <button
                         type="button"
                         onClick={() => setRemarksPopup({ client: row.client_name, text: row.remarks })}
@@ -691,6 +678,111 @@ export default function SupportCount() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit row — side panel (Sheet) */}
+      <Sheet
+        open={!!editingRow}
+        onOpenChange={(open) => { if (!open) cancelEdit(); }}
+      >
+        <SheetContent side="right" className="w-full sm:max-w-xl overflow-y-auto">
+          {(() => {
+            const row = filteredRows.find(r => (r.snapshot_key || r.client_id) === editingRow);
+            if (!row) return null;
+            return (
+              <>
+                <SheetHeader>
+                  <SheetTitle>{row.client_name}</SheetTitle>
+                  <SheetDescription>
+                    Editing {formatMonthLabel(selectedMonth)}
+                    {row.is_site && row.parent_client_name ? ` · site of ${row.parent_client_name}` : ''}
+                  </SheetDescription>
+                </SheetHeader>
+
+                <div className="space-y-5 py-4">
+                  {/* Support type */}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Support Type</label>
+                    <select
+                      className="w-full text-sm border rounded px-2 py-1.5 bg-background"
+                      value={editValues.support_type || ''}
+                      onChange={e => setEditValues(v => ({ ...v, support_type: e.target.value }))}
+                    >
+                      <option value="">—</option>
+                      {['Monthly', 'PAYG', 'Support Fund', 'Hosting'].map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Products grouped by category */}
+                  {Object.entries(productsByCategory).map(([cat, prods]) => (
+                    <div key={cat} className="space-y-2">
+                      <div className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${CATEGORY_COLOURS[cat] || ''}`}>
+                        {CATEGORY_LABELS[cat]}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {prods.map(p => {
+                          const current = editValues.products?.[p.name];
+                          return (
+                            <div key={p.id} className="space-y-1">
+                              <label className="text-xs text-muted-foreground">{p.name}</label>
+                              {p.unit === 'yes/no' ? (
+                                <div className="flex items-center gap-2 h-9">
+                                  <input
+                                    type="checkbox"
+                                    className="w-4 h-4"
+                                    checked={!!current}
+                                    onChange={e => setEditValues(v => ({ ...v, products: { ...v.products, [p.name]: e.target.checked } }))}
+                                  />
+                                  <span className="text-xs text-muted-foreground">{current ? 'Yes' : 'No'}</span>
+                                </div>
+                              ) : p.unit === 'text' ? (
+                                <input
+                                  type="text"
+                                  className="w-full text-sm border rounded px-2 py-1.5 bg-background"
+                                  value={current || ''}
+                                  onChange={e => setEditValues(v => ({ ...v, products: { ...v.products, [p.name]: e.target.value } }))}
+                                />
+                              ) : (
+                                <input
+                                  type="number"
+                                  min="0"
+                                  className="w-full text-sm border rounded px-2 py-1.5 bg-background"
+                                  value={current ?? ''}
+                                  onChange={e => setEditValues(v => ({ ...v, products: { ...v.products, [p.name]: e.target.value === '' ? undefined : Number(e.target.value) } }))}
+                                  placeholder={p.unit === 'gb' ? 'GB' : ''}
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Remarks */}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Remarks</label>
+                    <textarea
+                      className="w-full text-sm border rounded px-2 py-1.5 bg-background min-h-24 resize-y"
+                      value={editValues.remarks || ''}
+                      onChange={e => setEditValues(v => ({ ...v, remarks: e.target.value }))}
+                      placeholder="Notes about this client for this month..."
+                    />
+                  </div>
+                </div>
+
+                <SheetFooter className="gap-2">
+                  <Button variant="outline" onClick={cancelEdit} disabled={saving}>
+                    <X className="h-4 w-4 mr-1" /> Cancel
+                  </Button>
+                  <Button onClick={() => saveRow(row)} disabled={saving}>
+                    <Save className="h-4 w-4 mr-1" /> {saving ? 'Saving...' : 'Save Changes'}
+                  </Button>
+                </SheetFooter>
+              </>
+            );
+          })()}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
