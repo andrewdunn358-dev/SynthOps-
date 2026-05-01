@@ -8494,18 +8494,23 @@ async def start_scheduler():
         max_instances=1
     )
 
-    # Add 20i hosting sync job
+    # Add 20i hosting sync job — twice daily at 06:00 and 18:00 Europe/London.
+    # Hosting data (SSL expiry, domain renewals, package info) changes slowly,
+    # so polling every sync_interval was overkill and was causing 429 rate limits
+    # from the ~240 sequential API calls per run (1 packages + 1 domains + 119*2
+    # for SSL/Turbo per package).
     if os.environ.get('TWENTY_I_API_KEY'):
         scheduler.add_job(
             sync_20i_packages,
-            IntervalTrigger(minutes=sync_interval),
+            CronTrigger(hour="6,18", minute=0, timezone="Europe/London"),
             id="twenty_i_sync",
             replace_existing=True,
             max_instances=1
         )
-        logger.info("20i sync job scheduled")
-        # Run immediately on startup
-        asyncio.create_task(sync_20i_packages())
+        logger.info("20i sync job scheduled (06:00 and 18:00 Europe/London)")
+        # No on-startup sync — that triggered a full hammering of the 20i API
+        # on every container restart. Use POST /api/integrations/20i/sync to
+        # force a fresh sync after deploy if needed.
 
     scheduler.start()
     logger.info("Scheduler started successfully")
