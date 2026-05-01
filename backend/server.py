@@ -7638,16 +7638,16 @@ async def _add_hosting_client_to_month(client_id, primary_domain, now, current_u
         {"client_id": client_id, "month": current_month, "removed": {"$ne": True}}
     )
     if not existing_snap:
-        # Get all domains mapped to this client to populate Domain Name
-        all_accounts = await db.hosting_accounts.find(
-            {"client_id": client_id}, {"_id": 0, "primary_domain": 1}
-        ).to_list(50)
-        domain_names = ", ".join(a["primary_domain"] for a in all_accounts)
+        # Insert a clean snapshot. Domain Names is intentionally left blank —
+        # the support count grid renders mapped hosting/registration domains
+        # as pills (live from hosting_accounts + domain_registrations), so
+        # auto-populating them here would just clutter the cell with technical
+        # names the user typically replaces with a friendlier label.
         await db.client_support_snapshots.insert_one({
             "client_id": client_id,
             "month": current_month,
             "support_type": "Hosting",
-            "products": {"Domain Name": domain_names} if domain_names else {},
+            "products": {},
             "remarks": None,
             "snapshot_date": now,
             "updated_by": current_user.get("username") or current_user.get("email"),
@@ -7845,7 +7845,7 @@ async def sync_hosting_to_support_count(
     added = 0
     skipped = 0
     skipped_tombstone = 0
-    for client_id, domains in by_client.items():
+    for client_id, _domains in by_client.items():
         # Check for ANY existing snapshot — including tombstones (removed:True).
         # If a user has explicitly deleted this client from the month, we MUST
         # respect that and not re-add them. Previously this checked for
@@ -7863,12 +7863,13 @@ async def sync_hosting_to_support_count(
         if existing_tombstone:
             skipped_tombstone += 1
             continue
-        domain_names = ", ".join(domains)
+        # Domain Names left blank — pills render live from hosting_accounts
+        # + domain_registrations, so user can type a friendly label.
         await db.client_support_snapshots.insert_one({
             "client_id": client_id,
             "month": current_month,
             "support_type": "Hosting",
-            "products": {"Domain Name": domain_names} if domain_names else {},
+            "products": {},
             "remarks": None,
             "snapshot_date": now,
             "updated_by": current_user.get("username") or current_user.get("email"),

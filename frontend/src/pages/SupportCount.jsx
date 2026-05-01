@@ -274,8 +274,14 @@ export default function SupportCount() {
   // no domains, no Giacom data, no remarks. Typical cause: client was created from
   // a 20i hosting auto-create flow, then the hosting account was remapped to a
   // different client — leaving an empty shell. Hidden by default.
+  //
+  // Orphan product keys (keys in row.products that don't match any current
+  // support_products entry — e.g. a renamed or removed product) are ignored
+  // here, otherwise stale data invisibly keeps a row "non-empty" forever.
+  const validProductNames = new Set((data?.products || []).map(p => p.name));
   const isEmptyRow = (row) => {
-    const hasProductValue = row.products && Object.values(row.products).some(v =>
+    const hasProductValue = row.products && Object.entries(row.products).some(([k, v]) =>
+      validProductNames.has(k) &&
       v !== null && v !== undefined && v !== '' && v !== 0 && v !== false
     );
     const hasDomains = Array.isArray(row.hosting_domains) && row.hosting_domains.length > 0;
@@ -356,7 +362,7 @@ export default function SupportCount() {
     }
 
     if (displayVal === null || displayVal === undefined || displayVal === '') {
-      if (product.name === 'Domain Name' && row?.hosting_domains?.length > 0) {
+      if (product.name === 'Domain Names' && row?.hosting_domains?.length > 0) {
         return (
           <div className="flex flex-wrap gap-0.5">
             {row.hosting_domains.map(d => (
@@ -370,7 +376,7 @@ export default function SupportCount() {
       return <span className="text-gray-300">—</span>;
     }
 
-    if (product.name === 'Domain Name' && row?.hosting_domains?.length > 0) {
+    if (product.name === 'Domain Names' && row?.hosting_domains?.length > 0) {
       return (
         <div className="space-y-0.5">
           {displayVal !== null && displayVal !== undefined && displayVal !== '' && (
