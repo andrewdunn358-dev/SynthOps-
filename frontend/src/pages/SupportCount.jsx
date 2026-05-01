@@ -45,6 +45,7 @@ export default function SupportCount() {
   const [wiping, setWiping] = useState(false);
   const [copyingMonth, setCopyingMonth] = useState(false);
   const [rollingOver, setRollingOver] = useState(false);
+  const [remarksPopup, setRemarksPopup] = useState(null);  // { client, text } | null
 
   const wipeMonth = async () => {
     const confirmed = window.confirm(
@@ -263,9 +264,16 @@ export default function SupportCount() {
     return new Date(parseInt(year), parseInt(month) - 1).toLocaleString('en-GB', { month: 'long', year: 'numeric' });
   };
 
-  const filteredRows = data?.rows?.filter(row =>
-    !search || (row.client_name || '').toLowerCase().includes(search.toLowerCase())
-  ) || [];
+  const filteredRows = data?.rows?.filter(row => {
+    if (!search) return true;
+    const s = search.toLowerCase();
+    if ((row.client_name || '').toLowerCase().includes(s)) return true;
+    if ((row.parent_client_name || '').toLowerCase().includes(s)) return true;
+    if ((row.remarks || '').toLowerCase().includes(s)) return true;
+    // hosting_domains is an array of {domain, ...} objects
+    if (Array.isArray(row.hosting_domains) && row.hosting_domains.some(d => (d.domain || '').toLowerCase().includes(s))) return true;
+    return false;
+  }) || [];
 
   const productsByCategory = {};
   (data?.products || []).forEach(p => {
@@ -451,7 +459,7 @@ export default function SupportCount() {
         </div>
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input className="pl-8 h-8 w-48 text-sm" placeholder="Search clients..." value={search} onChange={e => setSearch(e.target.value)} />
+          <Input className="pl-8 h-8 w-48 text-sm" placeholder="Search clients, domains..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <div className="flex gap-1 flex-wrap">
           {Object.entries(productsByCategory).map(([cat, prods]) => (
@@ -470,6 +478,7 @@ export default function SupportCount() {
             <tr className="border-b">
               <th className="sticky left-0 z-30 bg-white dark:bg-gray-950 border-r px-3 py-2 text-left font-bold min-w-52 text-sm" rowSpan={2}>Client</th>
               <th className="border-r px-2 py-2 text-left font-bold min-w-28 text-xs" rowSpan={2}>Support Type</th>
+              <th className="sticky z-30 bg-white dark:bg-gray-950 border-r px-2 py-2 text-center font-bold min-w-16 text-xs" style={{ left: '20rem' }} rowSpan={2}>Actions</th>
               {Object.entries(productsByCategory).map(([cat, prods]) => {
                 if (hiddenCategories[cat]) return null;
                 return (
@@ -485,7 +494,6 @@ export default function SupportCount() {
                 Giacom<br/>Monthly
               </th>
               <th className="px-3 py-2 text-left font-bold min-w-32 text-xs bg-gray-50 dark:bg-gray-900" rowSpan={2}>Remarks</th>
-              <th className="px-2 py-2 bg-white dark:bg-gray-950" rowSpan={2} />
             </tr>
             <tr className="border-b bg-muted/50">
               {visibleProducts.map(p => (
@@ -539,6 +547,31 @@ export default function SupportCount() {
                     )}
                   </td>
 
+                  {/* Sticky Actions column — Edit / Delete / Save / Cancel */}
+                  <td className={`sticky z-10 border-r px-2 py-1.5 whitespace-nowrap text-center min-w-16 ${stickyBg(idx, isEditing)}`} style={{ left: '20rem' }}>
+                    {isEditing ? (
+                      <div className="flex gap-1 justify-center">
+                        <Button size="sm" className="h-6 text-xs px-2" onClick={() => saveRow(row)} disabled={saving}>
+                          <Save className="h-3 w-3 mr-1" />{saving ? '...' : 'Save'}
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={cancelEdit}>
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : !isLocked ? (
+                      <div className="flex gap-0.5 justify-center">
+                        <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-muted-foreground hover:text-foreground" onClick={() => startEdit(row)} title="Edit">
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-muted-foreground hover:text-red-600" onClick={() => setDeleteConfirm(row.client_id)} title="Remove from this month">
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Lock className="h-3 w-3 text-amber-400 mx-auto" />
+                    )}
+                  </td>
+
                   {visibleProducts.map(p => (
                     <td key={p.id} className="border-r px-2 py-1.5 text-center">
                       {isEditing ? renderEditCell(p, editValues, setEditValues) : renderCellValue(p, row.products?.[p.name], row)}
@@ -589,32 +622,17 @@ export default function SupportCount() {
                   <td className="px-3 py-1.5 text-xs text-muted-foreground">
                     {isEditing ? (
                       <input className="w-full text-xs border rounded px-1 py-0.5" value={editValues.remarks || ''} onChange={e => setEditValues(v => ({ ...v, remarks: e.target.value }))} />
+                    ) : row.remarks ? (
+                      <button
+                        type="button"
+                        onClick={() => setRemarksPopup({ client: row.client_name, text: row.remarks })}
+                        className="line-clamp-1 text-left max-w-48 hover:text-foreground hover:underline cursor-pointer"
+                        title="Click to view full remarks"
+                      >
+                        {row.remarks}
+                      </button>
                     ) : (
-                      <span className="line-clamp-1">{row.remarks || ''}</span>
-                    )}
-                  </td>
-
-                  <td className="px-2 py-1.5 whitespace-nowrap">
-                    {isEditing ? (
-                      <div className="flex gap-1">
-                        <Button size="sm" className="h-6 text-xs px-2" onClick={() => saveRow(row)} disabled={saving}>
-                          <Save className="h-3 w-3 mr-1" />{saving ? '...' : 'Save'}
-                        </Button>
-                        <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={cancelEdit}>
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ) : !isLocked ? (
-                      <div className="flex gap-0.5">
-                        <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-muted-foreground hover:text-foreground" onClick={() => startEdit(row)}>
-                          <Edit className="h-3 w-3" />
-                        </Button>
-                        <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-muted-foreground hover:text-red-600" onClick={() => setDeleteConfirm(row.client_id)}>
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <Lock className="h-3 w-3 text-amber-400 mx-auto" />
+                      <span className="text-gray-300">—</span>
                     )}
                   </td>
                 </tr>
@@ -655,6 +673,21 @@ export default function SupportCount() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
             <Button variant="destructive" onClick={() => deleteClientFromMonth(deleteConfirm)}>Remove</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Remarks popup — full text view */}
+      <Dialog open={!!remarksPopup} onOpenChange={() => setRemarksPopup(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Remarks · {remarksPopup?.client}</DialogTitle>
+          </DialogHeader>
+          <div className="text-sm whitespace-pre-wrap break-words py-2">
+            {remarksPopup?.text}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRemarksPopup(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
