@@ -39,6 +39,7 @@ export default function SupportCount() {
   const [selectedMonth, setSelectedMonth] = useState('');
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [showEmptyRows, setShowEmptyRows] = useState(false);
   const [editingRow, setEditingRow] = useState(null);
   const [editValues, setEditValues] = useState({});
   const [saving, setSaving] = useState(false);
@@ -269,7 +270,23 @@ export default function SupportCount() {
     return new Date(parseInt(year), parseInt(month) - 1).toLocaleString('en-GB', { month: 'long', year: 'numeric' });
   };
 
-  const filteredRows = data?.rows?.filter(row => {
+  // A row is "empty" / a ghost when it has no useful data: no products with values,
+  // no domains, no Giacom data, no remarks. Typical cause: client was created from
+  // a 20i hosting auto-create flow, then the hosting account was remapped to a
+  // different client — leaving an empty shell. Hidden by default.
+  const isEmptyRow = (row) => {
+    const hasProductValue = row.products && Object.values(row.products).some(v =>
+      v !== null && v !== undefined && v !== '' && v !== 0 && v !== false
+    );
+    const hasDomains = Array.isArray(row.hosting_domains) && row.hosting_domains.length > 0;
+    const hasGiacomProducts = row.giacom_products && Object.keys(row.giacom_products).length > 0;
+    const hasGiacomCost = row.giacom_monthly_cost && row.giacom_monthly_cost > 0;
+    const hasRemarks = !!(row.remarks && row.remarks.trim());
+    return !hasProductValue && !hasDomains && !hasGiacomProducts && !hasGiacomCost && !hasRemarks;
+  };
+
+  const filteredRows = (data?.rows || []).filter(row => {
+    if (!showEmptyRows && isEmptyRow(row)) return false;
     if (!search) return true;
     const s = search.toLowerCase();
     if ((row.client_name || '').toLowerCase().includes(s)) return true;
@@ -277,7 +294,10 @@ export default function SupportCount() {
     // hosting_domains is an array of strings (e.g. ["acme.co.uk", "acme.com"])
     if (Array.isArray(row.hosting_domains) && row.hosting_domains.some(d => (typeof d === 'string' ? d : '').toLowerCase().includes(s))) return true;
     return false;
-  }) || [];
+  });
+
+  // Count hidden empty rows for the toggle label
+  const hiddenEmptyCount = (data?.rows || []).reduce((n, r) => n + (isEmptyRow(r) ? 1 : 0), 0);
 
   // Build a sorted list of distinct clients to show in the search dropdown.
   // Sites are tagged with their parent so the user can disambiguate.
@@ -432,6 +452,25 @@ export default function SupportCount() {
             <h1 className="text-2xl font-bold">Monthly Support Count</h1>
             <p className="text-muted-foreground text-sm mt-0.5">
               {filteredRows.length} clients · {visibleProducts.length} products shown
+              {!showEmptyRows && hiddenEmptyCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowEmptyRows(true)}
+                  className="ml-2 text-xs text-amber-500 hover:text-amber-400 underline cursor-pointer"
+                  title="Empty rows are clients with no products, no domains, no Giacom data, and no remarks. Often left over after remapping."
+                >
+                  · {hiddenEmptyCount} empty row{hiddenEmptyCount === 1 ? '' : 's'} hidden — show
+                </button>
+              )}
+              {showEmptyRows && (
+                <button
+                  type="button"
+                  onClick={() => setShowEmptyRows(false)}
+                  className="ml-2 text-xs text-muted-foreground hover:text-foreground underline cursor-pointer"
+                >
+                  · hiding {hiddenEmptyCount} empty row{hiddenEmptyCount === 1 ? '' : 's'}
+                </button>
+              )}
             </p>
           </div>
           {isLocked && (
@@ -580,8 +619,10 @@ export default function SupportCount() {
               <th className="border-r px-2 py-2 text-left font-bold min-w-28 text-xs" rowSpan={2}>Support Type</th>
               {Object.entries(productsByCategory).map(([cat, prods]) => {
                 if (hiddenCategories[cat]) return null;
+                // Hosting category gets +1 column for the Domains count
+                const extra = cat === 'hosting' ? 1 : 0;
                 return (
-                  <th key={cat} colSpan={prods.length} className={`px-2 py-1 text-center font-bold border-r text-xs ${CATEGORY_COLOURS[cat] || ''}`}>
+                  <th key={cat} colSpan={prods.length + extra} className={`px-2 py-1 text-center font-bold border-r text-xs ${CATEGORY_COLOURS[cat] || ''}`}>
                     {CATEGORY_LABELS[cat]}
                   </th>
                 );
@@ -589,20 +630,34 @@ export default function SupportCount() {
               <th colSpan={4} className="px-2 py-1 text-center font-bold border-r text-xs bg-teal-100/50 dark:bg-teal-900/30 text-teal-800 dark:text-teal-300">
                 20i
               </th>
-              <th className="px-2 py-1 text-center font-bold border-r text-xs bg-blue-100/50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300" rowSpan={2} title="Total unique domains for this client (hosting + registrations, deduped)">
-                Domains
-              </th>
               <th className="px-2 py-1 text-center font-bold border-r text-xs bg-purple-100/50 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300" rowSpan={2}>
                 Giacom<br/>Monthly
               </th>
               <th className="px-3 py-2 text-left font-bold min-w-32 text-xs bg-gray-50 dark:bg-gray-900" rowSpan={2}>Remarks</th>
             </tr>
             <tr className="border-b bg-muted/50">
-              {visibleProducts.map(p => (
-                <th key={p.id} className="px-2 py-2 text-left font-bold border-r text-xs min-w-16 max-w-24">
-                  {p.name}
-                </th>
-              ))}
+              {(() => {
+                // Render product names; insert "Domains" sub-header right after the
+                // last visible Hosting product so it sits next to Domain Names.
+                const cells = [];
+                let lastHostingIdx = -1;
+                visibleProducts.forEach((p, i) => { if (p.category === 'hosting') lastHostingIdx = i; });
+                visibleProducts.forEach((p, i) => {
+                  cells.push(
+                    <th key={p.id} className="px-2 py-2 text-left font-bold border-r text-xs min-w-16 max-w-24">
+                      {p.name}
+                    </th>
+                  );
+                  if (i === lastHostingIdx) {
+                    cells.push(
+                      <th key="__domains_count__" className="px-2 py-2 text-center font-bold border-r text-xs min-w-16" title="Total unique domains for this client (hosting + registrations)">
+                        Domains
+                      </th>
+                    );
+                  }
+                });
+                return cells;
+              })()}
               <th className="px-2 py-2 text-left font-bold border-r text-xs min-w-20">SSL Expiry</th>
               <th className="px-2 py-2 text-left font-bold border-r text-xs min-w-24">Domain Renewal</th>
               <th className="px-2 py-2 text-left font-bold border-r text-xs min-w-24">Package</th>
@@ -612,7 +667,7 @@ export default function SupportCount() {
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={visibleProducts.length + 10} className="text-center py-12 text-muted-foreground">No data for this month</td>
+                <td colSpan={visibleProducts.length + 9 + (productsByCategory.hosting && !hiddenCategories.hosting ? 1 : 0)} className="text-center py-12 text-muted-foreground">No data for this month</td>
               </tr>
             ) : filteredRows.map((row, idx) => {
               const rowBg = idx % 2 === 0 ? 'bg-white dark:bg-gray-950' : 'bg-gray-50 dark:bg-gray-900';
@@ -660,11 +715,40 @@ export default function SupportCount() {
                     }
                   </td>
 
-                  {visibleProducts.map(p => (
-                    <td key={p.id} className="border-r px-2 py-1.5 text-center">
-                      {renderCellValue(p, row.products?.[p.name], row)}
-                    </td>
-                  ))}
+                  {(() => {
+                    // Render product cells; insert Domains count right after
+                    // the last visible Hosting product so it appears next to
+                    // Domain Names.
+                    const cells = [];
+                    let lastHostingIdx = -1;
+                    visibleProducts.forEach((p, i) => { if (p.category === 'hosting') lastHostingIdx = i; });
+                    visibleProducts.forEach((p, i) => {
+                      cells.push(
+                        <td key={p.id} className="border-r px-2 py-1.5 text-center">
+                          {renderCellValue(p, row.products?.[p.name], row)}
+                        </td>
+                      );
+                      if (i === lastHostingIdx) {
+                        cells.push(
+                          <td key="__domains_count__" className="border-r px-2 py-1.5 text-center text-xs">
+                            {row.domain_count > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => setDomainsPopup({ client: row.client_name, domains: row.hosting_domains || [] })}
+                                className="font-medium text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                                title="Click to view all domains"
+                              >
+                                {row.domain_count}
+                              </button>
+                            ) : (
+                              <span className="text-gray-300">—</span>
+                            )}
+                          </td>
+                        );
+                      }
+                    });
+                    return cells;
+                  })()}
 
                   {/* SSL Expiry */}
                   <td className="border-r px-2 py-1.5 text-center text-xs">
@@ -698,22 +782,6 @@ export default function SupportCount() {
                     {row.website_turbo
                       ? <span className="text-teal-600 font-medium" title="Website Turbo active">⚡</span>
                       : <span className="text-gray-300">—</span>}
-                  </td>
-
-                  {/* Domains count — click to expand the full list */}
-                  <td className="border-r px-2 py-1.5 text-center text-xs">
-                    {row.domain_count > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => setDomainsPopup({ client: row.client_name, domains: row.hosting_domains || [] })}
-                        className="font-medium text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-                        title="Click to view all domains"
-                      >
-                        {row.domain_count}
-                      </button>
-                    ) : (
-                      <span className="text-gray-300">—</span>
-                    )}
                   </td>
 
                   {/* Giacom monthly cost */}
