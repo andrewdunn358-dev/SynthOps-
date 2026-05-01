@@ -6069,8 +6069,12 @@ async def scheduled_trmm_sync():
                                 "created_at": datetime.now(timezone.utc).isoformat()
                             })
 
-                            # Auto-incident: server went offline → raise (or bump if recurring)
-                            if new_status == "offline" and old_status == "online":
+                            # Auto-incident: server went offline → raise (or bump if recurring).
+                            # Skip workstations — laptops/desktops going offline at end of day is normal,
+                            # not an incident. Devices without monitoring_type set are treated as servers
+                            # (legacy data, safer default).
+                            is_server = existing_server.get("monitoring_type") in ("server", None)
+                            if is_server and new_status == "offline" and old_status == "online":
                                 # Get client info for the incident
                                 site = await db.sites.find_one({"id": existing_server.get("site_id")}, {"client_id": 1})
                                 local_client_for_inc = None
@@ -6097,8 +6101,9 @@ async def scheduled_trmm_sync():
                                     ],
                                 )
 
-                            # Auto-resolve: server came back online → mark awaiting confirmation
-                            elif new_status == "online" and old_status == "offline":
+                            # Auto-resolve: server came back online → mark awaiting confirmation.
+                            # Same server-only filter — keeps the open/resolve cycle consistent.
+                            elif is_server and new_status == "online" and old_status == "offline":
                                 await _auto_resolve_incident_by_dedup_key(
                                     dedup_key=f"trmm-offline-{existing_server['id']}",
                                     reason="Server back online (detected by TRMM sync)",
