@@ -286,6 +286,25 @@ function HostingDomainsTab({ clients: initialClients }) {
   };
 
   const [syncing, setSyncing] = useState(false);
+  const [syncing20i, setSyncing20i] = useState(false);
+
+  const sync20iNow = async () => {
+    if (!window.confirm('Run a fresh 20i sync now?\n\nThis pulls all hosting packages and domain registrations from 20i. Takes 30–60 seconds.')) return;
+    setSyncing20i(true);
+    try {
+      const res = await apiClient.post('/integrations/20i/sync');
+      if (res.data?.error) {
+        toast.error(`20i sync failed: ${res.data.error}`);
+      } else {
+        toast.success(`20i sync complete — ${res.data?.synced ?? 0} packages synced`);
+        fetchAccounts();
+      }
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to start 20i sync');
+    } finally {
+      setSyncing20i(false);
+    }
+  };
 
   const toggleIgnore = async (primaryDomain, currentlyIgnored) => {
     setSaving(prev => ({ ...prev, [primaryDomain]: true }));
@@ -399,6 +418,10 @@ function HostingDomainsTab({ clients: initialClients }) {
           ))}
         </div>
         <Button variant="outline" size="sm" onClick={fetchAccounts}><RefreshCw className="h-4 w-4 mr-1" /> Refresh</Button>
+        <Button variant="outline" size="sm" onClick={sync20iNow} disabled={syncing20i}>
+          <RefreshCw className={`h-4 w-4 mr-1 ${syncing20i ? 'animate-spin' : ''}`} />
+          {syncing20i ? 'Syncing 20i...' : 'Sync 20i Now'}
+        </Button>
         {mappedCount > 0 && (
           <Button size="sm" onClick={syncAllToSupportCount} disabled={syncing}>
             {syncing ? 'Syncing...' : `Sync ${mappedCount} Mapped to Support Count`}
@@ -728,6 +751,7 @@ function DomainRegistrationsTab({ clients }) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('active'); // active | mapped | unmapped | ignored
   const [saving, setSaving] = useState({});
+  const [syncing20i, setSyncing20i] = useState(false);
 
   useEffect(() => { fetchDomains(); }, []);
 
@@ -740,6 +764,24 @@ function DomainRegistrationsTab({ clients }) {
       toast.error('Failed to load domain registrations');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const sync20iNow = async () => {
+    if (!window.confirm('Run a fresh 20i sync now?\n\nThis pulls all hosting packages and domain registrations from 20i. Takes 30–60 seconds.')) return;
+    setSyncing20i(true);
+    try {
+      const res = await apiClient.post('/integrations/20i/sync');
+      if (res.data?.error) {
+        toast.error(`20i sync failed: ${res.data.error}`);
+      } else {
+        toast.success(`20i sync complete — ${res.data?.synced ?? 0} packages synced`);
+        fetchDomains();
+      }
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to start 20i sync');
+    } finally {
+      setSyncing20i(false);
     }
   };
 
@@ -806,6 +848,11 @@ function DomainRegistrationsTab({ clients }) {
         <p className="text-xs text-muted-foreground ml-auto">
           {domains.length} total · {mappedCount} mapped · {unmappedCount} unmapped
         </p>
+        <Button variant="outline" size="sm" onClick={fetchDomains}><RefreshCw className="h-4 w-4 mr-1" /> Refresh</Button>
+        <Button variant="outline" size="sm" onClick={sync20iNow} disabled={syncing20i}>
+          <RefreshCw className={`h-4 w-4 mr-1 ${syncing20i ? 'animate-spin' : ''}`} />
+          {syncing20i ? 'Syncing 20i...' : 'Sync 20i Now'}
+        </Button>
       </div>
 
       <Card>
