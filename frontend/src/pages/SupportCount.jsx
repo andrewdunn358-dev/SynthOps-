@@ -287,10 +287,24 @@ export default function SupportCount() {
   const visibleProducts = (data?.products || []).filter(p => !hiddenCategories[p.category]);
 
   const renderCellValue = (product, value, row) => {
-    // If this is an O365/MessageLabs product and Giacom has data for it, use that
+    // Determine display value: manual edit wins over Giacom.
+    // A product key explicitly present in row.products (even if 0 or null)
+    // is a deliberate manual override and beats Giacom. Only fall back to
+    // Giacom when the user has never touched this field.
+    const hasManualOverride = row?.products && Object.prototype.hasOwnProperty.call(row.products, product.name);
     const giacomVal = row?.giacom_products?.[product.name];
-    const displayVal = (giacomVal !== undefined && giacomVal !== null) ? giacomVal : value;
-    const fromGiacom = giacomVal !== undefined && giacomVal !== null;
+    const giacomHasValue = giacomVal !== undefined && giacomVal !== null;
+
+    let displayVal;
+    let fromGiacom = false;
+    if (hasManualOverride) {
+      displayVal = value;  // could be 0 — that's still a deliberate value
+    } else if (giacomHasValue) {
+      displayVal = giacomVal;
+      fromGiacom = true;
+    } else {
+      displayVal = undefined;
+    }
 
     if (displayVal === null || displayVal === undefined || displayVal === '') {
       if (product.name === 'Domain Name' && row?.hosting_domains?.length > 0) {
@@ -326,8 +340,16 @@ export default function SupportCount() {
 
     if (product.unit === 'yes/no') return displayVal ? <span className="text-green-600 font-medium">✓</span> : <span className="text-gray-300">—</span>;
     if (product.unit === 'gb') return <span className="text-xs">{displayVal}GB</span>;
+    // Show a tooltip when a manual override differs from Giacom — purple still
+    // indicates "this number came from Giacom"; default colour means "this is
+    // your manual entry". If the manual value differs from what Giacom would
+    // have shown, surface that in the title for awareness.
+    const overridesGiacom = hasManualOverride && giacomHasValue && giacomVal !== value;
     return (
-      <span className={`text-sm font-medium ${fromGiacom ? 'text-purple-600 dark:text-purple-400' : ''}`} title={fromGiacom ? 'From Giacom' : ''}>
+      <span
+        className={`text-sm font-medium ${fromGiacom ? 'text-purple-600 dark:text-purple-400' : ''}`}
+        title={fromGiacom ? 'From Giacom' : (overridesGiacom ? `Manual override (Giacom: ${giacomVal})` : '')}
+      >
         {displayVal}
       </span>
     );
