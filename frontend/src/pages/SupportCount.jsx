@@ -38,6 +38,7 @@ export default function SupportCount() {
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState('');
   const [search, setSearch] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [editingRow, setEditingRow] = useState(null);
   const [editValues, setEditValues] = useState({});
   const [saving, setSaving] = useState(false);
@@ -272,11 +273,38 @@ export default function SupportCount() {
     const s = search.toLowerCase();
     if ((row.client_name || '').toLowerCase().includes(s)) return true;
     if ((row.parent_client_name || '').toLowerCase().includes(s)) return true;
-    if ((row.remarks || '').toLowerCase().includes(s)) return true;
-    // hosting_domains is an array of {domain, ...} objects
-    if (Array.isArray(row.hosting_domains) && row.hosting_domains.some(d => (d.domain || '').toLowerCase().includes(s))) return true;
+    // hosting_domains is an array of strings (e.g. ["acme.co.uk", "acme.com"])
+    if (Array.isArray(row.hosting_domains) && row.hosting_domains.some(d => (typeof d === 'string' ? d : '').toLowerCase().includes(s))) return true;
     return false;
   }) || [];
+
+  // Build a sorted list of distinct clients to show in the search dropdown.
+  // Sites are tagged with their parent so the user can disambiguate.
+  const clientSuggestions = (() => {
+    if (!data?.rows) return [];
+    const seen = new Set();
+    const list = [];
+    for (const row of data.rows) {
+      const name = row.client_name;
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      list.push({
+        name,
+        is_site: !!row.is_site,
+        parent: row.parent_client_name || null,
+      });
+    }
+    return list.sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
+  const filteredSuggestions = (() => {
+    if (!search) return clientSuggestions.slice(0, 50);
+    const s = search.toLowerCase();
+    return clientSuggestions.filter(c =>
+      c.name.toLowerCase().includes(s) ||
+      (c.parent || '').toLowerCase().includes(s)
+    ).slice(0, 50);
+  })();
 
   const productsByCategory = {};
   (data?.products || []).forEach(p => {
@@ -483,8 +511,53 @@ export default function SupportCount() {
           </Button>
         </div>
         <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input className="pl-8 h-8 w-48 text-sm" placeholder="Search clients, domains..." value={search} onChange={e => setSearch(e.target.value)} />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground z-10" />
+          <Input
+            className="pl-8 h-8 w-64 text-sm"
+            placeholder="Search clients, domains..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onFocus={() => setSearchOpen(true)}
+            onBlur={() => setTimeout(() => setSearchOpen(false), 150)}
+            onKeyDown={(e) => { if (e.key === 'Escape') { setSearchOpen(false); e.currentTarget.blur(); } }}
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => { setSearch(''); setSearchOpen(false); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              title="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {searchOpen && filteredSuggestions.length > 0 && (
+            <div className="absolute top-full left-0 mt-1 w-72 bg-popover border rounded-md shadow-lg max-h-72 overflow-y-auto z-50">
+              <div className="px-3 py-1.5 text-xs text-muted-foreground border-b sticky top-0 bg-popover">
+                {filteredSuggestions.length === clientSuggestions.length
+                  ? `${clientSuggestions.length} clients`
+                  : `${filteredSuggestions.length} of ${clientSuggestions.length} clients`}
+              </div>
+              {filteredSuggestions.map(c => (
+                <button
+                  key={c.name + (c.parent || '')}
+                  type="button"
+                  className="w-full text-left px-3 py-1.5 hover:bg-accent text-sm border-b last:border-b-0"
+                  onMouseDown={(e) => {
+                    // Prevent the input losing focus before we can read the click
+                    e.preventDefault();
+                    setSearch(c.name);
+                    setSearchOpen(false);
+                  }}
+                >
+                  <div className="truncate">{c.name}</div>
+                  {c.is_site && c.parent && (
+                    <div className="text-xs text-muted-foreground truncate">site of {c.parent}</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex gap-1 flex-wrap">
           {Object.entries(productsByCategory).map(([cat, prods]) => (
