@@ -706,7 +706,7 @@ export default function SupportCount() {
             ) : filteredRows.map((row, idx) => {
               const rowBg = idx % 2 === 0 ? 'bg-white dark:bg-gray-950' : 'bg-gray-50 dark:bg-gray-900';
               return (
-                <tr key={row.client_id}
+                <tr key={row.snapshot_key || row.client_id}
                   className={`border-b hover:bg-accent/30 transition-colors group ${rowBg}`}>
 
                   {/* Actions — sticky leftmost */}
