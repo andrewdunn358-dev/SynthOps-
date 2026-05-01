@@ -28,7 +28,9 @@ const navItems = [
   { path: '/tasks', icon: ListTodo, label: 'Tasks' },
   { path: '/projects', icon: FolderKanban, label: 'Projects' },
   { path: '/incidents', icon: AlertTriangle, label: 'Incidents' },
-  { path: '/maintenance', icon: Wrench, label: 'Maintenance' },
+  // Hidden 2026-05-01 — see commit message. Page and route still exist;
+  // maintenance-style work is being absorbed into Tasks instead.
+  // { path: '/maintenance', icon: Wrench, label: 'Maintenance' },
   { path: '/dc-health-check', icon: ShieldCheck, label: 'Monthly Health Check' },
   { path: '/backups', icon: HardDrive, label: 'Backup Tracking' },
   { path: '/support/changes', icon: ClipboardList, label: 'Support Changes' },
