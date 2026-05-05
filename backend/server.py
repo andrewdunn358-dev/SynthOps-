@@ -9006,7 +9006,7 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     Returns the PDF as bytes (suitable for StreamingResponse).
     """
     from io import BytesIO
-    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib import colors
     from reportlab.lib.units import mm
     from reportlab.lib.styles import ParagraphStyle
@@ -9102,12 +9102,12 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     buf = BytesIO()
     doc = SimpleDocTemplate(
         buf,
-        pagesize=A4,
+        pagesize=landscape(A4),
         leftMargin=10 * mm, rightMargin=10 * mm,
         topMargin=8 * mm, bottomMargin=8 * mm,
         title=f"Work Order {_safe(ws.get('job_no')) or ws.get('id', '')}",
     )
-    page_w = A4[0] - 20 * mm  # usable width
+    page_w = landscape(A4)[0] - 20 * mm  # usable width (~277mm)
 
     story = []
 
@@ -9143,97 +9143,122 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     story.append(Spacer(1, 4 * mm))
 
     # ------------------------------------------------------------------
-    # Header — 4-column metadata grid, each column an independent stack
-    # of label/value cells (matches the paper layout where columns have
-    # different field counts).
+    # Header — uniform 5-row × 4-column grid with merged cells where the
+    # paper has taller fields (Overview Of Job, Account Manager, Customer
+    # Contact, Project Delivery Address). All four columns end at the
+    # same height so the top of the form looks regular.
     # ------------------------------------------------------------------
-    col1 = field_stack([
-        field("Project Title", ws.get("project_title")),
-        field("Opps No", ws.get("opps_no")),
-        field("Overview Of Job", ws.get("overview_of_job"), multiline=True),
-    ])
-    col2 = field_stack([
-        field("Account Manager", ws.get("account_manager")),
-        field("Customer Contact", ws.get("customer_contact")),
-    ])
-    col3 = field_stack([
-        field("Customer", ws.get("customer")),
-        field("Project Delivery Address", ws.get("project_delivery_address"), multiline=True),
-        field("Date Order Placed", _fmt_date(ws.get("date_order_placed"))),
-        field("Time Arrived", ws.get("time_arrived")),
-    ])
-    col4 = field_stack([
-        field("Date Delivery Expected", _fmt_date(ws.get("date_delivery_expected"))),
-        field("Job Assigned To", ws.get("job_assigned_to")),
-        field("Delivered / Fulfilled By", ws.get("delivered_fulfilled_by")),
-        field("Date Completed", _fmt_date(ws.get("date_completed"))),
-        field("Time Finished", ws.get("time_finished")),
-    ])
+    HEADER_ROW_H = 10 * mm
+    blank = ""  # placeholder for cells that get hidden by SPAN
+
+    header_data = [
+        # Row 0
+        [
+            field("Project Title", ws.get("project_title")),
+            field("Account Manager", ws.get("account_manager")),
+            field("Customer", ws.get("customer")),
+            field("Date Delivery Expected", _fmt_date(ws.get("date_delivery_expected"))),
+        ],
+        # Row 1
+        [
+            field("Opps No", ws.get("opps_no")),
+            blank,  # Account Manager spans down to here
+            field("Project Delivery Address", ws.get("project_delivery_address"), multiline=True),
+            field("Job Assigned To", ws.get("job_assigned_to")),
+        ],
+        # Row 2
+        [
+            field("Overview Of Job", ws.get("overview_of_job"), multiline=True),
+            field("Customer Contact", ws.get("customer_contact")),
+            blank,  # Address spans down to here
+            field("Delivered / Fulfilled By", ws.get("delivered_fulfilled_by")),
+        ],
+        # Row 3
+        [
+            blank,  # Overview spans down
+            blank,  # Customer Contact spans down
+            field("Date Order Placed", _fmt_date(ws.get("date_order_placed"))),
+            field("Date Completed", _fmt_date(ws.get("date_completed"))),
+        ],
+        # Row 4
+        [
+            blank,  # Overview spans down
+            blank,  # Customer Contact spans down
+            field("Time Arrived", ws.get("time_arrived")),
+            field("Time Finished", ws.get("time_finished")),
+        ],
+    ]
 
     header_grid = Table(
-        [[col1, col2, col3, col4]],
+        header_data,
         colWidths=[page_w * 0.27, page_w * 0.20, page_w * 0.27, page_w * 0.26],
+        rowHeights=[HEADER_ROW_H] * 5,
     )
     header_grid.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        # Cell merges where the paper form has taller fields
+        ("SPAN", (0, 2), (0, 4)),  # Overview Of Job: col 0, rows 2-4
+        ("SPAN", (1, 0), (1, 1)),  # Account Manager: col 1, rows 0-1
+        ("SPAN", (1, 2), (1, 4)),  # Customer Contact: col 1, rows 2-4
+        ("SPAN", (2, 1), (2, 2)),  # Project Delivery Address: col 2, rows 1-2
+        # No padding on outer cells — each `field` flowable already has its own border
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
     ]))
     story.append(header_grid)
     story.append(Spacer(1, 4 * mm))
 
     # ------------------------------------------------------------------
-    # Equipment Expected / Ordered
+    # Equipment tables — side-by-side in landscape, matching the paper:
+    # LEFT  = List of Equipment Expected / Ordered (Description | Qty Alloc | Qty Used)
+    # RIGHT = Additional Equipment Added By Installation Team (Description | Qty | Unit Cost)
     # ------------------------------------------------------------------
-    story.append(Paragraph("List of Equipment Expected / Ordered", section_style))
+    EQUIP_ROW_H = 6 * mm
+    EQUIP_PAD_ROWS = 10  # padded rows so the printed form has space for handwriting
 
+    # Each side gets half the page width, minus a tiny gap between them.
+    side_w = (page_w - 4 * mm) / 2
+
+    def _equip_table(rows, col_props):
+        """Build one of the equipment tables. col_props is a list of width
+        fractions summing to 1.0 (Description gets the most, qty cols are narrow)."""
+        col_w = [side_w * p for p in col_props]
+        t = Table(rows, colWidths=col_w, rowHeights=[EQUIP_ROW_H] * len(rows))
+        t.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEEEEE")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2 * mm),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
+            ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+        ]))
+        return t
+
+    # Build the Expected/Ordered table (left side)
     expected_rows = [[
         Paragraph("Description", table_header_style),
         Paragraph("Qty Alloc", table_header_style),
         Paragraph("Qty Used", table_header_style),
     ]]
-    items = ws.get("equipment_expected") or []
-    for it in items:
+    for it in (ws.get("equipment_expected") or []):
         expected_rows.append([
             Paragraph(_safe(it.get("description")), value_style),
             _safe(it.get("qty_alloc") if it.get("qty_alloc") is not None else ""),
             _safe(it.get("qty_used") if it.get("qty_used") is not None else ""),
         ])
-    # Pad with blank rows so the table looks like a paper form even when sparse
-    min_rows = 12
-    while len(expected_rows) - 1 < min_rows:
+    while len(expected_rows) - 1 < EQUIP_PAD_ROWS:
         expected_rows.append(["", "", ""])
+    expected_table = _equip_table(expected_rows, [0.66, 0.17, 0.17])
 
-    expected_table = Table(
-        expected_rows,
-        colWidths=[page_w * 0.65, page_w * 0.175, page_w * 0.175],
-        rowHeights=[6 * mm] + [6 * mm] * (len(expected_rows) - 1),
-    )
-    expected_table.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEEEEE")),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 2 * mm),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
-        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
-    ]))
-    story.append(expected_table)
-    story.append(Spacer(1, 4 * mm))
-
-    # ------------------------------------------------------------------
-    # Additional Equipment Added By Installation Team
-    # ------------------------------------------------------------------
-    story.append(Paragraph("Additional Equipment Added By Installation Team", section_style))
-
+    # Build the Additional Added table (right side)
     added_rows = [[
         Paragraph("Description", table_header_style),
         Paragraph("Qty", table_header_style),
         Paragraph("Unit Cost", table_header_style),
     ]]
-    items = ws.get("equipment_added") or []
-    for it in items:
+    for it in (ws.get("equipment_added") or []):
         cost = it.get("unit_cost")
         cost_s = f"{cost:.2f}" if isinstance(cost, (int, float)) else _safe(cost)
         added_rows.append([
@@ -9241,25 +9266,45 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
             _safe(it.get("qty") if it.get("qty") is not None else ""),
             cost_s,
         ])
-    min_rows = 8
-    while len(added_rows) - 1 < min_rows:
+    while len(added_rows) - 1 < EQUIP_PAD_ROWS:
         added_rows.append(["", "", ""])
+    added_table = _equip_table(added_rows, [0.60, 0.18, 0.22])
 
-    added_table = Table(
-        added_rows,
-        colWidths=[page_w * 0.65, page_w * 0.175, page_w * 0.175],
-        rowHeights=[6 * mm] + [6 * mm] * (len(added_rows) - 1),
+    # Wrap each equipment table in a "section" cell with a title above it,
+    # so the side-by-side outer Table places them with their headings.
+    expected_section = Table(
+        [[Paragraph("List of Equipment Expected / Ordered", section_style)],
+         [expected_table]],
+        colWidths=[side_w],
     )
-    added_table.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEEEEE")),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 2 * mm),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
-        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+    added_section = Table(
+        [[Paragraph("Additional Equipment Added By Installation Team", section_style)],
+         [added_table]],
+        colWidths=[side_w],
+    )
+    for sec in (expected_section, added_section):
+        sec.setStyle(TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1 * mm),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+
+    # Side-by-side outer table — Expected on LEFT, Added on RIGHT
+    equipment_row = Table(
+        [[expected_section, "", added_section]],
+        colWidths=[side_w, 4 * mm, side_w],
+    )
+    equipment_row.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
-    story.append(added_table)
-    story.append(Spacer(1, 6 * mm))
+    story.append(equipment_row)
+    story.append(Spacer(1, 4 * mm))
 
     # ------------------------------------------------------------------
     # Signature footer
@@ -9268,7 +9313,7 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     name_label = Paragraph("Print Name", label_style)
     sign_box = Table(
         [[sign_label], [Paragraph("&nbsp;", value_style)]],
-        colWidths=["*"], rowHeights=[3.5 * mm, 16 * mm],
+        colWidths=["*"], rowHeights=[3.5 * mm, 12 * mm],
     )
     sign_box.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.5, colors.black),
@@ -9280,7 +9325,7 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     ]))
     name_box = Table(
         [[name_label], [Paragraph("&nbsp;", value_style)]],
-        colWidths=["*"], rowHeights=[3.5 * mm, 16 * mm],
+        colWidths=["*"], rowHeights=[3.5 * mm, 12 * mm],
     )
     name_box.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.5, colors.black),
