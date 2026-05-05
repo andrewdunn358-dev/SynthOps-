@@ -93,6 +93,25 @@ const formToApi = (f) => {
   };
 };
 
+// FastAPI returns 422 validation errors as { detail: [{type, loc, msg, ...}] }.
+// Rendering that array directly as a React child crashes (React error #31).
+// This helper extracts a readable string for toast.error.
+const errorText = (e, fallback = 'Request failed') => {
+  const d = e?.response?.data?.detail;
+  if (!d) return e?.message || fallback;
+  if (typeof d === 'string') return d;
+  if (Array.isArray(d)) {
+    return d
+      .map(item => {
+        if (typeof item === 'string') return item;
+        if (item && item.msg && item.loc) return `${item.loc.slice(1).join('.') || '?'}: ${item.msg}`;
+        return JSON.stringify(item);
+      })
+      .join('; ');
+  }
+  try { return JSON.stringify(d); } catch { return fallback; }
+};
+
 export default function WorksheetEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -107,7 +126,10 @@ export default function WorksheetEditor() {
       setLoading(true);
       try {
         if (id === 'new') {
-          const res = await apiClient.post('/worksheets', blankForm());
+          // formToApi drops blank equipment rows and coerces empty-string
+          // numeric fields to null — required for the backend's Pydantic
+          // validation (Optional[float] rejects '').
+          const res = await apiClient.post('/worksheets', formToApi(blankForm()));
           if (cancelled) return;
           setWorksheetId(res.data.id);
           setForm(apiToForm(res.data));
@@ -119,7 +141,7 @@ export default function WorksheetEditor() {
           setForm(apiToForm(res.data));
         }
       } catch (e) {
-        toast.error(e.response?.data?.detail || 'Failed to load worksheet');
+        toast.error(errorText(e, 'Failed to load worksheet'));
         navigate('/worksheets', { replace: true });
       } finally {
         if (!cancelled) setLoading(false);
@@ -159,7 +181,7 @@ export default function WorksheetEditor() {
       await apiClient.put(`/worksheets/${worksheetId}`, payload);
       toast.success('Saved');
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to save');
+      toast.error(errorText(e, 'Failed to save'));
     } finally {
       setSaving(false);
     }
@@ -181,7 +203,7 @@ export default function WorksheetEditor() {
       // alive long enough to render and let the user print.
       setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000);
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to save and print');
+      toast.error(errorText(e, 'Failed to save and print'));
     } finally {
       setSaving(false);
     }

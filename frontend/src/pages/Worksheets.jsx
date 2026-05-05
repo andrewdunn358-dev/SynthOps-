@@ -23,6 +23,24 @@ const formatDate = (iso) => {
   }
 };
 
+// FastAPI 422s come through as { detail: [{type, loc, msg, ...}] } — render
+// directly as toast content and React will crash on the array of objects.
+const errorText = (e, fallback = 'Request failed') => {
+  const d = e?.response?.data?.detail;
+  if (!d) return e?.message || fallback;
+  if (typeof d === 'string') return d;
+  if (Array.isArray(d)) {
+    return d
+      .map(item => {
+        if (typeof item === 'string') return item;
+        if (item && item.msg && item.loc) return `${item.loc.slice(1).join('.') || '?'}: ${item.msg}`;
+        return JSON.stringify(item);
+      })
+      .join('; ');
+  }
+  try { return JSON.stringify(d); } catch { return fallback; }
+};
+
 export default function Worksheets() {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
@@ -43,7 +61,7 @@ export default function Worksheets() {
       const res = await apiClient.get('/worksheets', { params: q ? { search: q } : {} });
       setRows(res.data || []);
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to load worksheets');
+      toast.error(errorText(e, 'Failed to load worksheets'));
     } finally {
       setLoading(false);
     }
