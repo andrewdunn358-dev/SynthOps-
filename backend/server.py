@@ -8857,6 +8857,145 @@ async def report_health_check_compliance(user: dict = Depends(get_current_user))
     return {"rows": rows}
 
 
+# ---------------------------------------------------------------------------
+# Worksheets — engineer's Work Order / Job No. form
+# ---------------------------------------------------------------------------
+
+class WorksheetEquipmentExpected(BaseModel):
+    description: str = ""
+    qty_alloc: Optional[float] = None
+    qty_used: Optional[float] = None
+
+
+class WorksheetEquipmentAdded(BaseModel):
+    description: str = ""
+    qty: Optional[float] = None
+    unit_cost: Optional[float] = None
+
+
+class Worksheet(BaseModel):
+    job_no: Optional[str] = None
+    project_title: Optional[str] = None
+    opps_no: Optional[str] = None
+    customer: Optional[str] = None
+    project_delivery_address: Optional[str] = None
+    account_manager: Optional[str] = None
+    customer_contact: Optional[str] = None
+    job_assigned_to: Optional[str] = None
+    delivered_fulfilled_by: Optional[str] = None
+    # Dates stored as ISO YYYY-MM-DD strings (matches the <input type="date">
+    # value the frontend sends). Times as HH:MM strings.
+    date_order_placed: Optional[str] = None
+    date_delivery_expected: Optional[str] = None
+    date_completed: Optional[str] = None
+    time_arrived: Optional[str] = None
+    time_finished: Optional[str] = None
+    overview_of_job: Optional[str] = None
+    equipment_expected: List[WorksheetEquipmentExpected] = []
+    equipment_added: List[WorksheetEquipmentAdded] = []
+    # Soft state. 'draft' = WIP, 'completed' = signed off (set when engineer
+    # marks done). No hard enforcement yet — UI may not even surface this.
+    status: str = "draft"
+
+
+class WorksheetResponse(Worksheet):
+    id: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    created_by: Optional[str] = None
+    updated_by: Optional[str] = None
+
+
+@api_router.get("/worksheets", response_model=List[WorksheetResponse])
+async def list_worksheets(
+    search: Optional[str] = None,
+    status: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """List worksheets, newest first. Optional substring search across the
+    common identifying fields (job no, project, customer)."""
+    query: dict = {}
+    if status:
+        query["status"] = status
+    if search:
+        # Simple case-insensitive substring across the headline fields.
+        # Mongo $regex with re.escape so user input can't break things.
+        rx = {"$regex": re.escape(search), "$options": "i"}
+        query["$or"] = [
+            {"job_no": rx},
+            {"project_title": rx},
+            {"customer": rx},
+            {"account_manager": rx},
+        ]
+    rows = await db.worksheets.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return rows
+
+
+@api_router.post("/worksheets", response_model=WorksheetResponse)
+async def create_worksheet(
+    ws: Worksheet,
+    current_user: dict = Depends(get_current_user),
+):
+    """Create a new worksheet. Engineers usually call this from a 'New
+    Worksheet' button — the returned id is then used to PUT updates as the
+    form is filled in."""
+    now = datetime.now(timezone.utc)
+    doc = {
+        "id": str(uuid.uuid4()),
+        **ws.dict(),
+        "created_at": now,
+        "updated_at": now,
+        "created_by": current_user.get("username") or current_user.get("email"),
+        "updated_by": current_user.get("username") or current_user.get("email"),
+    }
+    await db.worksheets.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.get("/worksheets/{worksheet_id}", response_model=WorksheetResponse)
+async def get_worksheet(
+    worksheet_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    ws = await db.worksheets.find_one({"id": worksheet_id}, {"_id": 0})
+    if not ws:
+        raise HTTPException(status_code=404, detail="Worksheet not found")
+    return ws
+
+
+@api_router.put("/worksheets/{worksheet_id}", response_model=WorksheetResponse)
+async def update_worksheet(
+    worksheet_id: str,
+    ws: Worksheet,
+    current_user: dict = Depends(get_current_user),
+):
+    update_data = {
+        **ws.dict(),
+        "updated_at": datetime.now(timezone.utc),
+        "updated_by": current_user.get("username") or current_user.get("email"),
+    }
+    result = await db.worksheets.update_one({"id": worksheet_id}, {"$set": update_data})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Worksheet not found")
+    updated = await db.worksheets.find_one({"id": worksheet_id}, {"_id": 0})
+    return updated
+
+
+@api_router.delete("/worksheets/{worksheet_id}")
+async def delete_worksheet(
+    worksheet_id: str,
+    admin: dict = Depends(require_admin),
+):
+    """Delete a worksheet (admin only). Worksheets shouldn't normally be
+    deleted — if a draft was created in error, archive instead. Hard-delete
+    is here for genuine mistakes."""
+    result = await db.worksheets.delete_one({"id": worksheet_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Worksheet not found")
+    return {"message": "Worksheet deleted"}
+
+
 # Include the router after all routes are defined
 app.include_router(api_router)
 
