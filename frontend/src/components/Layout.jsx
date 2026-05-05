@@ -25,8 +25,13 @@ const navItems = [
   { path: '/servers', icon: Server, label: 'Servers' },
   { path: '/infrastructure', icon: Network, label: 'Infrastructure' },
   { path: '/stock', icon: Package, label: 'Stock & Assets' },
-  { path: '/tasks', icon: ListTodo, label: 'Tasks' },
-  { path: '/projects', icon: FolderKanban, label: 'Projects' },
+  // Hidden 2026-05-01 — focus pass. Worksheets (coming) will cover the
+  // billable-job workflow that Tasks was attempting. Projects kept hidden
+  // for now — may come back as a worksheet-grouping concept. Time Tracking
+  // overlapped with Tasks and wasn't being used.
+  // Pages, routes, and data are intact — un-comment any of these to restore.
+  // { path: '/tasks', icon: ListTodo, label: 'Tasks' },
+  // { path: '/projects', icon: FolderKanban, label: 'Projects' },
   { path: '/incidents', icon: AlertTriangle, label: 'Incidents' },
   // Hidden 2026-05-01 — see commit message. Page and route still exist;
   // maintenance-style work is being absorbed into Tasks instead.
@@ -37,7 +42,7 @@ const navItems = [
   { path: '/support/count', icon: Table2, label: 'Support Count' },
   { path: '/support/mappings', icon: Link2, label: 'Support Mappings' },
   { path: '/docs', icon: FileText, label: 'Documentation' },
-  { path: '/time', icon: Clock, label: 'Time Tracking' },
+  // { path: '/time', icon: Clock, label: 'Time Tracking' },
   { path: '/staff', icon: Users, label: 'Staff' },
   { path: '/reports', icon: BarChart3, label: 'Reports' },
 ];
