@@ -1,279 +1,157 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { apiClient } from '../App';
+import { toast } from 'sonner';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
-import { Textarea } from '../components/ui/textarea';
-import { Plus, Trash2, Printer, Save, FileText } from 'lucide-react';
+import { Plus, Search, FileText, Loader2 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
-// Worksheets — Phase 1
-//
-// Engineer's worksheet. Layout mirrors the paper Synthesis IT Work Order /
-// Job No. form so that staff used to the paper version can find the same
-// fields in the same order.
-//
-// Phase 1 scope: form layout + fully interactive client-side state. No save
-// to backend yet, no PDF generation, no list of past worksheets, no client
-// picker integration. Save and Print buttons render but do nothing — they're
-// here to confirm the right buttons exist before the next phase wires them.
-//
-// Coming in later phases:
-//   - Backend: schema + create/list/get/update endpoints
-//   - PDF export styled to match the paper original (signature blocks etc.)
-//   - List view with search/filter
-//   - Optional Stock & Assets integration on the equipment Description fields
-//   - Possibly: link worksheet → client (auto-populate Customer / Account Manager)
+// Worksheets — list page. Shows all worksheets newest-first, with a search
+// box that filters server-side across job_no / project_title / customer /
+// account_manager. New Worksheet button creates a draft and routes to the
+// editor.
 // ---------------------------------------------------------------------------
 
-const blankRow = () => ({ description: '', qty_alloc: '', qty_used: '' });
-const blankAddRow = () => ({ description: '', qty: '', unit_cost: '' });
-
-const blankForm = () => ({
-  // Header / job metadata
-  job_no: '',
-  project_title: '',
-  opps_no: '',
-  customer: '',
-  project_delivery_address: '',
-  account_manager: '',
-  customer_contact: '',
-  job_assigned_to: '',
-  delivered_fulfilled_by: '',
-  date_order_placed: '',
-  date_delivery_expected: '',
-  date_completed: '',
-  time_arrived: '',
-  time_finished: '',
-  overview_of_job: '',
-  // Equipment tables
-  equipment_expected: [blankRow()],
-  equipment_added: [blankAddRow()],
-});
+const formatDate = (iso) => {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  } catch {
+    return '—';
+  }
+};
 
 export default function Worksheets() {
-  const [form, setForm] = useState(blankForm());
+  const navigate = useNavigate();
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [search, setSearch] = useState('');
 
-  const setField = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+  // Debounce search → server
+  useEffect(() => {
+    const t = setTimeout(() => fetchRows(search), 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
-  const updateRow = (table, idx, key, value) => {
-    setForm(f => ({
-      ...f,
-      [table]: f[table].map((r, i) => i === idx ? { ...r, [key]: value } : r),
-    }));
+  const fetchRows = async (q = '') => {
+    setLoading(true);
+    try {
+      const res = await apiClient.get('/worksheets', { params: q ? { search: q } : {} });
+      setRows(res.data || []);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to load worksheets');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const addRow = (table, blank) => () => {
-    setForm(f => ({ ...f, [table]: [...f[table], blank()] }));
-  };
-
-  const removeRow = (table) => (idx) => () => {
-    setForm(f => ({
-      ...f,
-      [table]: f[table].length === 1 ? [table === 'equipment_expected' ? blankRow() : blankAddRow()] : f[table].filter((_, i) => i !== idx),
-    }));
+  const newWorksheet = async () => {
+    // Just route to /worksheets/new — the editor itself POSTs the draft
+    // and replaces the URL with the real id once it's back. Keeps the
+    // 'create + load' flow in one place.
+    setCreating(true);
+    try {
+      navigate('/worksheets/new');
+    } finally {
+      setCreating(false);
+    }
   };
 
   return (
-    <div className="container mx-auto p-6 max-w-6xl space-y-6">
+    <div className="container mx-auto p-6 max-w-6xl space-y-4">
       {/* Title bar */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <FileText className="h-4 w-4" />
             <span>Worksheets</span>
           </div>
-          <h1 className="text-2xl font-bold">Work Order / Job No.</h1>
+          <h1 className="text-2xl font-bold">Worksheets</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Engineer worksheet — fill in, save, then print for client signature.
+            Engineer Work Order / Job No. records — fill in, save, print for client signature.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" disabled title="Coming next phase">
-            <Save className="h-4 w-4 mr-1" /> Save Draft
-          </Button>
-          <Button disabled title="Coming next phase">
-            <Printer className="h-4 w-4 mr-1" /> Save &amp; Print
-          </Button>
-        </div>
+        <Button onClick={newWorksheet} disabled={creating}>
+          <Plus className="h-4 w-4 mr-1" /> New Worksheet
+        </Button>
       </div>
 
-      {/* Phase notice — remove once backend is wired */}
-      <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-        <strong>Phase 1 preview:</strong> form layout only. Typing works, adding rows works, but Save and Print are not yet hooked up. Backend + PDF coming next.
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+        <Input
+          className="pl-9"
+          placeholder="Search by job no, project, customer, or account manager…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
       </div>
 
-      {/* Header — job metadata */}
+      {/* List */}
       <Card>
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div>
-              <Label htmlFor="job_no">Job No.</Label>
-              <Input id="job_no" value={form.job_no} onChange={setField('job_no')} placeholder="e.g. WO-2026-001" />
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="p-6 text-sm text-muted-foreground flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading…
             </div>
-            <div>
-              <Label htmlFor="project_title">Project Title</Label>
-              <Input id="project_title" value={form.project_title} onChange={setField('project_title')} />
+          ) : rows.length === 0 ? (
+            <div className="p-12 text-center">
+              <FileText className="h-10 w-10 text-muted-foreground/40 mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">
+                {search ? 'No worksheets match your search.' : 'No worksheets yet.'}
+              </p>
+              {!search && (
+                <Button variant="outline" className="mt-3" onClick={newWorksheet} disabled={creating}>
+                  <Plus className="h-4 w-4 mr-1" /> Create the first one
+                </Button>
+              )}
             </div>
-            <div>
-              <Label htmlFor="opps_no">Opps No</Label>
-              <Input id="opps_no" value={form.opps_no} onChange={setField('opps_no')} />
-            </div>
-            <div>
-              <Label htmlFor="account_manager">Account Manager</Label>
-              <Input id="account_manager" value={form.account_manager} onChange={setField('account_manager')} />
-            </div>
-
-            <div className="lg:col-span-2">
-              <Label htmlFor="customer">Customer</Label>
-              <Input id="customer" value={form.customer} onChange={setField('customer')} />
-            </div>
-            <div className="lg:col-span-2">
-              <Label htmlFor="customer_contact">Customer Contact</Label>
-              <Input id="customer_contact" value={form.customer_contact} onChange={setField('customer_contact')} />
-            </div>
-
-            <div className="lg:col-span-4">
-              <Label htmlFor="project_delivery_address">Project Delivery Address</Label>
-              <Textarea id="project_delivery_address" rows={2} value={form.project_delivery_address} onChange={setField('project_delivery_address')} />
-            </div>
-
-            <div>
-              <Label htmlFor="job_assigned_to">Job Assigned To</Label>
-              <Input id="job_assigned_to" value={form.job_assigned_to} onChange={setField('job_assigned_to')} />
-            </div>
-            <div>
-              <Label htmlFor="delivered_fulfilled_by">Delivered / Fulfilled By</Label>
-              <Input id="delivered_fulfilled_by" value={form.delivered_fulfilled_by} onChange={setField('delivered_fulfilled_by')} />
-            </div>
-            <div>
-              <Label htmlFor="date_order_placed">Date Order Placed</Label>
-              <Input id="date_order_placed" type="date" value={form.date_order_placed} onChange={setField('date_order_placed')} />
-            </div>
-            <div>
-              <Label htmlFor="date_delivery_expected">Date Delivery Expected</Label>
-              <Input id="date_delivery_expected" type="date" value={form.date_delivery_expected} onChange={setField('date_delivery_expected')} />
-            </div>
-
-            <div>
-              <Label htmlFor="date_completed">Date Completed</Label>
-              <Input id="date_completed" type="date" value={form.date_completed} onChange={setField('date_completed')} />
-            </div>
-            <div>
-              <Label htmlFor="time_arrived">Time Arrived</Label>
-              <Input id="time_arrived" type="time" value={form.time_arrived} onChange={setField('time_arrived')} />
-            </div>
-            <div>
-              <Label htmlFor="time_finished">Time Finished</Label>
-              <Input id="time_finished" type="time" value={form.time_finished} onChange={setField('time_finished')} />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Overview of Job */}
-      <Card>
-        <CardContent className="pt-6">
-          <Label htmlFor="overview_of_job">Overview Of Job</Label>
-          <Textarea id="overview_of_job" rows={4} value={form.overview_of_job} onChange={setField('overview_of_job')} />
-        </CardContent>
-      </Card>
-
-      {/* Equipment Expected / Ordered */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold">List of Equipment Expected / Ordered</h2>
-            <Button variant="outline" size="sm" onClick={addRow('equipment_expected', blankRow)}>
-              <Plus className="h-4 w-4 mr-1" /> Add row
-            </Button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="border-b text-left">
-                  <th className="p-2 font-medium" style={{ width: '60%' }}>Description</th>
-                  <th className="p-2 font-medium">Qty Alloc</th>
-                  <th className="p-2 font-medium">Qty Used</th>
-                  <th className="p-2 w-10"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {form.equipment_expected.map((row, idx) => (
-                  <tr key={idx} className="border-b">
-                    <td className="p-1">
-                      <Input value={row.description} onChange={e => updateRow('equipment_expected', idx, 'description', e.target.value)} placeholder="Item description" />
-                    </td>
-                    <td className="p-1">
-                      <Input type="number" min="0" value={row.qty_alloc} onChange={e => updateRow('equipment_expected', idx, 'qty_alloc', e.target.value)} />
-                    </td>
-                    <td className="p-1">
-                      <Input type="number" min="0" value={row.qty_used} onChange={e => updateRow('equipment_expected', idx, 'qty_used', e.target.value)} />
-                    </td>
-                    <td className="p-1 text-center">
-                      <Button variant="ghost" size="sm" onClick={removeRow('equipment_expected')(idx)} title="Remove row" className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </td>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-muted-foreground">
+                    <th className="px-4 py-2 font-medium">Job No</th>
+                    <th className="px-4 py-2 font-medium">Project</th>
+                    <th className="px-4 py-2 font-medium">Customer</th>
+                    <th className="px-4 py-2 font-medium">Account Mgr</th>
+                    <th className="px-4 py-2 font-medium">Date Order</th>
+                    <th className="px-4 py-2 font-medium">Date Completed</th>
+                    <th className="px-4 py-2 font-medium">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Additional Equipment Added By Installation Team */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold">Additional Equipment Added By Installation Team</h2>
-            <Button variant="outline" size="sm" onClick={addRow('equipment_added', blankAddRow)}>
-              <Plus className="h-4 w-4 mr-1" /> Add row
-            </Button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="border-b text-left">
-                  <th className="p-2 font-medium" style={{ width: '60%' }}>Description</th>
-                  <th className="p-2 font-medium">Qty</th>
-                  <th className="p-2 font-medium">Unit Cost</th>
-                  <th className="p-2 w-10"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {form.equipment_added.map((row, idx) => (
-                  <tr key={idx} className="border-b">
-                    <td className="p-1">
-                      <Input value={row.description} onChange={e => updateRow('equipment_added', idx, 'description', e.target.value)} placeholder="Item description" />
-                    </td>
-                    <td className="p-1">
-                      <Input type="number" min="0" value={row.qty} onChange={e => updateRow('equipment_added', idx, 'qty', e.target.value)} />
-                    </td>
-                    <td className="p-1">
-                      <Input type="number" min="0" step="0.01" value={row.unit_cost} onChange={e => updateRow('equipment_added', idx, 'unit_cost', e.target.value)} placeholder="0.00" />
-                    </td>
-                    <td className="p-1 text-center">
-                      <Button variant="ghost" size="sm" onClick={removeRow('equipment_added')(idx)} title="Remove row" className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Sign-off footer */}
-      <Card>
-        <CardContent className="pt-6">
-          <h2 className="font-semibold mb-2">Completed To Client's Satisfaction</h2>
-          <p className="text-sm text-muted-foreground italic">
-            Signature and printed name are captured on paper. The PDF generated by Save &amp; Print will include signature and Print Name blocks for the client to sign on completion.
-          </p>
+                </thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr
+                      key={r.id}
+                      className="border-b hover:bg-accent/30 cursor-pointer transition-colors"
+                      onClick={() => navigate(`/worksheets/${r.id}`)}
+                    >
+                      <td className="px-4 py-2 font-medium">{r.job_no || <span className="text-muted-foreground italic">untitled</span>}</td>
+                      <td className="px-4 py-2">{r.project_title || '—'}</td>
+                      <td className="px-4 py-2">{r.customer || '—'}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{r.account_manager || '—'}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{formatDate(r.date_order_placed)}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{formatDate(r.date_completed)}</td>
+                      <td className="px-4 py-2">
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          r.status === 'completed'
+                            ? 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200'
+                            : 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200'
+                        }`}>
+                          {r.status || 'draft'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

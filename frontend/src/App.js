@@ -31,6 +31,7 @@ import SupportChanges from './pages/SupportChanges';
 import SupportCount from './pages/SupportCount';
 import SupportMappings from './pages/SupportMappings';
 import Worksheets from './pages/Worksheets';
+import WorksheetEditor from './pages/WorksheetEditor';
 
 // Components
 import Layout from './components/Layout';
@@ -204,6 +205,7 @@ function App() {
               <Route path="projects/:id" element={<ProjectDetail />} />
               <Route path="incidents" element={<Incidents />} />
               <Route path="worksheets" element={<Worksheets />} />
+              <Route path="worksheets/:id" element={<WorksheetEditor />} />
               <Route path="maintenance" element={<Maintenance />} />
               <Route path="dc-health-check" element={<DCHealthCheck />} />
               <Route path="docs" element={<Documentation />} />
