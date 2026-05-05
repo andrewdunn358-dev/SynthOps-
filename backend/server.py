@@ -6492,7 +6492,7 @@ class ClientSupportProfileResponse(ClientSupportProfile):
 class SupportChange(BaseModel):
     client_id: str
     product_id: Optional[str] = None
-    product_name: Optional[str] = None  # free text if not a catalogue product
+    product_name: Optional[str] = None  # free text if not a catalogue product (legacy / display)
     change_description: str
     date: Optional[datetime] = None
     requested_by: Optional[str] = None
@@ -6500,6 +6500,13 @@ class SupportChange(BaseModel):
     accounts_informed: bool = False
     worksheet_submitted: bool = False
     profile_updated: bool = False
+    # Structured fields driving Support Count auto-update.
+    # affected_products: product names (matching support_products.name) that this
+    #   change applies to. delta is the signed integer applied to each.
+    # When both are present and non-zero, save/edit/delete will adjust the client's
+    # current-month snapshot + profile counts. Validated server-side.
+    affected_products: List[str] = []
+    delta: Optional[int] = None
 
 class SupportChangeResponse(SupportChange):
     id: str
@@ -6730,13 +6737,124 @@ async def list_support_changes(
     changes = await db.support_changes.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
     return changes
 
+async def _apply_support_change_delta(
+    client_id: str,
+    affected_products: List[str],
+    delta: int,
+) -> dict:
+    """
+    Apply a signed integer delta to one or more product counts on a client's
+    current-month support snapshot AND their support profile, atomically (in
+    the practical sense: validates first, then writes).
+
+    To reverse a previously-applied delta, call with -delta.
+
+    Raises HTTPException 400 if any resulting count would be negative, or if
+    the client has no current-month snapshot, or if the client has multiple
+    snapshots in the current month (multi-site clients aren't auto-updated
+    yet — those need manual Support Count edits).
+
+    Returns a small dict describing what was applied (debug-friendly).
+    """
+    # No-op shortcut — keeps callers simple
+    if not affected_products or delta is None or delta == 0:
+        return {"applied": False, "reason": "no-op"}
+
+    current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+
+    snapshots = await db.client_support_snapshots.find(
+        {"client_id": client_id, "month": current_month}
+    ).to_list(10)
+
+    if len(snapshots) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"No Support Count entry for this client in {current_month}. "
+                    f"Add the client to this month's Support Count first, then re-save the change.")
+        )
+    if len(snapshots) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail=("This client has multiple sites in Support Count, so automatic "
+                    "count updates aren't supported here yet. Please update the "
+                    "relevant site's count manually on the Support Count page.")
+        )
+
+    # Dedupe affected_products (case-sensitive — product names are canonical)
+    products_unique = list(dict.fromkeys(affected_products))
+
+    snap = snapshots[0]
+    products = snap.get("products") or {}
+
+    # Validate: compute new values, fail before any write if any would go negative
+    violations = []
+    new_values = {}
+    for prod in products_unique:
+        current = products.get(prod) or 0
+        try:
+            current = int(current)
+        except (TypeError, ValueError):
+            current = 0
+        new_val = current + delta
+        if new_val < 0:
+            violations.append(f"{prod}: {current} → {new_val}")
+        new_values[prod] = new_val
+
+    if violations:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"Cannot apply: would result in negative count(s) "
+                    f"({'; '.join(violations)}). Check the delta or the product selection.")
+        )
+
+    now = datetime.now(timezone.utc)
+
+    # Apply to the snapshot
+    snap_update = {f"products.{prod}": val for prod, val in new_values.items()}
+    snap_update["updated_at"] = now
+    snap_update["updated_by"] = "support-change-automation"
+    await db.client_support_snapshots.update_one(
+        {"_id": snap["_id"]},
+        {"$set": snap_update}
+    )
+
+    # Apply to the live profile (the persistent contract state)
+    profile_update = {f"products.{prod}": val for prod, val in new_values.items()}
+    profile_update["updated_at"] = now
+    await db.client_support_profiles.update_one(
+        {"client_id": client_id},
+        {
+            "$set": profile_update,
+            "$setOnInsert": {"client_id": client_id, "created_at": now},
+        },
+        upsert=True,
+    )
+
+    return {"applied": True, "snapshot_id": str(snap["_id"]), "new_values": new_values}
+
+
 @api_router.post("/support/changes", response_model=SupportChangeResponse)
 async def create_support_change(
     change: SupportChange,
     current_user: dict = Depends(get_current_user)
 ):
-    """Log a new change"""
+    """Log a new change. If structured affected_products + delta are provided,
+    apply them to the current-month Support Count snapshot and profile, and
+    auto-tick profile_updated."""
     now = datetime.now(timezone.utc)
+
+    # Validate-and-apply the delta first. If anything is wrong (no snapshot,
+    # multi-site, would-go-negative), this raises 400 before we insert — so we
+    # never end up with a change record whose counts didn't actually update.
+    auto_applied = False
+    if change.affected_products and change.delta is not None and change.delta != 0:
+        await _apply_support_change_delta(
+            change.client_id,
+            change.affected_products,
+            change.delta,
+        )
+        auto_applied = True
+
     doc = {
         "id": str(uuid.uuid4()),
         **change.dict(),
@@ -6744,9 +6862,11 @@ async def create_support_change(
         "created_at": now,
         "created_by": current_user.get("username") or current_user.get("email"),
     }
+    if auto_applied:
+        doc["profile_updated"] = True
     await db.support_changes.insert_one(doc)
-    # If profile_updated is False, flag the client profile as needing update
-    if not change.profile_updated:
+    # If profile wasn't auto-updated (no structured delta, or delta was 0), flag for review
+    if not doc.get("profile_updated"):
         await db.client_support_profiles.update_one(
             {"client_id": change.client_id},
             {"$set": {"needs_review": True}},
@@ -6759,13 +6879,48 @@ async def update_support_change(
     change: SupportChange,
     current_user: dict = Depends(get_current_user)
 ):
-    """Update a change log entry (e.g. tick off accounts informed)"""
+    """Update a change log entry (e.g. tick off accounts informed). If the
+    structured delta or its products or the client_id changed, reverses the
+    previously-applied delta and applies the new one — keeping the snapshot
+    and profile in lockstep with the audit log."""
+    old = await db.support_changes.find_one({"id": change_id})
+    if not old:
+        raise HTTPException(status_code=404, detail="Change not found")
+
+    old_products = old.get("affected_products") or []
+    old_delta = old.get("delta")
+    old_client_id = old.get("client_id")
+    new_products = change.affected_products or []
+    new_delta = change.delta
+
+    # Did the structured fields (or the client) change in a way that requires
+    # re-applying the delta?
+    needs_reapply = (
+        old_products != new_products
+        or old_delta != new_delta
+        or old_client_id != change.client_id
+    )
+
+    auto_applied = False
+    if needs_reapply:
+        # Reverse the old delta first (no-op if it was never applied)
+        if old_products and old_delta is not None and old_delta != 0:
+            await _apply_support_change_delta(old_client_id, old_products, -old_delta)
+        # Apply the new delta. If this raises, the old has already been reversed
+        # — that's the right behaviour (we'd rather have nothing applied than a
+        # half-applied edit). The user will see the error and can re-save.
+        if new_products and new_delta is not None and new_delta != 0:
+            await _apply_support_change_delta(change.client_id, new_products, new_delta)
+            auto_applied = True
+
     update_data = {**change.dict(), "updated_at": datetime.now(timezone.utc)}
+    if auto_applied:
+        update_data["profile_updated"] = True
     result = await db.support_changes.update_one({"id": change_id}, {"$set": update_data})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Change not found")
-    # If profile is now marked as updated, clear the needs_review flag
-    if change.profile_updated:
+    # If profile is now marked as updated (manually or via auto-apply), clear needs_review
+    if update_data.get("profile_updated"):
         await db.client_support_profiles.update_one(
             {"client_id": change.client_id},
             {"$set": {"needs_review": False}},
@@ -6778,10 +6933,25 @@ async def delete_support_change(
     change_id: str,
     admin: dict = Depends(require_admin)
 ):
-    """Delete a change log entry (admin only)"""
-    result = await db.support_changes.delete_one({"id": change_id})
-    if result.deleted_count == 0:
+    """Delete a change log entry (admin only).
+
+    Note: by Andrew's preference, change records should never be deleted in
+    practice — the delete button exists for emergencies / typos only. If the
+    deleted change had an applied structured delta, this reverses it so the
+    snapshot/profile stays consistent with the audit log."""
+    old = await db.support_changes.find_one({"id": change_id})
+    if not old:
         raise HTTPException(status_code=404, detail="Change not found")
+
+    # Reverse the previously-applied delta (no-op if it was never applied)
+    old_products = old.get("affected_products") or []
+    old_delta = old.get("delta")
+    if old_products and old_delta is not None and old_delta != 0:
+        await _apply_support_change_delta(
+            old["client_id"], old_products, -old_delta
+        )
+
+    await db.support_changes.delete_one({"id": change_id})
     return {"message": "Change deleted"}
 
 # --- Import endpoint for historical data ---

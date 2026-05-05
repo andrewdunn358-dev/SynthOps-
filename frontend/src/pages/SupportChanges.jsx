@@ -40,6 +40,8 @@ export default function SupportChanges() {
     client_id: '',
     product_id: '',
     product_name: '',
+    affected_products: [],
+    delta: '',
     change_description: '',
     requested_by: '',
     completed_by: '',
@@ -92,6 +94,8 @@ export default function SupportChanges() {
       client_id: filterClient || '',
       product_id: '',
       product_name: '',
+      affected_products: [],
+      delta: '',
       change_description: '',
       requested_by: '',
       completed_by: '',
@@ -109,6 +113,8 @@ export default function SupportChanges() {
       client_id: change.client_id || '',
       product_id: change.product_id || '',
       product_name: change.product_name || '',
+      affected_products: Array.isArray(change.affected_products) ? change.affected_products : [],
+      delta: change.delta != null ? String(change.delta) : '',
       change_description: change.change_description || '',
       requested_by: change.requested_by || '',
       completed_by: change.completed_by || '',
@@ -123,23 +129,46 @@ export default function SupportChanges() {
   const saveForm = async () => {
     if (!form.client_id) { toast.error('Client is required'); return; }
     if (!form.change_description) { toast.error('Change description is required'); return; }
+    // If one of (affected_products, delta) is set the other must be too,
+    // otherwise the auto-update can't fire and the user probably forgot a field
+    const hasProducts = form.affected_products && form.affected_products.length > 0;
+    const deltaTrim = String(form.delta || '').trim();
+    const hasDelta = deltaTrim !== '';
+    if (hasProducts !== hasDelta) {
+      toast.error('Please fill in both Products affected and Count change, or leave both empty');
+      return;
+    }
+    let parsedDelta = null;
+    if (hasDelta) {
+      parsedDelta = parseInt(deltaTrim, 10);
+      if (Number.isNaN(parsedDelta)) {
+        toast.error('Count change must be a whole number (e.g. 1, -2, 3)');
+        return;
+      }
+    }
     setSaving(true);
     try {
       const payload = {
         ...form,
         date: new Date(form.date).toISOString(),
+        delta: parsedDelta,
+        // Keep product_name in sync with affected_products for legacy display
+        // in places that haven't been updated to read affected_products yet
+        product_name: hasProducts ? form.affected_products.join(', ') : form.product_name,
       };
       if (editingChange) {
         await apiClient.put(`/support/changes/${editingChange.id}`, payload);
         toast.success('Change updated');
       } else {
         await apiClient.post('/support/changes', payload);
-        toast.success('Change logged');
+        toast.success(hasProducts ? 'Change logged — counts updated' : 'Change logged');
       }
       setDialogOpen(false);
       fetchChanges();
     } catch (e) {
-      toast.error('Failed to save change');
+      // Surface server validation errors (negative count, multi-site, etc.)
+      const detail = e.response?.data?.detail || 'Failed to save change';
+      toast.error(detail);
     } finally {
       setSaving(false);
     }
@@ -406,31 +435,76 @@ export default function SupportChanges() {
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium mb-1 block">Product / Service</label>
+              <label className="text-sm font-medium mb-1 block">
+                Products affected
+                <span className="text-xs text-muted-foreground font-normal ml-2">
+                  pick one or more — the count will auto-update on save
+                </span>
+              </label>
+              {/* Selected products shown as removable pills */}
+              {form.affected_products.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {form.affected_products.map(name => (
+                    <span
+                      key={name}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200"
+                    >
+                      {name}
+                      <button
+                        type="button"
+                        onClick={() => setForm(f => ({
+                          ...f,
+                          affected_products: f.affected_products.filter(p => p !== name),
+                        }))}
+                        className="hover:text-red-600"
+                        title="Remove"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <Select
-                value={form.product_id || 'other'}
+                value=""
                 onValueChange={v => {
-                  const prod = products.find(p => p.id === v);
-                  setForm(f => ({ ...f, product_id: v === 'other' ? '' : v, product_name: prod?.name || f.product_name }));
+                  if (!v) return;
+                  setForm(f => f.affected_products.includes(v)
+                    ? f
+                    : { ...f, affected_products: [...f.affected_products, v] });
                 }}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select product..." />
+                  <SelectValue placeholder={form.affected_products.length > 0 ? 'Add another product...' : 'Select product...'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {products.map(p => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                  ))}
-                  <SelectItem value="other">Other / free text</SelectItem>
+                  {products
+                    .filter(p => !form.affected_products.includes(p.name))
+                    .map(p => (
+                      <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
-              {(!form.product_id || form.product_id === 'other') && (
-                <Input
-                  className="mt-2"
-                  placeholder="Product / service name..."
-                  value={form.product_name}
-                  onChange={e => setForm(f => ({ ...f, product_name: e.target.value }))}
-                />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">
+                Count change
+                <span className="text-xs text-muted-foreground font-normal ml-2">
+                  e.g. <code>1</code> to add, <code>-1</code> to remove
+                </span>
+              </label>
+              <Input
+                type="number"
+                step="1"
+                placeholder="+1, -2, etc."
+                value={form.delta}
+                onChange={e => setForm(f => ({ ...f, delta: e.target.value }))}
+              />
+              {form.affected_products.length > 0 && form.delta && !Number.isNaN(parseInt(form.delta, 10)) && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  On save: {parseInt(form.delta, 10) >= 0 ? '+' : ''}{parseInt(form.delta, 10)} to{' '}
+                  {form.affected_products.join(', ')} for this client's current-month count.
+                </p>
               )}
             </div>
             <div>
