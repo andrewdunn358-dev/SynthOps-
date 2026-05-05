@@ -6,7 +6,7 @@ import {
   AlertTriangle, Wrench, FileText, Clock, Users, Settings, 
   Shield, LogOut, Menu, X, Sun, Moon, ChevronLeft,
   BarChart3, KeyRound, ExternalLink, Monitor, ShieldCheck, Network,
-  Package, HardDrive, ClipboardList, Table2, Link2
+  Package, HardDrive, ClipboardList, Table2, Link2, ClipboardCheck
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
@@ -33,6 +33,7 @@ const navItems = [
   // { path: '/tasks', icon: ListTodo, label: 'Tasks' },
   // { path: '/projects', icon: FolderKanban, label: 'Projects' },
   { path: '/incidents', icon: AlertTriangle, label: 'Incidents' },
+  { path: '/worksheets', icon: ClipboardCheck, label: 'Worksheets' },
   // Hidden 2026-05-01 — see commit message. Page and route still exist;
   // maintenance-style work is being absorbed into Tasks instead.
   // { path: '/maintenance', icon: Wrench, label: 'Maintenance' },
