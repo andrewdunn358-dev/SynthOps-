@@ -8996,6 +8996,335 @@ async def delete_worksheet(
     return {"message": "Worksheet deleted"}
 
 
+# Lazy reportlab import — only loaded the first time a PDF is generated, so
+# the import cost doesn't hit cold-start for users who never print.
+def _worksheet_pdf_bytes(ws: dict) -> bytes:
+    """Render a Worksheet dict into a PDF that mirrors the Synthesis IT
+    paper Work Order / Job No. form: logo top-left, four-column header
+    metadata grid, two equipment tables, and signature footer.
+
+    Returns the PDF as bytes (suitable for StreamingResponse).
+    """
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import (
+        SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image,
+    )
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    # Locate the logo. Container path is /app/assets/... when running under
+    # the project's Dockerfile (COPY . . from the backend/ context).
+    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "synthesis-it-logo.png")
+
+    # ------------------------------------------------------------------
+    # Styles
+    # ------------------------------------------------------------------
+    label_style = ParagraphStyle(
+        "label", fontName="Helvetica", fontSize=7, textColor=colors.HexColor("#444444"),
+        leading=8, spaceAfter=0,
+    )
+    value_style = ParagraphStyle(
+        "value", fontName="Helvetica-Bold", fontSize=9, textColor=colors.black,
+        leading=11, spaceAfter=0,
+    )
+    multiline_value_style = ParagraphStyle(
+        "value_multi", fontName="Helvetica", fontSize=8.5, textColor=colors.black,
+        leading=10, spaceAfter=0,
+    )
+    title_style = ParagraphStyle(
+        "title", fontName="Helvetica-Bold", fontSize=18, textColor=colors.black,
+        leading=20, spaceAfter=0,
+    )
+    section_style = ParagraphStyle(
+        "section", fontName="Helvetica-Bold", fontSize=10, textColor=colors.black,
+        leading=12, spaceBefore=4, spaceAfter=2,
+    )
+    table_header_style = ParagraphStyle(
+        "th", fontName="Helvetica-Bold", fontSize=9, textColor=colors.black,
+        leading=11, alignment=0,
+    )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    def _safe(v):
+        return "" if v is None else str(v)
+
+    def _fmt_date(s):
+        # Stored as YYYY-MM-DD; render as DD/MM/YYYY for paper-form familiarity
+        s = _safe(s)
+        if not s:
+            return ""
+        try:
+            y, m, d = s.split("-")
+            return f"{d}/{m}/{y}"
+        except Exception:
+            return s
+
+    def field(label, value, multiline=False):
+        """A single label-on-top, value-below cell as a sub-Table with a border."""
+        v_style = multiline_value_style if multiline else value_style
+        # &nbsp; ensures the cell has visible height even when value is blank
+        rendered = _safe(value).replace("\n", "<br/>") or "&nbsp;"
+        cell = Table(
+            [[Paragraph(label, label_style)], [Paragraph(rendered, v_style)]],
+            colWidths=["*"],
+            rowHeights=[3.5 * mm, None],
+        )
+        cell.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.5, colors.black),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2 * mm),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
+            ("TOPPADDING", (0, 0), (-1, -1), 1 * mm),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1 * mm),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        return cell
+
+    def field_stack(fields):
+        """Vertical stack of field cells (one column of the header grid)."""
+        rows = [[f] for f in fields]
+        t = Table(rows, colWidths=["*"])
+        t.setStyle(TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        return t
+
+    # ------------------------------------------------------------------
+    # Page setup
+    # ------------------------------------------------------------------
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=10 * mm, rightMargin=10 * mm,
+        topMargin=8 * mm, bottomMargin=8 * mm,
+        title=f"Work Order {_safe(ws.get('job_no')) or ws.get('id', '')}",
+    )
+    page_w = A4[0] - 20 * mm  # usable width
+
+    story = []
+
+    # ------------------------------------------------------------------
+    # Top: logo + "Work Order/Job No." title
+    # ------------------------------------------------------------------
+    try:
+        logo = Image(logo_path, width=22 * mm, height=22 * mm)
+    except Exception:
+        # If the logo file is missing for some reason, fail soft — the rest
+        # of the worksheet should still print.
+        logo = Paragraph("&nbsp;", value_style)
+
+    title_cell = Paragraph("Work Order / Job No.", title_style)
+    job_no_cell = Paragraph(
+        f"<font size='14'>{_safe(ws.get('job_no')) or '&nbsp;'}</font>",
+        value_style,
+    )
+    top_table = Table(
+        [[logo, title_cell, job_no_cell]],
+        colWidths=[26 * mm, 80 * mm, page_w - 26 * mm - 80 * mm],
+    )
+    top_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("BOX", (2, 0), (2, 0), 0.5, colors.black),
+        ("LEFTPADDING", (2, 0), (2, 0), 3 * mm),
+    ]))
+    story.append(top_table)
+    story.append(Spacer(1, 4 * mm))
+
+    # ------------------------------------------------------------------
+    # Header — 4-column metadata grid, each column an independent stack
+    # of label/value cells (matches the paper layout where columns have
+    # different field counts).
+    # ------------------------------------------------------------------
+    col1 = field_stack([
+        field("Project Title", ws.get("project_title")),
+        field("Opps No", ws.get("opps_no")),
+        field("Overview Of Job", ws.get("overview_of_job"), multiline=True),
+    ])
+    col2 = field_stack([
+        field("Account Manager", ws.get("account_manager")),
+        field("Customer Contact", ws.get("customer_contact")),
+    ])
+    col3 = field_stack([
+        field("Customer", ws.get("customer")),
+        field("Project Delivery Address", ws.get("project_delivery_address"), multiline=True),
+        field("Date Order Placed", _fmt_date(ws.get("date_order_placed"))),
+        field("Time Arrived", ws.get("time_arrived")),
+    ])
+    col4 = field_stack([
+        field("Date Delivery Expected", _fmt_date(ws.get("date_delivery_expected"))),
+        field("Job Assigned To", ws.get("job_assigned_to")),
+        field("Delivered / Fulfilled By", ws.get("delivered_fulfilled_by")),
+        field("Date Completed", _fmt_date(ws.get("date_completed"))),
+        field("Time Finished", ws.get("time_finished")),
+    ])
+
+    header_grid = Table(
+        [[col1, col2, col3, col4]],
+        colWidths=[page_w * 0.27, page_w * 0.20, page_w * 0.27, page_w * 0.26],
+    )
+    header_grid.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(header_grid)
+    story.append(Spacer(1, 4 * mm))
+
+    # ------------------------------------------------------------------
+    # Equipment Expected / Ordered
+    # ------------------------------------------------------------------
+    story.append(Paragraph("List of Equipment Expected / Ordered", section_style))
+
+    expected_rows = [[
+        Paragraph("Description", table_header_style),
+        Paragraph("Qty Alloc", table_header_style),
+        Paragraph("Qty Used", table_header_style),
+    ]]
+    items = ws.get("equipment_expected") or []
+    for it in items:
+        expected_rows.append([
+            Paragraph(_safe(it.get("description")), value_style),
+            _safe(it.get("qty_alloc") if it.get("qty_alloc") is not None else ""),
+            _safe(it.get("qty_used") if it.get("qty_used") is not None else ""),
+        ])
+    # Pad with blank rows so the table looks like a paper form even when sparse
+    min_rows = 12
+    while len(expected_rows) - 1 < min_rows:
+        expected_rows.append(["", "", ""])
+
+    expected_table = Table(
+        expected_rows,
+        colWidths=[page_w * 0.65, page_w * 0.175, page_w * 0.175],
+        rowHeights=[6 * mm] + [6 * mm] * (len(expected_rows) - 1),
+    )
+    expected_table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEEEEE")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2 * mm),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
+        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+    ]))
+    story.append(expected_table)
+    story.append(Spacer(1, 4 * mm))
+
+    # ------------------------------------------------------------------
+    # Additional Equipment Added By Installation Team
+    # ------------------------------------------------------------------
+    story.append(Paragraph("Additional Equipment Added By Installation Team", section_style))
+
+    added_rows = [[
+        Paragraph("Description", table_header_style),
+        Paragraph("Qty", table_header_style),
+        Paragraph("Unit Cost", table_header_style),
+    ]]
+    items = ws.get("equipment_added") or []
+    for it in items:
+        cost = it.get("unit_cost")
+        cost_s = f"{cost:.2f}" if isinstance(cost, (int, float)) else _safe(cost)
+        added_rows.append([
+            Paragraph(_safe(it.get("description")), value_style),
+            _safe(it.get("qty") if it.get("qty") is not None else ""),
+            cost_s,
+        ])
+    min_rows = 8
+    while len(added_rows) - 1 < min_rows:
+        added_rows.append(["", "", ""])
+
+    added_table = Table(
+        added_rows,
+        colWidths=[page_w * 0.65, page_w * 0.175, page_w * 0.175],
+        rowHeights=[6 * mm] + [6 * mm] * (len(added_rows) - 1),
+    )
+    added_table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEEEEE")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2 * mm),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
+        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+    ]))
+    story.append(added_table)
+    story.append(Spacer(1, 6 * mm))
+
+    # ------------------------------------------------------------------
+    # Signature footer
+    # ------------------------------------------------------------------
+    sign_label = Paragraph("Completed To Clients Satisfaction (Signed)", label_style)
+    name_label = Paragraph("Print Name", label_style)
+    sign_box = Table(
+        [[sign_label], [Paragraph("&nbsp;", value_style)]],
+        colWidths=["*"], rowHeights=[3.5 * mm, 16 * mm],
+    )
+    sign_box.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.black),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2 * mm),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
+        ("TOPPADDING", (0, 0), (-1, -1), 1 * mm),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1 * mm),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    name_box = Table(
+        [[name_label], [Paragraph("&nbsp;", value_style)]],
+        colWidths=["*"], rowHeights=[3.5 * mm, 16 * mm],
+    )
+    name_box.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.black),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2 * mm),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
+        ("TOPPADDING", (0, 0), (-1, -1), 1 * mm),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1 * mm),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    footer = Table(
+        [[sign_box, name_box]],
+        colWidths=[page_w * 0.65, page_w * 0.35],
+    )
+    footer.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(footer)
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+@api_router.get("/worksheets/{worksheet_id}/pdf")
+async def get_worksheet_pdf(
+    worksheet_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Generate and stream a PDF of the given worksheet, ready for printing."""
+    ws = await db.worksheets.find_one({"id": worksheet_id}, {"_id": 0})
+    if not ws:
+        raise HTTPException(status_code=404, detail="Worksheet not found")
+    pdf_bytes = _worksheet_pdf_bytes(ws)
+    filename = f"worksheet-{ws.get('job_no') or worksheet_id}.pdf"
+    # Sanitise filename a touch — no slashes, no quotes
+    filename = "".join(c for c in filename if c not in '\\/:*?"<>|')
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 # Include the router after all routes are defined
 app.include_router(api_router)
 

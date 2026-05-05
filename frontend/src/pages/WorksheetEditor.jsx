@@ -165,6 +165,28 @@ export default function WorksheetEditor() {
     }
   }, [form, worksheetId]);
 
+  const saveAndPrint = useCallback(async () => {
+    if (!worksheetId) return;
+    setSaving(true);
+    try {
+      const payload = formToApi(form);
+      await apiClient.put(`/worksheets/${worksheetId}`, payload);
+      // Auth uses a Bearer token via axios interceptor — a raw window.open
+      // wouldn't send it. Fetch the PDF as a blob through axios (token
+      // attached), then open via a blob URL.
+      const res = await apiClient.get(`/worksheets/${worksheetId}/pdf`, { responseType: 'blob' });
+      const blobUrl = window.URL.createObjectURL(res.data);
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      // Free the blob URL after a generous delay — the new tab needs it
+      // alive long enough to render and let the user print.
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to save and print');
+    } finally {
+      setSaving(false);
+    }
+  }, [form, worksheetId]);
+
   if (loading) {
     return (
       <div className="container mx-auto p-6 flex items-center gap-2 text-muted-foreground">
@@ -201,7 +223,7 @@ export default function WorksheetEditor() {
             {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
             {saving ? 'Saving…' : 'Save Draft'}
           </Button>
-          <Button disabled title="PDF generation coming in the next phase">
+          <Button onClick={saveAndPrint} disabled={saving}>
             <Printer className="h-4 w-4 mr-1" /> Save &amp; Print
           </Button>
         </div>
