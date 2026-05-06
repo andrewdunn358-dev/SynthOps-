@@ -225,8 +225,16 @@ export default function WorksheetEditor() {
     if (!worksheetId) return;
     setSaving(true);
     try {
-      const payload = formToApi(form);
+      // Save & Print marks the worksheet complete — Andrew's flow:
+      // engineer fills in, hits Save & Print, it goes to the printer, the
+      // client signs the paper copy. From SynthOps's perspective, that's
+      // the completion event. Re-printing a completed worksheet leaves
+      // it completed (idempotent).
+      const payload = { ...formToApi(form), status: 'completed' };
       await apiClient.put(`/worksheets/${worksheetId}`, payload);
+      // Reflect the new status locally so the title bar / list rerender
+      // without needing a refetch.
+      setForm(f => ({ ...f, status: 'completed' }));
 
       // Auth uses a Bearer token via axios interceptor — a raw window.open
       // wouldn't send it. Fetch the PDF as a blob through axios (token
