@@ -9112,95 +9112,111 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     story = []
 
     # ------------------------------------------------------------------
-    # Top: logo + "Work Order/Job No." title
     # ------------------------------------------------------------------
+    # Header — single integrated 6×4 grid. Top-left cell holds the logo
+    # stacked above the "Work Order / Job No." title. To its right, on the
+    # same band, sit Customer Contact, Customer, and Date Delivery Expected
+    # (per Andrew's spec: those cells are level with the title, no separate
+    # title bar across the top).
+    #
+    # Below that band, the form continues as a regular grid with Account
+    # Manager spanning the full height of column 1, the Project Delivery
+    # Address taking 2 rows for multi-line content, and Overview Of Job
+    # filling the bottom-left to balance the column.
+    # ------------------------------------------------------------------
+    HEADER_ROW_H = 9 * mm
+    TITLE_BAND_ROWS = 4  # rows 0-3 form the title band
+    blank = ""
+
+    # Logo + title cell content (top-left). Built as an inner Table so we
+    # can stack the logo above the title with proper centering.
     try:
-        logo = Image(logo_path, width=22 * mm, height=22 * mm)
+        logo_img = Image(logo_path, width=15 * mm, height=15 * mm)
     except Exception:
-        # If the logo file is missing for some reason, fail soft — the rest
-        # of the worksheet should still print.
-        logo = Paragraph("&nbsp;", value_style)
-
-    title_cell = Paragraph("Work Order / Job No.", title_style)
-    job_no_cell = Paragraph(
-        f"<font size='14'>{_safe(ws.get('job_no')) or '&nbsp;'}</font>",
-        value_style,
+        logo_img = Paragraph("&nbsp;", value_style)
+    # Smaller title font than the page header — the logo+title block needs
+    # to fit inside a fixed-height grid cell, and 18pt × 2 lines + an 18mm
+    # logo overflowed the row in v3.
+    title_compact_style = ParagraphStyle(
+        "title_compact", fontName="Helvetica-Bold", fontSize=14,
+        textColor=colors.black, leading=15, spaceAfter=0,
     )
-    top_table = Table(
-        [[logo, title_cell, job_no_cell]],
-        colWidths=[26 * mm, 80 * mm, page_w - 26 * mm - 80 * mm],
+    title_para = Paragraph("Work Order /<br/>Job No.", title_compact_style)
+    logo_title_block = Table(
+        [[logo_img], [title_para]],
+        colWidths=["*"],
     )
-    top_table.setStyle(TableStyle([
+    logo_title_block.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-        ("BOX", (2, 0), (2, 0), 0.5, colors.black),
-        ("LEFTPADDING", (2, 0), (2, 0), 3 * mm),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3 * mm),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
+        ("TOPPADDING", (0, 0), (-1, -1), 1 * mm),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1 * mm),
     ]))
-    story.append(top_table)
-    story.append(Spacer(1, 4 * mm))
-
-    # ------------------------------------------------------------------
-    # Header — uniform 5-row × 4-column grid with merged cells where the
-    # paper has taller fields (Overview Of Job, Account Manager, Customer
-    # Contact, Project Delivery Address). All four columns end at the
-    # same height so the top of the form looks regular.
-    # ------------------------------------------------------------------
-    HEADER_ROW_H = 10 * mm
-    blank = ""  # placeholder for cells that get hidden by SPAN
 
     header_data = [
-        # Row 0
+        # Row 0 — title band starts. Logo+title block on left (rows 0-3),
+        # Customer Contact / Customer / Date Delivery Expected on the right
+        # (each spanning rows 0-3 to match the title-band height).
         [
-            field("Project Title", ws.get("project_title")),
-            field("Account Manager", ws.get("account_manager")),
+            logo_title_block,
+            field("Customer Contact", ws.get("customer_contact")),
             field("Customer", ws.get("customer")),
             field("Date Delivery Expected", _fmt_date(ws.get("date_delivery_expected"))),
         ],
-        # Row 1
+        # Rows 1-3 — hidden by SPAN of title-band cells above
+        [blank, blank, blank, blank],
+        [blank, blank, blank, blank],
+        [blank, blank, blank, blank],
+        # Row 4 — first form row below the title band
         [
-            field("Opps No", ws.get("opps_no")),
-            blank,  # Account Manager spans down to here
+            field("Project Title", ws.get("project_title")),
+            field("Account Manager", ws.get("account_manager")),
             field("Project Delivery Address", ws.get("project_delivery_address"), multiline=True),
             field("Job Assigned To", ws.get("job_assigned_to")),
         ],
-        # Row 2
+        # Row 5
         [
-            field("Overview Of Job", ws.get("overview_of_job"), multiline=True),
-            field("Customer Contact", ws.get("customer_contact")),
-            blank,  # Address spans down to here
+            field("Opps No", ws.get("opps_no")),
+            blank,  # Account Manager spans down here
+            blank,  # Address spans down here
             field("Delivered / Fulfilled By", ws.get("delivered_fulfilled_by")),
         ],
-        # Row 3
+        # Row 6
         [
-            blank,  # Overview spans down
-            blank,  # Customer Contact spans down
+            field("Overview Of Job", ws.get("overview_of_job"), multiline=True),
+            blank,  # Account Manager spans down here
             field("Date Order Placed", _fmt_date(ws.get("date_order_placed"))),
             field("Date Completed", _fmt_date(ws.get("date_completed"))),
         ],
-        # Row 4
+        # Row 7
         [
-            blank,  # Overview spans down
-            blank,  # Customer Contact spans down
+            blank,  # Overview spans down here
+            blank,  # Account Manager spans down here
             field("Time Arrived", ws.get("time_arrived")),
             field("Time Finished", ws.get("time_finished")),
         ],
     ]
 
+    # Column widths: dates column narrower, address column wider.
+    # Logo/title col is ~22% to give the logo room without dominating.
     header_grid = Table(
         header_data,
-        colWidths=[page_w * 0.27, page_w * 0.20, page_w * 0.27, page_w * 0.26],
-        rowHeights=[HEADER_ROW_H] * 5,
+        colWidths=[page_w * 0.22, page_w * 0.22, page_w * 0.34, page_w * 0.22],
+        rowHeights=[HEADER_ROW_H] * 8,
     )
     header_grid.setStyle(TableStyle([
-        # Cell merges where the paper form has taller fields
-        ("SPAN", (0, 2), (0, 4)),  # Overview Of Job: col 0, rows 2-4
-        ("SPAN", (1, 0), (1, 1)),  # Account Manager: col 1, rows 0-1
-        ("SPAN", (1, 2), (1, 4)),  # Customer Contact: col 1, rows 2-4
-        ("SPAN", (2, 1), (2, 2)),  # Project Delivery Address: col 2, rows 1-2
-        # No padding on outer cells — each `field` flowable already has its own border
+        # Title band — top 4 rows merged across all 4 columns' cells
+        ("SPAN", (0, 0), (0, 3)),  # Logo+title block: rows 0-3
+        ("SPAN", (1, 0), (1, 3)),  # Customer Contact: rows 0-3
+        ("SPAN", (2, 0), (2, 3)),  # Customer: rows 0-3
+        ("SPAN", (3, 0), (3, 3)),  # Date Delivery Expected: rows 0-3
+        # Lower form merges
+        ("SPAN", (1, 4), (1, 7)),  # Account Manager: col 1, rows 4-7 (full bottom column)
+        ("SPAN", (2, 4), (2, 5)),  # Project Delivery Address: col 2, rows 4-5
+        ("SPAN", (0, 6), (0, 7)),  # Overview Of Job: col 0, rows 6-7
+        # No outer padding — `field` flowables carry their own borders
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
