@@ -1,13 +1,17 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { apiClient } from '../App';
+import { apiClient, useAuth } from '../App';
 import { toast } from 'sonner';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
-import { Plus, Trash2, Printer, Save, FileText, ArrowLeft, Loader2 } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '../components/ui/alert-dialog';
+import { Plus, Trash2, Printer, Save, FileText, ArrowLeft, Loader2, Check, ChevronsUpDown } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Worksheet editor — loads /worksheets/:id (or :id == 'new' for a fresh draft).
@@ -115,10 +119,40 @@ const errorText = (e, fallback = 'Request failed') => {
 export default function WorksheetEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [form, setForm] = useState(blankForm());
   const [worksheetId, setWorksheetId] = useState(id === 'new' ? null : id);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Clients for the Customer combobox. Falls back gracefully if the
+  // /clients fetch fails — the field still works as free text.
+  const [clients, setClients] = useState([]);
+  const [customerOpen, setCustomerOpen] = useState(false);
+
+  // Fetch the client list once on mount. Independent of the worksheet
+  // load — failure here doesn't block the editor.
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get('/clients')
+      .then(res => { if (!cancelled) setClients(res.data || []); })
+      .catch(() => { /* free-text fallback works either way */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Filter the client list against what the user has typed in the
+  // Customer field. Case-insensitive substring match — same logic the
+  // SupportChanges autocomplete uses.
+  const customerSuggestions = useMemo(() => {
+    const q = (form.customer || '').toLowerCase().trim();
+    if (!clients.length) return [];
+    const list = clients
+      .filter(c => c.name && (!q || c.name.toLowerCase().includes(q)))
+      .slice(0, 10);
+    return list;
+  }, [clients, form.customer]);
 
   useEffect(() => {
     let cancelled = false;
@@ -209,6 +243,20 @@ export default function WorksheetEditor() {
     }
   }, [form, worksheetId]);
 
+  const deleteWorksheet = useCallback(async () => {
+    if (!worksheetId) return;
+    setDeleting(true);
+    try {
+      await apiClient.delete(`/worksheets/${worksheetId}`);
+      toast.success('Worksheet deleted');
+      navigate('/worksheets', { replace: true });
+    } catch (e) {
+      toast.error(errorText(e, 'Failed to delete worksheet'));
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  }, [worksheetId, navigate]);
+
   if (loading) {
     return (
       <div className="container mx-auto p-6 flex items-center gap-2 text-muted-foreground">
@@ -241,6 +289,17 @@ export default function WorksheetEditor() {
           </p>
         </div>
         <div className="flex gap-2">
+          {isAdmin && (
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={saving || deleting}
+              className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20"
+              title="Delete this worksheet (admin only)"
+            >
+              <Trash2 className="h-4 w-4 mr-1" /> Delete
+            </Button>
+          )}
           <Button variant="outline" onClick={save} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
             {saving ? 'Saving…' : 'Save Draft'}
@@ -274,7 +333,42 @@ export default function WorksheetEditor() {
 
             <div className="lg:col-span-2">
               <Label htmlFor="customer">Customer</Label>
-              <Input id="customer" value={form.customer} onChange={setField('customer')} />
+              <div className="relative">
+                <Input
+                  id="customer"
+                  value={form.customer}
+                  onChange={e => { setField('customer')(e); setCustomerOpen(true); }}
+                  onFocus={() => setCustomerOpen(true)}
+                  onBlur={() => {
+                    // Delay so a click on a suggestion still registers
+                    setTimeout(() => setCustomerOpen(false), 150);
+                  }}
+                  placeholder="Type to search or enter a new customer name"
+                  autoComplete="off"
+                />
+                {customerOpen && customerSuggestions.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full max-h-60 overflow-auto rounded-md border bg-popover text-popover-foreground shadow-md">
+                    {customerSuggestions.map(c => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent flex items-center gap-2"
+                        onMouseDown={(e) => {
+                          // mouseDown so it fires before the input's blur
+                          e.preventDefault();
+                          setForm(f => ({ ...f, customer: c.name }));
+                          setCustomerOpen(false);
+                        }}
+                      >
+                        {c.name === form.customer
+                          ? <Check className="h-3.5 w-3.5 text-primary" />
+                          : <ChevronsUpDown className="h-3.5 w-3.5 opacity-30" />}
+                        <span>{c.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="lg:col-span-2">
               <Label htmlFor="customer_contact">Customer Contact</Label>
@@ -424,6 +518,33 @@ export default function WorksheetEditor() {
           </p>
         </CardContent>
       </Card>
+      {/* Delete confirmation (admin only — but rendered unconditionally
+          and gated by showDeleteConfirm so non-admins can never trigger it
+          since they don't see the Delete button to begin with). */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this worksheet?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the worksheet record. Use this for
+              test drafts or worksheets created in error — completed
+              worksheets shouldn't normally be deleted. This action can't
+              be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); deleteWorksheet(); }}
+              disabled={deleting}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {deleting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
+              {deleting ? 'Deleting…' : 'Delete worksheet'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

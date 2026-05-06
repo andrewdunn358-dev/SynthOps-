@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiClient } from '../App';
+import { apiClient, useAuth } from '../App';
 import { toast } from 'sonner';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Plus, Search, FileText, Loader2 } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '../components/ui/alert-dialog';
+import { Plus, Search, FileText, Loader2, Trash2 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Worksheets — list page. Shows all worksheets newest-first, with a search
@@ -43,10 +47,14 @@ const errorText = (e, fallback = 'Request failed') => {
 
 export default function Worksheets() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState(null); // {id, label} when confirming
+  const [deleting, setDeleting] = useState(false);
 
   // Debounce search → server
   useEffect(() => {
@@ -76,6 +84,23 @@ export default function Worksheets() {
       navigate('/worksheets/new');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await apiClient.delete(`/worksheets/${deleteTarget.id}`);
+      toast.success('Worksheet deleted');
+      // Optimistically remove from list — refetch would also work but
+      // this avoids a flash of the deleted row.
+      setRows(rs => rs.filter(r => r.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (e) {
+      toast.error(errorText(e, 'Failed to delete worksheet'));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -140,6 +165,7 @@ export default function Worksheets() {
                     <th className="px-4 py-2 font-medium">Date Order</th>
                     <th className="px-4 py-2 font-medium">Date Completed</th>
                     <th className="px-4 py-2 font-medium">Status</th>
+                    {isAdmin && <th className="px-4 py-2 w-10"></th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -164,6 +190,22 @@ export default function Worksheets() {
                           {r.status || 'draft'}
                         </span>
                       </td>
+                      {isAdmin && (
+                        <td className="px-2 py-2 text-right" onClick={e => e.stopPropagation()}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
+                            title="Delete worksheet"
+                            onClick={() => setDeleteTarget({
+                              id: r.id,
+                              label: r.job_no || r.project_title || 'this worksheet',
+                            })}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -172,6 +214,31 @@ export default function Worksheets() {
           )}
         </CardContent>
       </Card>
+      {/* Delete confirmation (admin-only — but rendered unconditionally
+          and gated by deleteTarget so non-admins can never trigger it
+          since they don't see the per-row delete button). */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete worksheet?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes <span className="font-semibold">{deleteTarget?.label}</span>.
+              Use this for test drafts or worksheets created in error. This action can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); confirmDelete(); }}
+              disabled={deleting}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {deleting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
+              {deleting ? 'Deleting…' : 'Delete worksheet'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
