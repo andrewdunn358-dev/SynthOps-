@@ -227,40 +227,59 @@ export default function WorksheetEditor() {
     try {
       const payload = formToApi(form);
       await apiClient.put(`/worksheets/${worksheetId}`, payload);
+
       // Auth uses a Bearer token via axios interceptor — a raw window.open
       // wouldn't send it. Fetch the PDF as a blob through axios (token
-      // attached), then trigger via an anchor click.
+      // attached), then load it into a hidden iframe and print from there.
       const res = await apiClient.get(`/worksheets/${worksheetId}/pdf`, { responseType: 'blob' });
 
       // Wrap the response in an explicitly-typed Blob. axios sometimes
-      // drops the response Content-Type when constructing its blob, and
-      // Chrome relies on the blob's MIME type to decide whether to
-      // inline-view a PDF vs treat it as an opaque download.
+      // drops the response Content-Type, and Chrome relies on the blob's
+      // MIME type to inline-view PDFs vs treat them as opaque downloads.
       const pdfBlob = new Blob([res.data], { type: 'application/pdf' });
       const blobUrl = window.URL.createObjectURL(pdfBlob);
 
-      // Anchor click rather than window.open(blobUrl, '_blank', 'noopener'):
-      // the noopener flag puts the new tab in a separate browsing context
-      // group, where blob: URLs created by the original document can fail
-      // to resolve — Chrome reports this as 'Check Internet connection' in
-      // the download tray (which is the bug Andrew hit). An anchor click
-      // mimics a normal link interaction, which the browser handles cleanly.
-      //
-      // download attribute supplies a sensible filename — without it, the
-      // browser falls back to the URL's last path segment, which for a
-      // blob: URL is the UUID with no extension.
-      const safeJobNo = String(form.job_no || worksheetId).replace(/[^A-Za-z0-9_-]/g, '_');
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.target = '_blank';
-      a.download = `worksheet-${safeJobNo}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      // Hidden iframe + .print() pattern: drop the PDF into an offscreen
+      // iframe, wait for it to load, then call print() on its content
+      // window. The browser's print dialog opens directly without saving
+      // a file to disk and without opening a new tab. Works because
+      // blob: URLs are same-origin (or null-origin) so we have access to
+      // contentWindow.
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.left = '-10000px';  // offscreen but still loadable
+      iframe.style.top = '0';
+      iframe.style.width = '1px';
+      iframe.style.height = '1px';
+      iframe.style.border = '0';
+      iframe.style.visibility = 'hidden';
 
-      // Free the blob URL after a generous delay — the new tab needs it
-      // alive long enough to render and let the user print.
-      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000);
+      iframe.onload = () => {
+        // Small delay — Chrome's PDF viewer needs a moment after onload
+        // fires before its print path is wired up.
+        setTimeout(() => {
+          try {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+          } catch (err) {
+            console.error('Print invocation failed:', err);
+            toast.error('Print dialog failed to open. Check pop-up blocker.');
+          }
+        }, 300);
+      };
+
+      iframe.src = blobUrl;
+      document.body.appendChild(iframe);
+
+      // Clean up after a long delay — must outlast the print dialog being
+      // open. Removing the iframe while the print dialog is waiting on it
+      // would tear down the print context.
+      setTimeout(() => {
+        try {
+          window.URL.revokeObjectURL(blobUrl);
+          if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+        } catch { /* noop */ }
+      }, 120000);
     } catch (e) {
       toast.error(errorText(e, 'Failed to save and print'));
     } finally {
