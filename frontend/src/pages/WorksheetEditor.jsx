@@ -229,10 +229,35 @@ export default function WorksheetEditor() {
       await apiClient.put(`/worksheets/${worksheetId}`, payload);
       // Auth uses a Bearer token via axios interceptor — a raw window.open
       // wouldn't send it. Fetch the PDF as a blob through axios (token
-      // attached), then open via a blob URL.
+      // attached), then trigger via an anchor click.
       const res = await apiClient.get(`/worksheets/${worksheetId}/pdf`, { responseType: 'blob' });
-      const blobUrl = window.URL.createObjectURL(res.data);
-      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+
+      // Wrap the response in an explicitly-typed Blob. axios sometimes
+      // drops the response Content-Type when constructing its blob, and
+      // Chrome relies on the blob's MIME type to decide whether to
+      // inline-view a PDF vs treat it as an opaque download.
+      const pdfBlob = new Blob([res.data], { type: 'application/pdf' });
+      const blobUrl = window.URL.createObjectURL(pdfBlob);
+
+      // Anchor click rather than window.open(blobUrl, '_blank', 'noopener'):
+      // the noopener flag puts the new tab in a separate browsing context
+      // group, where blob: URLs created by the original document can fail
+      // to resolve — Chrome reports this as 'Check Internet connection' in
+      // the download tray (which is the bug Andrew hit). An anchor click
+      // mimics a normal link interaction, which the browser handles cleanly.
+      //
+      // download attribute supplies a sensible filename — without it, the
+      // browser falls back to the URL's last path segment, which for a
+      // blob: URL is the UUID with no extension.
+      const safeJobNo = String(form.job_no || worksheetId).replace(/[^A-Za-z0-9_-]/g, '_');
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.target = '_blank';
+      a.download = `worksheet-${safeJobNo}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
       // Free the blob URL after a generous delay — the new tab needs it
       // alive long enough to render and let the user print.
       setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000);
