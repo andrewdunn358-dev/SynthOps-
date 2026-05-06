@@ -9084,10 +9084,16 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
         ]))
         return cell
 
-    def field_stack(fields):
-        """Vertical stack of field cells (one column of the header grid)."""
+    def field_stack(fields, heights=None):
+        """Vertical stack of field cells (one column of the header).
+        Pass `heights` (list of mm values) to force explicit cell heights —
+        used so all four columns sum to the same total height even though
+        each column has a different number/distribution of cells."""
         rows = [[f] for f in fields]
-        t = Table(rows, colWidths=["*"])
+        kwargs = {"colWidths": ["*"]}
+        if heights is not None:
+            kwargs["rowHeights"] = heights
+        t = Table(rows, **kwargs)
         t.setStyle(TableStyle([
             ("LEFTPADDING", (0, 0), (-1, -1), 0),
             ("RIGHTPADDING", (0, 0), (-1, -1), 0),
@@ -9124,104 +9130,98 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     # Address taking 2 rows for multi-line content, and Overview Of Job
     # filling the bottom-left to balance the column.
     # ------------------------------------------------------------------
-    HEADER_ROW_H = 9 * mm
-    TITLE_BAND_ROWS = 4  # rows 0-3 form the title band
+    HEADER_TOTAL_H = 70 * mm  # all four header columns sum to this height
     blank = ""
 
-    # Logo + title cell content (top-left). Built as an inner Table so we
-    # can stack the logo above the title with proper centering.
+    # Logo + title block (top of column 0). Stacked vertically: logo on top,
+    # "Work Order / Job No." beneath it. Lives in a borderless cell so the
+    # branding area doesn't look like a form field.
     try:
-        logo_img = Image(logo_path, width=15 * mm, height=15 * mm)
+        logo_img = Image(logo_path, width=18 * mm, height=18 * mm)
     except Exception:
         logo_img = Paragraph("&nbsp;", value_style)
-    # Smaller title font than the page header — the logo+title block needs
-    # to fit inside a fixed-height grid cell, and 18pt × 2 lines + an 18mm
-    # logo overflowed the row in v3.
     title_compact_style = ParagraphStyle(
         "title_compact", fontName="Helvetica-Bold", fontSize=14,
-        textColor=colors.black, leading=15, spaceAfter=0,
+        textColor=colors.black, leading=16, spaceAfter=0,
     )
     title_para = Paragraph("Work Order /<br/>Job No.", title_compact_style)
     logo_title_block = Table(
         [[logo_img], [title_para]],
         colWidths=["*"],
+        rowHeights=[20 * mm, None],
     )
     logo_title_block.setStyle(TableStyle([
         ("ALIGN", (0, 0), (-1, -1), "LEFT"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 3 * mm),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2 * mm),
         ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
         ("TOPPADDING", (0, 0), (-1, -1), 1 * mm),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 1 * mm),
     ]))
 
-    header_data = [
-        # Row 0 — title band starts. Logo+title block on left (rows 0-3),
-        # Customer Contact / Customer / Date Delivery Expected on the right
-        # (each spanning rows 0-3 to match the title-band height).
+    # ------------------------------------------------------------------
+    # Header — 4 independent column stacks with explicit cell heights.
+    # The cells inside each column are sized differently (matching the
+    # paper), but every column sums to HEADER_TOTAL_H so all four end at
+    # the same vertical position.
+    # ------------------------------------------------------------------
+
+    # Col 0: logo+title block | Project Title | Opps No | Overview Of Job
+    # Heights chosen so single-line cells get ~10mm and the multi-line
+    # Overview Of Job gets 20mm for ~3 lines of text.
+    col0 = field_stack(
         [
             logo_title_block,
-            field("Customer Contact", ws.get("customer_contact")),
-            field("Customer", ws.get("customer")),
-            field("Date Delivery Expected", _fmt_date(ws.get("date_delivery_expected"))),
-        ],
-        # Rows 1-3 — hidden by SPAN of title-band cells above
-        [blank, blank, blank, blank],
-        [blank, blank, blank, blank],
-        [blank, blank, blank, blank],
-        # Row 4 — first form row below the title band
-        [
             field("Project Title", ws.get("project_title")),
-            field("Account Manager", ws.get("account_manager")),
-            field("Project Delivery Address", ws.get("project_delivery_address"), multiline=True),
-            field("Job Assigned To", ws.get("job_assigned_to")),
-        ],
-        # Row 5
-        [
             field("Opps No", ws.get("opps_no")),
-            blank,  # Account Manager spans down here
-            blank,  # Address spans down here
-            field("Delivered / Fulfilled By", ws.get("delivered_fulfilled_by")),
-        ],
-        # Row 6
-        [
             field("Overview Of Job", ws.get("overview_of_job"), multiline=True),
-            blank,  # Account Manager spans down here
-            field("Date Order Placed", _fmt_date(ws.get("date_order_placed"))),
-            field("Date Completed", _fmt_date(ws.get("date_completed"))),
         ],
-        # Row 7
+        heights=[30 * mm, 10 * mm, 10 * mm, 20 * mm],
+    )
+
+    # Col 1: Customer Contact | Account Manager
+    # Roughly equal halves so neither cell looks empty/stretched.
+    col1 = field_stack(
         [
-            blank,  # Overview spans down here
-            blank,  # Account Manager spans down here
+            field("Customer Contact", ws.get("customer_contact")),
+            field("Account Manager", ws.get("account_manager")),
+        ],
+        heights=[35 * mm, 35 * mm],
+    )
+
+    # Col 2: Customer (small) | Address (taller) | Date Order Placed | Time Arrived
+    col2 = field_stack(
+        [
+            field("Customer", ws.get("customer")),
+            field("Project Delivery Address", ws.get("project_delivery_address"), multiline=True),
+            field("Date Order Placed", _fmt_date(ws.get("date_order_placed"))),
             field("Time Arrived", ws.get("time_arrived")),
+        ],
+        heights=[14 * mm, 28 * mm, 14 * mm, 14 * mm],
+    )
+
+    # Col 3: 5 equal cells — 14mm each = 70mm total
+    col3 = field_stack(
+        [
+            field("Date Delivery Expected", _fmt_date(ws.get("date_delivery_expected"))),
+            field("Job Assigned To", ws.get("job_assigned_to")),
+            field("Delivered / Fulfilled By", ws.get("delivered_fulfilled_by")),
+            field("Date Completed", _fmt_date(ws.get("date_completed"))),
             field("Time Finished", ws.get("time_finished")),
         ],
-    ]
+        heights=[14 * mm, 14 * mm, 14 * mm, 14 * mm, 14 * mm],
+    )
 
-    # Column widths: dates column narrower, address column wider.
-    # Logo/title col is ~22% to give the logo room without dominating.
     header_grid = Table(
-        header_data,
-        colWidths=[page_w * 0.22, page_w * 0.22, page_w * 0.34, page_w * 0.22],
-        rowHeights=[HEADER_ROW_H] * 8,
+        [[col0, col1, col2, col3]],
+        colWidths=[page_w * 0.24, page_w * 0.22, page_w * 0.32, page_w * 0.22],
     )
     header_grid.setStyle(TableStyle([
-        # Title band — top 4 rows merged across all 4 columns' cells
-        ("SPAN", (0, 0), (0, 3)),  # Logo+title block: rows 0-3
-        ("SPAN", (1, 0), (1, 3)),  # Customer Contact: rows 0-3
-        ("SPAN", (2, 0), (2, 3)),  # Customer: rows 0-3
-        ("SPAN", (3, 0), (3, 3)),  # Date Delivery Expected: rows 0-3
-        # Lower form merges
-        ("SPAN", (1, 4), (1, 7)),  # Account Manager: col 1, rows 4-7 (full bottom column)
-        ("SPAN", (2, 4), (2, 5)),  # Project Delivery Address: col 2, rows 4-5
-        ("SPAN", (0, 6), (0, 7)),  # Overview Of Job: col 0, rows 6-7
-        # No outer padding — `field` flowables carry their own borders
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
     ]))
     story.append(header_grid)
     story.append(Spacer(1, 4 * mm))
@@ -9232,7 +9232,7 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     # RIGHT = Additional Equipment Added By Installation Team (Description | Qty | Unit Cost)
     # ------------------------------------------------------------------
     EQUIP_ROW_H = 6 * mm
-    EQUIP_PAD_ROWS = 10  # padded rows so the printed form has space for handwriting
+    EQUIP_PAD_ROWS = 8  # padded rows so the printed form has space for handwriting
 
     # Each side gets half the page width, minus a tiny gap between them.
     side_w = (page_w - 4 * mm) / 2
