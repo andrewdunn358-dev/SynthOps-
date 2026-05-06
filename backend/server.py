@@ -9064,15 +9064,22 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
         except Exception:
             return s
 
-    def field(label, value, multiline=False):
-        """A single label-on-top, value-below cell as a sub-Table with a border."""
+    def field(label, value, multiline=False, cell_height=None):
+        """A single label-on-top, value-below cell as a sub-Table with a border.
+        If cell_height is provided, the cell fills that height (the value row
+        expands to fill the remaining space after the label) — used so the
+        bordered cell matches its parent row height in field_stack."""
         v_style = multiline_value_style if multiline else value_style
         # &nbsp; ensures the cell has visible height even when value is blank
         rendered = _safe(value).replace("\n", "<br/>") or "&nbsp;"
+        if cell_height is not None:
+            row_heights = [3.5 * mm, cell_height - 3.5 * mm]
+        else:
+            row_heights = [3.5 * mm, None]
         cell = Table(
             [[Paragraph(label, label_style)], [Paragraph(rendered, v_style)]],
             colWidths=["*"],
-            rowHeights=[3.5 * mm, None],
+            rowHeights=row_heights,
         )
         cell.setStyle(TableStyle([
             ("BOX", (0, 0), (-1, -1), 0.5, colors.black),
@@ -9172,9 +9179,9 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     col0 = field_stack(
         [
             logo_title_block,
-            field("Project Title", ws.get("project_title")),
-            field("Opps No", ws.get("opps_no")),
-            field("Overview Of Job", ws.get("overview_of_job"), multiline=True),
+            field("Project Title", ws.get("project_title"), cell_height=10 * mm),
+            field("Opps No", ws.get("opps_no"), cell_height=10 * mm),
+            field("Overview Of Job", ws.get("overview_of_job"), multiline=True, cell_height=20 * mm),
         ],
         heights=[30 * mm, 10 * mm, 10 * mm, 20 * mm],
     )
@@ -9183,8 +9190,8 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     # Roughly equal halves so neither cell looks empty/stretched.
     col1 = field_stack(
         [
-            field("Customer Contact", ws.get("customer_contact")),
-            field("Account Manager", ws.get("account_manager")),
+            field("Customer Contact", ws.get("customer_contact"), cell_height=35 * mm),
+            field("Account Manager", ws.get("account_manager"), cell_height=35 * mm),
         ],
         heights=[35 * mm, 35 * mm],
     )
@@ -9192,10 +9199,10 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     # Col 2: Customer (small) | Address (taller) | Date Order Placed | Time Arrived
     col2 = field_stack(
         [
-            field("Customer", ws.get("customer")),
-            field("Project Delivery Address", ws.get("project_delivery_address"), multiline=True),
-            field("Date Order Placed", _fmt_date(ws.get("date_order_placed"))),
-            field("Time Arrived", ws.get("time_arrived")),
+            field("Customer", ws.get("customer"), cell_height=14 * mm),
+            field("Project Delivery Address", ws.get("project_delivery_address"), multiline=True, cell_height=28 * mm),
+            field("Date Order Placed", _fmt_date(ws.get("date_order_placed")), cell_height=14 * mm),
+            field("Time Arrived", ws.get("time_arrived"), cell_height=14 * mm),
         ],
         heights=[14 * mm, 28 * mm, 14 * mm, 14 * mm],
     )
@@ -9203,11 +9210,11 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     # Col 3: 5 equal cells — 14mm each = 70mm total
     col3 = field_stack(
         [
-            field("Date Delivery Expected", _fmt_date(ws.get("date_delivery_expected"))),
-            field("Job Assigned To", ws.get("job_assigned_to")),
-            field("Delivered / Fulfilled By", ws.get("delivered_fulfilled_by")),
-            field("Date Completed", _fmt_date(ws.get("date_completed"))),
-            field("Time Finished", ws.get("time_finished")),
+            field("Date Delivery Expected", _fmt_date(ws.get("date_delivery_expected")), cell_height=14 * mm),
+            field("Job Assigned To", ws.get("job_assigned_to"), cell_height=14 * mm),
+            field("Delivered / Fulfilled By", ws.get("delivered_fulfilled_by"), cell_height=14 * mm),
+            field("Date Completed", _fmt_date(ws.get("date_completed")), cell_height=14 * mm),
+            field("Time Finished", ws.get("time_finished"), cell_height=14 * mm),
         ],
         heights=[14 * mm, 14 * mm, 14 * mm, 14 * mm, 14 * mm],
     )
