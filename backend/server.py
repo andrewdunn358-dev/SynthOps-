@@ -9125,37 +9125,44 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     story = []
 
     # ------------------------------------------------------------------
-    # ------------------------------------------------------------------
-    # Header — single integrated 6×4 grid. Top-left cell holds the logo
-    # stacked above the "Work Order / Job No." title. To its right, on the
-    # same band, sit Customer Contact, Customer, and Date Delivery Expected
-    # (per Andrew's spec: those cells are level with the title, no separate
-    # title bar across the top).
+    # Header — three asymmetric regions matching the paper exactly.
     #
-    # Below that band, the form continues as a regular grid with Account
-    # Manager spanning the full height of column 1, the Project Delivery
-    # Address taking 2 rows for multi-line content, and Overview Of Job
-    # filling the bottom-left to balance the column.
+    # The paper Work Order form is NOT a uniform 4-column grid (which is
+    # what previous iterations assumed). It has three regions of unequal
+    # width, each with its own internal cell structure:
+    #
+    #   LEFT (~50%): logo+title at top, Project Title (wide), then a row
+    #                of 4 narrow cells (Opps No | Acc Mgr | Cust Contact |
+    #                Date Order Placed), then Overview Of Job (wide).
+    #
+    #   MIDDLE (~25%): Customer (small), Project Delivery Address (tall),
+    #                  then Time Arrived | Time Finished side-by-side.
+    #
+    #   RIGHT (~25%): 4 stacked cells — Date Delivery Expected, Job
+    #                 Assigned To, Delivered/Fulfilled By, Date Completed.
+    #
+    # All three regions sum to HEADER_TOTAL_H so they end at the same
+    # vertical position. Cell heights within each region are tuned to
+    # match the paper proportions.
     # ------------------------------------------------------------------
-    HEADER_TOTAL_H = 70 * mm  # all four header columns sum to this height
-    blank = ""
+    HEADER_TOTAL_H = 80 * mm
 
-    # Logo + title block (top of column 0). Stacked vertically: logo on top,
-    # "Work Order / Job No." beneath it. Lives in a borderless cell so the
-    # branding area doesn't look like a form field.
+    # Logo + title block (top of left region). Single-line title, with
+    # logo above. No border — branding area, not a form field.
     try:
-        logo_img = Image(logo_path, width=18 * mm, height=18 * mm)
+        logo_img = Image(logo_path, width=40 * mm, height=14 * mm,
+                         kind="proportional")
     except Exception:
         logo_img = Paragraph("&nbsp;", value_style)
     title_compact_style = ParagraphStyle(
-        "title_compact", fontName="Helvetica-Bold", fontSize=14,
-        textColor=colors.black, leading=16, spaceAfter=0,
+        "title_compact", fontName="Helvetica-Bold", fontSize=18,
+        textColor=colors.black, leading=20, spaceAfter=0,
     )
-    title_para = Paragraph("Work Order /<br/>Job No.", title_compact_style)
+    title_para = Paragraph("Work Order/Job No.", title_compact_style)
     logo_title_block = Table(
         [[logo_img], [title_para]],
         colWidths=["*"],
-        rowHeights=[20 * mm, None],
+        rowHeights=[16 * mm, None],
     )
     logo_title_block.setStyle(TableStyle([
         ("ALIGN", (0, 0), (-1, -1), "LEFT"),
@@ -9166,62 +9173,122 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
         ("BOTTOMPADDING", (0, 0), (-1, -1), 1 * mm),
     ]))
 
-    # ------------------------------------------------------------------
-    # Header — 4 independent column stacks with explicit cell heights.
-    # The cells inside each column are sized differently (matching the
-    # paper), but every column sums to HEADER_TOTAL_H so all four end at
-    # the same vertical position.
-    # ------------------------------------------------------------------
+    # Width allocations
+    left_w = page_w * 0.50
+    mid_w = page_w * 0.25
+    right_w = page_w * 0.25
 
-    # Col 0: logo+title block | Project Title | Opps No | Overview Of Job
-    # Heights chosen so single-line cells get ~10mm and the multi-line
-    # Overview Of Job gets 20mm for ~3 lines of text.
-    col0 = field_stack(
-        [
-            logo_title_block,
-            field("Project Title", ws.get("project_title"), cell_height=10 * mm),
-            field("Opps No", ws.get("opps_no"), cell_height=10 * mm),
-            field("Overview Of Job", ws.get("overview_of_job"), multiline=True, cell_height=20 * mm),
-        ],
-        heights=[30 * mm, 10 * mm, 10 * mm, 20 * mm],
+    # ----- LEFT region heights (sum to 80mm) -----
+    LEFT_LOGO_H = 30 * mm  # logo+title block
+    LEFT_PROJ_H = 13 * mm  # Project Title (wide single cell)
+    LEFT_SUBROW_H = 12 * mm  # Opps No | AM | Cust Contact | Date Order Placed
+    LEFT_OVERVIEW_H = 25 * mm  # Overview Of Job (wide tall cell)
+
+    # The 4-cell sub-row inside the left region
+    sub_cells = [[
+        field("Opps No", ws.get("opps_no"), cell_height=LEFT_SUBROW_H),
+        field("Account Manager", ws.get("account_manager"), cell_height=LEFT_SUBROW_H),
+        field("Customer Contact", ws.get("customer_contact"), cell_height=LEFT_SUBROW_H),
+        field("Date Order Placed", _fmt_date(ws.get("date_order_placed")), cell_height=LEFT_SUBROW_H),
+    ]]
+    left_subrow = Table(
+        sub_cells,
+        colWidths=[left_w * 0.20, left_w * 0.27, left_w * 0.27, left_w * 0.26],
+        rowHeights=[LEFT_SUBROW_H],
     )
+    left_subrow.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
 
-    # Col 1: Customer Contact | Account Manager
-    # Roughly equal halves so neither cell looks empty/stretched.
-    col1 = field_stack(
+    left_region = Table(
         [
-            field("Customer Contact", ws.get("customer_contact"), cell_height=35 * mm),
-            field("Account Manager", ws.get("account_manager"), cell_height=35 * mm),
+            [logo_title_block],
+            [field("Project Title", ws.get("project_title"), cell_height=LEFT_PROJ_H)],
+            [left_subrow],
+            [field("Overview Of Job", ws.get("overview_of_job"), multiline=True, cell_height=LEFT_OVERVIEW_H)],
         ],
-        heights=[35 * mm, 35 * mm],
+        colWidths=["*"],
+        rowHeights=[LEFT_LOGO_H, LEFT_PROJ_H, LEFT_SUBROW_H, LEFT_OVERVIEW_H],
     )
+    left_region.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
 
-    # Col 2: Customer (small) | Address (taller) | Date Order Placed | Time Arrived
-    col2 = field_stack(
+    # ----- MIDDLE region heights (sum to 80mm) -----
+    MID_CUSTOMER_H = 14 * mm
+    MID_ADDRESS_H = 36 * mm
+    MID_TIME_H = 30 * mm
+
+    # Time Arrived | Time Finished sub-row
+    mid_time_row = Table(
+        [[
+            field("Time Arrived", ws.get("time_arrived"), cell_height=MID_TIME_H),
+            field("Time Finished", ws.get("time_finished"), cell_height=MID_TIME_H),
+        ]],
+        colWidths=[mid_w * 0.5, mid_w * 0.5],
+        rowHeights=[MID_TIME_H],
+    )
+    mid_time_row.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+
+    middle_region = Table(
         [
-            field("Customer", ws.get("customer"), cell_height=14 * mm),
-            field("Project Delivery Address", ws.get("project_delivery_address"), multiline=True, cell_height=28 * mm),
-            field("Date Order Placed", _fmt_date(ws.get("date_order_placed")), cell_height=14 * mm),
-            field("Time Arrived", ws.get("time_arrived"), cell_height=14 * mm),
+            [field("Customer", ws.get("customer"), cell_height=MID_CUSTOMER_H)],
+            [field("Project Delivery Address", ws.get("project_delivery_address"), multiline=True, cell_height=MID_ADDRESS_H)],
+            [mid_time_row],
         ],
-        heights=[14 * mm, 28 * mm, 14 * mm, 14 * mm],
+        colWidths=["*"],
+        rowHeights=[MID_CUSTOMER_H, MID_ADDRESS_H, MID_TIME_H],
     )
+    middle_region.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
 
-    # Col 3: 5 equal cells — 14mm each = 70mm total
-    col3 = field_stack(
+    # ----- RIGHT region heights (sum to 80mm) -----
+    RIGHT_DDE_H = 14 * mm
+    RIGHT_JAT_H = 16 * mm
+    RIGHT_DFB_H = 16 * mm
+    RIGHT_DC_H = 34 * mm  # Date Completed is the largest at the bottom
+
+    right_region = Table(
         [
-            field("Date Delivery Expected", _fmt_date(ws.get("date_delivery_expected")), cell_height=14 * mm),
-            field("Job Assigned To", ws.get("job_assigned_to"), cell_height=14 * mm),
-            field("Delivered / Fulfilled By", ws.get("delivered_fulfilled_by"), cell_height=14 * mm),
-            field("Date Completed", _fmt_date(ws.get("date_completed")), cell_height=14 * mm),
-            field("Time Finished", ws.get("time_finished"), cell_height=14 * mm),
+            [field("Date Delivery Expected", _fmt_date(ws.get("date_delivery_expected")), cell_height=RIGHT_DDE_H)],
+            [field("Job Assigned To", ws.get("job_assigned_to"), cell_height=RIGHT_JAT_H)],
+            [field("Delivered / Fulfilled By", ws.get("delivered_fulfilled_by"), cell_height=RIGHT_DFB_H)],
+            [field("Date Completed", _fmt_date(ws.get("date_completed")), cell_height=RIGHT_DC_H)],
         ],
-        heights=[14 * mm, 14 * mm, 14 * mm, 14 * mm, 14 * mm],
+        colWidths=["*"],
+        rowHeights=[RIGHT_DDE_H, RIGHT_JAT_H, RIGHT_DFB_H, RIGHT_DC_H],
     )
+    right_region.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
 
+    # Outer 3-column header: place the three regions side-by-side
     header_grid = Table(
-        [[col0, col1, col2, col3]],
-        colWidths=[page_w * 0.24, page_w * 0.22, page_w * 0.32, page_w * 0.22],
+        [[left_region, middle_region, right_region]],
+        colWidths=[left_w, mid_w, right_w],
     )
     header_grid.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
