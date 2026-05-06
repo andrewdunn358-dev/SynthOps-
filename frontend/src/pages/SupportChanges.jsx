@@ -227,42 +227,19 @@ export default function SupportChanges() {
     );
   });
 
-  // Stats
-  const pending = changes.filter(c => !c.accounts_informed).length;
-  const needsProfileUpdate = changes.filter(c => !c.profile_updated).length;
-
   return (
     <div className="space-y-6">
-      {/* Stats row */}
-      <div className="grid grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-4 pb-4">
-            <p className="text-sm text-muted-foreground">Total This Month</p>
-            <p className="text-2xl font-bold mt-1">
-              {changes.filter(c => {
-                const m = new Date(c.date).toISOString().slice(0,7);
-                const current = new Date().toISOString().slice(0,7);
-                return m === current;
-              }).length}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-4">
-            <p className="text-sm text-muted-foreground">Pending Admin</p>
-            <p className={`text-2xl font-bold mt-1 ${pending > 0 ? 'text-amber-500' : 'text-green-500'}`}>
-              {pending}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-4">
-            <p className="text-sm text-muted-foreground">Profile Not Updated</p>
-            <p className={`text-2xl font-bold mt-1 ${needsProfileUpdate > 0 ? 'text-red-500' : 'text-green-500'}`}>
-              {needsProfileUpdate}
-            </p>
-          </CardContent>
-        </Card>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Support Changes</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Track licence, device, and service changes across all clients
+          </p>
+        </div>
+        <Button onClick={openNew}>
+          <Plus className="h-4 w-4 mr-2" /> Log Change
+        </Button>
       </div>
 
       {/* Filters */}
@@ -303,9 +280,6 @@ export default function SupportChanges() {
             Clear filters
           </Button>
         )}
-        <Button onClick={openNew} className="ml-auto">
-          <Plus className="h-4 w-4 mr-2" /> Log Change
-        </Button>
       </div>
 
       {/* Table */}
