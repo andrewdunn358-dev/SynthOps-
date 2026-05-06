@@ -228,7 +228,7 @@ export default function SupportChanges() {
   });
 
   // Stats
-  const pending = changes.filter(c => !c.accounts_informed || !c.worksheet_submitted).length;
+  const pending = changes.filter(c => !c.accounts_informed).length;
   const needsProfileUpdate = changes.filter(c => !c.profile_updated).length;
 
   return (
@@ -338,7 +338,6 @@ export default function SupportChanges() {
                   <TableHead>Requested By</TableHead>
                   <TableHead>Completed By</TableHead>
                   <TableHead className="text-center">Accounts</TableHead>
-                  <TableHead className="text-center">Worksheet</TableHead>
                   <TableHead className="text-center">Count Updated</TableHead>
                   <TableHead />
                 </TableRow>
@@ -369,7 +368,7 @@ export default function SupportChanges() {
                     <TableCell className="text-sm">{c.requested_by || '—'}</TableCell>
                     <TableCell className="text-sm">{c.completed_by || '—'}</TableCell>
                     {/* Toggle checkboxes */}
-                    {['accounts_informed', 'worksheet_submitted', 'profile_updated'].map(field => (
+                    {['accounts_informed', 'profile_updated'].map(field => (
                       <TableCell key={field} className="text-center">
                         <button
                           onClick={() => toggleField(c, field)}
@@ -536,7 +535,6 @@ export default function SupportChanges() {
             <div className="flex gap-6 pt-1">
               {[
                 { key: 'accounts_informed', label: 'Accounts Informed' },
-                { key: 'worksheet_submitted', label: 'Worksheet Submitted' },
                 { key: 'profile_updated', label: 'Support Count Updated' },
               ].map(({ key, label }) => (
                 <label key={key} className="flex items-center gap-2 cursor-pointer text-sm">
