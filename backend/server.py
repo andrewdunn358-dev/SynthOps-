@@ -9306,7 +9306,7 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     # RIGHT = Additional Equipment Added By Installation Team (Description | Qty | Unit Cost)
     # ------------------------------------------------------------------
     EQUIP_ROW_H = 6 * mm
-    EQUIP_PAD_ROWS = 8  # padded rows so the printed form has space for handwriting
+    EQUIP_PAD_ROWS = 11  # padded rows so the printed form has space for handwriting
 
     # Each side gets half the page width, minus a tiny gap between them.
     side_w = (page_w - 4 * mm) / 2
