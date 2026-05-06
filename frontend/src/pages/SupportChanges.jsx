@@ -233,19 +233,6 @@ export default function SupportChanges() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Support Changes</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Track licence, device, and service changes across all clients
-          </p>
-        </div>
-        <Button onClick={openNew}>
-          <Plus className="h-4 w-4 mr-2" /> Log Change
-        </Button>
-      </div>
-
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-4">
         <Card>
@@ -316,6 +303,9 @@ export default function SupportChanges() {
             Clear filters
           </Button>
         )}
+        <Button onClick={openNew} className="ml-auto">
+          <Plus className="h-4 w-4 mr-2" /> Log Change
+        </Button>
       </div>
 
       {/* Table */}
