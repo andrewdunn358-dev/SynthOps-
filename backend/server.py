@@ -5971,9 +5971,15 @@ async def scheduled_trmm_sync():
 
                             # Auto-incident: server went offline → raise (or bump if recurring).
                             # Skip workstations — laptops/desktops going offline at end of day is normal,
-                            # not an incident. Devices without monitoring_type set are treated as servers
+                            # not an incident. We trust TRMM's current classification first (handles devices
+                            # whose stored monitoring_type is stale or null), and fall back to the stored
+                            # value. Devices still entirely without a classification default to server
                             # (legacy data, safer default).
-                            is_server = existing_server.get("monitoring_type") in ("server", None)
+                            effective_monitoring_type = (
+                                agent.get("monitoring_type")
+                                or existing_server.get("monitoring_type")
+                            )
+                            is_server = effective_monitoring_type in ("server", None)
                             if is_server and new_status == "offline" and old_status == "online":
                                 # Get client info for the incident
                                 site = await db.sites.find_one({"id": existing_server.get("site_id")}, {"client_id": 1})
@@ -6004,13 +6010,17 @@ async def scheduled_trmm_sync():
                                     reason="Server back online (detected by TRMM sync)",
                                 )
                         
-                        # Update server
+                        # Update server. Persist TRMM's current classification onto monitoring_type
+                        # AND server_type so the auto-incident gate and the rest of the codebase agree.
+                        trmm_monitoring_type = agent.get("monitoring_type") or "server"
                         await db.servers.update_one(
                             {"tactical_rmm_agent_id": agent_id},
                             {"$set": {
                                 "status": new_status,
                                 "hostname": hostname,
                                 "operating_system": agent.get("operating_system"),
+                                "monitoring_type": trmm_monitoring_type,
+                                "server_type": "workstation" if trmm_monitoring_type == "workstation" else "server",
                                 "updated_at": datetime.now(timezone.utc).isoformat()
                             }}
                         )
@@ -6029,7 +6039,11 @@ async def scheduled_trmm_sync():
                         local_ips = agent.get("local_ips", "")
                         ip_address = local_ips[0] if isinstance(local_ips, list) and local_ips else local_ips or None
                         
-                        # Create server
+                        # Create server. Persist TRMM's classification onto monitoring_type so
+                        # the auto-incident gate and the /servers vs /workstations endpoints agree
+                        # from day one — no false-positive offline incidents during the gap between
+                        # import and manual reclassification.
+                        trmm_monitoring_type = agent.get("monitoring_type") or "server"
                         new_server = {
                             "id": str(uuid.uuid4()),
                             "site_id": local_site["id"],
@@ -6037,7 +6051,8 @@ async def scheduled_trmm_sync():
                             "ip_address": agent.get("public_ip") or ip_address,
                             "operating_system": agent.get("operating_system"),
                             "status": new_status,
-                            "server_type": "workstation" if agent.get("monitoring_type") == "workstation" else "server",
+                            "monitoring_type": trmm_monitoring_type,
+                            "server_type": "workstation" if trmm_monitoring_type == "workstation" else "server",
                             "tactical_rmm_agent_id": agent_id,
                             "environment": "production",
                             "criticality": "medium",

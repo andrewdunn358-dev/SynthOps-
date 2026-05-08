@@ -43,7 +43,6 @@ import { Textarea } from '../components/ui/textarea';
 
 export default function Incidents() {
   const [incidents, setIncidents] = useState([]);
-  const [trmmAlerts, setTrmmAlerts] = useState([]);
   const [clients, setClients] = useState([]);
   const [servers, setServers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -81,21 +80,6 @@ export default function Incidents() {
       setIncidents(incidentsRes.data);
       setClients(clientsRes.data);
       setServers(serversRes.data);
-      
-      // Fetch TRMM alerts - offline servers as incidents
-      const offlineServers = serversRes.data.filter(s => s.status === 'offline');
-      const trmmIncidents = offlineServers.map(s => ({
-        id: `trmm-${s.id}`,
-        title: `Server Offline: ${s.hostname}`,
-        source: 'trmm',
-        severity: 'high',
-        status: 'open',
-        client_name: s.client_name,
-        server_name: s.hostname,
-        description: `Server ${s.hostname} is currently offline. Last seen: ${s.last_seen || 'Unknown'}`,
-        created_at: s.last_seen || new Date().toISOString()
-      }));
-      setTrmmAlerts(trmmIncidents);
     } catch (error) {
       toast.error('Failed to load incidents');
     } finally {
@@ -175,11 +159,8 @@ export default function Incidents() {
     });
   };
 
-  // Combine manual incidents with TRMM alerts
-  const allIncidents = [
-    ...incidents.map(i => ({ ...i, source: 'manual' })),
-    ...(sourceFilter !== 'manual' ? trmmAlerts : [])
-  ];
+  // Map all incidents from the API; source comes from the DB (manual / trmm_offline / etc.)
+  const allIncidents = incidents.map(i => ({ ...i, source: i.source || 'manual' }));
 
   const filteredIncidents = allIncidents.filter(i => {
     const matchesSearch = i.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -200,7 +181,6 @@ export default function Incidents() {
   // Stats
   const openIncidents = allIncidents.filter(i => i.status === 'open').length;
   const criticalIncidents = allIncidents.filter(i => i.severity === 'critical' && i.status === 'open').length;
-  const trmmAlertCount = trmmAlerts.length;
 
   const getSeverityClass = (severity) => `severity-${severity}`;
 
@@ -214,23 +194,6 @@ export default function Incidents() {
 
   return (
     <div className="space-y-6" data-testid="incidents-page">
-      {/* TRMM Alert Banner */}
-      {trmmAlertCount > 0 && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="h-5 w-5 text-red-400" />
-            <div>
-              <p className="font-semibold text-red-400">
-                {trmmAlertCount} Server{trmmAlertCount > 1 ? 's' : ''} Offline (TRMM)
-              </p>
-              <p className="text-sm text-muted-foreground">
-                These servers are detected as offline in Tactical RMM and require attention.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -375,7 +338,7 @@ export default function Incidents() {
           <SelectContent>
             <SelectItem value="all">All Sources</SelectItem>
             <SelectItem value="manual">Manual</SelectItem>
-            <SelectItem value="trmm">TRMM Alerts</SelectItem>
+            <SelectItem value="trmm_offline">Server Offline</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -435,7 +398,6 @@ export default function Incidents() {
                         const src = incident.source || 'manual';
                         if (src === 'manual') return <Badge variant="outline">Manual</Badge>;
                         if (src === 'trmm_offline') return <Badge variant="outline" className="bg-red-500/10 text-red-400 border-red-500/40">Server Offline</Badge>;
-                        if (src === 'trmm') return <Badge variant="outline" className="bg-cyan-500/10 text-cyan-400">TRMM</Badge>;
                         return <Badge variant="outline" className="bg-cyan-500/10 text-cyan-400">{src.replace(/_/g, ' ')}</Badge>;
                       })()}
                     </TableCell>
