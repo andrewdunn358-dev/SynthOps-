@@ -10,6 +10,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '../components/ui/alert-dialog';
 import { Plus, Search, FileText, Loader2, Trash2 } from 'lucide-react';
+import { getErrorMessage } from '../lib/errorHandler';
 
 // ---------------------------------------------------------------------------
 // Worksheets — list page. Shows all worksheets newest-first, with a search
@@ -25,24 +26,6 @@ const formatDate = (iso) => {
   } catch {
     return '—';
   }
-};
-
-// FastAPI 422s come through as { detail: [{type, loc, msg, ...}] } — render
-// directly as toast content and React will crash on the array of objects.
-const errorText = (e, fallback = 'Request failed') => {
-  const d = e?.response?.data?.detail;
-  if (!d) return e?.message || fallback;
-  if (typeof d === 'string') return d;
-  if (Array.isArray(d)) {
-    return d
-      .map(item => {
-        if (typeof item === 'string') return item;
-        if (item && item.msg && item.loc) return `${item.loc.slice(1).join('.') || '?'}: ${item.msg}`;
-        return JSON.stringify(item);
-      })
-      .join('; ');
-  }
-  try { return JSON.stringify(d); } catch { return fallback; }
 };
 
 export default function Worksheets() {
@@ -69,7 +52,7 @@ export default function Worksheets() {
       const res = await apiClient.get('/worksheets', { params: q ? { search: q } : {} });
       setRows(res.data || []);
     } catch (e) {
-      toast.error(errorText(e, 'Failed to load worksheets'));
+      toast.error(getErrorMessage(e, 'Failed to load worksheets'));
     } finally {
       setLoading(false);
     }
@@ -90,7 +73,7 @@ export default function Worksheets() {
       const res = await apiClient.post('/worksheets', {});
       navigate(`/worksheets/${res.data.id}`);
     } catch (e) {
-      toast.error(errorText(e, 'Failed to create worksheet'));
+      toast.error(getErrorMessage(e, 'Failed to create worksheet'));
       // Only reset on error — on success we navigate away so the unmount
       // would handle it anyway.
       setCreating(false);
@@ -108,7 +91,7 @@ export default function Worksheets() {
       setRows(rs => rs.filter(r => r.id !== deleteTarget.id));
       setDeleteTarget(null);
     } catch (e) {
-      toast.error(errorText(e, 'Failed to delete worksheet'));
+      toast.error(getErrorMessage(e, 'Failed to delete worksheet'));
     } finally {
       setDeleting(false);
     }

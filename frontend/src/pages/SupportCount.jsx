@@ -11,6 +11,7 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetDescription,
 } from '../components/ui/sheet';
 import { Save, Download, Search, ChevronLeft, ChevronRight, Edit, X, Plus, Copy, Lock, Unlock, Trash2, Globe } from 'lucide-react';
+import { getErrorMessage } from '../lib/errorHandler';
 
 const CATEGORY_LABELS = {
   security: 'Security', backup: 'Backup', devices: 'Devices', onsite: 'Onsite',
@@ -66,7 +67,7 @@ export default function SupportCount() {
       toast.success(`Wiped ${res.data.deleted} rows from ${formatMonthLabel(selectedMonth)}`);
       fetchData(selectedMonth);
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to wipe month');
+      toast.error(getErrorMessage(e, 'Failed to wipe month'));
     } finally {
       setWiping(false);
     }
@@ -133,7 +134,7 @@ export default function SupportCount() {
       setEditingRow(null);
       fetchData(selectedMonth);
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to save');
+      toast.error(getErrorMessage(e, 'Failed to save'));
     } finally {
       setSaving(false);
     }
@@ -146,7 +147,7 @@ export default function SupportCount() {
       setDeleteConfirm(null);
       fetchData(selectedMonth);
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to remove');
+      toast.error(getErrorMessage(e, 'Failed to remove'));
     }
   };
 
@@ -163,7 +164,7 @@ export default function SupportCount() {
       }
       fetchLocks();
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to change lock');
+      toast.error(getErrorMessage(e, 'Failed to change lock'));
     } finally {
       setLockingMonth(false);
     }
@@ -182,7 +183,7 @@ export default function SupportCount() {
       setAddClientId('');
       fetchData(selectedMonth);
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to add client');
+      toast.error(getErrorMessage(e, 'Failed to add client'));
     }
   };
 
@@ -204,7 +205,7 @@ export default function SupportCount() {
       toast.success(`Copied ${res.data.copied} clients from ${formatMonthLabel(prevMonth)}`);
       fetchData(selectedMonth);
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to copy');
+      toast.error(getErrorMessage(e, 'Failed to copy'));
     } finally {
       setCopyingMonth(false);
     }
@@ -232,7 +233,7 @@ export default function SupportCount() {
       fetchData(r.to_month);
       fetchLocks();
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to roll over');
+      toast.error(getErrorMessage(e, 'Failed to roll over'));
     } finally {
       setRollingOver(false);
     }

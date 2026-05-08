@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
+import { getErrorMessage } from '../lib/errorHandler';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../components/ui/select';
@@ -167,7 +168,7 @@ export default function SupportChanges() {
       fetchChanges();
     } catch (e) {
       // Surface server validation errors (negative count, multi-site, etc.)
-      const detail = e.response?.data?.detail || 'Failed to save change';
+      const detail = getErrorMessage(e, 'Failed to save change');
       toast.error(detail);
     } finally {
       setSaving(false);

@@ -53,7 +53,7 @@ function TwentyICard() {
       const s = await apiClient.get('/integrations/20i/status');
       setStatus(s.data);
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Sync failed');
+      toast.error(getErrorMessage(e, 'Sync failed'));
     } finally {
       setSyncing(false);
     }
@@ -65,7 +65,7 @@ function TwentyICard() {
       const res = await apiClient.post('/hosting/create-renewal-tasks', { days: 60 });
       toast.success(res.data.message);
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to create tasks');
+      toast.error(getErrorMessage(e, 'Failed to create tasks'));
     } finally {
       setCreatingTasks(false);
     }

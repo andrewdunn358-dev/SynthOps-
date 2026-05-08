@@ -7,6 +7,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Badge } from '../components/ui/badge';
+import { getErrorMessage } from '../lib/errorHandler';
 import { 
   User, Moon, Sun, Shield, Bell, Key, CheckCircle, XCircle, Send, Monitor, KeyRound, ExternalLink
 } from 'lucide-react';
@@ -61,7 +62,7 @@ export default function Settings() {
       await apiClient.post('/notifications/teams/test');
       toast.success('Test notification sent to Teams!');
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to send test notification');
+      toast.error(getErrorMessage(error, 'Failed to send test notification'));
     } finally {
       setTestingTeams(false);
     }

@@ -17,6 +17,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '../components/ui/dialog';
 import { Label } from '../components/ui/label';
+import { getErrorMessage } from '../lib/errorHandler';
 
 // ─────────────────────────────────────────────
 // Name Mappings Tab (existing functionality)
@@ -104,7 +105,7 @@ function NameMappingsTab({ clients, sites }) {
       setNewClientForm({ name: '', code: '', service_category: 'mixed_services' });
       fetchMappings();
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to create client');
+      toast.error(getErrorMessage(e, 'Failed to create client'));
     } finally {
       setSavingNewClient(false);
     }
@@ -300,7 +301,7 @@ function HostingDomainsTab({ clients: initialClients }) {
         fetchAccounts();
       }
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to start 20i sync');
+      toast.error(getErrorMessage(e, 'Failed to start 20i sync'));
     } finally {
       setSyncing20i(false);
     }
@@ -329,7 +330,7 @@ function HostingDomainsTab({ clients: initialClients }) {
       const res = await apiClient.post('/hosting/sync-to-support-count');
       toast.success(res.data.message);
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to sync');
+      toast.error(getErrorMessage(e, 'Failed to sync'));
     } finally {
       setSyncing(false);
     }
@@ -367,7 +368,7 @@ function HostingDomainsTab({ clients: initialClients }) {
       setNewClientForm({ name: '', code: '', service_category: 'web_hosting' });
       fetchAccounts();
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to create client');
+      toast.error(getErrorMessage(e, 'Failed to create client'));
     } finally {
       setSavingNewClient(false);
     }
@@ -779,7 +780,7 @@ function DomainRegistrationsTab({ clients }) {
         fetchDomains();
       }
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to start 20i sync');
+      toast.error(getErrorMessage(e, 'Failed to start 20i sync'));
     } finally {
       setSyncing20i(false);
     }
@@ -792,7 +793,7 @@ function DomainRegistrationsTab({ clients }) {
       toast.success(clientId ? 'Domain mapped' : 'Domain unmapped');
       fetchDomains();
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to save');
+      toast.error(getErrorMessage(e, 'Failed to save'));
     } finally {
       setSaving(s => ({ ...s, [name]: false }));
     }

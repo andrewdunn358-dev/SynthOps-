@@ -150,7 +150,7 @@ export default function Incidents() {
       toast.success('Resolution confirmed');
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to confirm resolution');
+      toast.error(getErrorMessage(error, 'Failed to confirm resolution'));
     }
   };
 

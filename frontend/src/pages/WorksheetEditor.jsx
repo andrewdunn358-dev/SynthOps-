@@ -12,6 +12,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '../components/ui/alert-dialog';
 import { Plus, Trash2, Printer, Save, FileText, ArrowLeft, Loader2, Check, ChevronsUpDown } from 'lucide-react';
+import { getErrorMessage } from '../lib/errorHandler';
 
 // ---------------------------------------------------------------------------
 // Worksheet editor — loads /worksheets/:id (or :id == 'new' for a fresh draft).
@@ -97,25 +98,6 @@ const formToApi = (f) => {
   };
 };
 
-// FastAPI returns 422 validation errors as { detail: [{type, loc, msg, ...}] }.
-// Rendering that array directly as a React child crashes (React error #31).
-// This helper extracts a readable string for toast.error.
-const errorText = (e, fallback = 'Request failed') => {
-  const d = e?.response?.data?.detail;
-  if (!d) return e?.message || fallback;
-  if (typeof d === 'string') return d;
-  if (Array.isArray(d)) {
-    return d
-      .map(item => {
-        if (typeof item === 'string') return item;
-        if (item && item.msg && item.loc) return `${item.loc.slice(1).join('.') || '?'}: ${item.msg}`;
-        return JSON.stringify(item);
-      })
-      .join('; ');
-  }
-  try { return JSON.stringify(d); } catch { return fallback; }
-};
-
 export default function WorksheetEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -174,7 +156,7 @@ export default function WorksheetEditor() {
         setWorksheetId(res.data.id);
         setForm(apiToForm(res.data));
       } catch (e) {
-        toast.error(errorText(e, 'Failed to load worksheet'));
+        toast.error(getErrorMessage(e, 'Failed to load worksheet'));
         navigate('/worksheets', { replace: true });
       } finally {
         if (!cancelled) setLoading(false);
@@ -214,7 +196,7 @@ export default function WorksheetEditor() {
       await apiClient.put(`/worksheets/${worksheetId}`, payload);
       toast.success('Saved');
     } catch (e) {
-      toast.error(errorText(e, 'Failed to save'));
+      toast.error(getErrorMessage(e, 'Failed to save'));
     } finally {
       setSaving(false);
     }
@@ -288,7 +270,7 @@ export default function WorksheetEditor() {
         } catch { /* noop */ }
       }, 120000);
     } catch (e) {
-      toast.error(errorText(e, 'Failed to save and print'));
+      toast.error(getErrorMessage(e, 'Failed to save and print'));
     } finally {
       setSaving(false);
     }
@@ -302,7 +284,7 @@ export default function WorksheetEditor() {
       toast.success('Worksheet deleted');
       navigate('/worksheets', { replace: true });
     } catch (e) {
-      toast.error(errorText(e, 'Failed to delete worksheet'));
+      toast.error(getErrorMessage(e, 'Failed to delete worksheet'));
       setDeleting(false);
       setShowDeleteConfirm(false);
     }
