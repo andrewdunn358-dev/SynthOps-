@@ -32,8 +32,11 @@ COPY --from=builder /app/build /usr/share/nginx/html
 # Expose ports
 EXPOSE 80 443
 
-# Health check
+# Health check — hits the dedicated /health endpoint on port 80 (defined in
+# nginx.conf). The previous version hit '/' which got 301'd to HTTPS, and
+# wget --spider doesn't follow redirects, so the check failed forever even
+# though nginx was serving traffic perfectly fine.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget -q --spider http://localhost/ || exit 1
+    CMD wget -q --spider http://localhost/health || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
