@@ -55,7 +55,6 @@ export default function SupportTab({ clientId, clientName }) {
     requested_by: '',
     completed_by: '',
     accounts_informed: false,
-    worksheet_submitted: false,
     profile_updated: false,
   });
   const [savingChange, setSavingChange] = useState(false);
@@ -158,7 +157,7 @@ export default function SupportTab({ clientId, clientName }) {
       setChangeForm({
         product_id: '', product_name: '', change_description: '',
         requested_by: '', completed_by: '', accounts_informed: false,
-        worksheet_submitted: false, profile_updated: false,
+        profile_updated: false,
       });
       // Refresh recent changes
       const changesRes = await apiClient.get(`/support/changes?client_id=${clientId}`);
@@ -553,7 +552,6 @@ export default function SupportTab({ clientId, clientName }) {
             <div className="flex gap-6">
               {[
                 { key: 'accounts_informed', label: 'Accounts Informed' },
-                { key: 'worksheet_submitted', label: 'Worksheet Submitted' },
                 { key: 'profile_updated', label: 'Support Count Updated' },
               ].map(({ key, label }) => (
                 <label key={key} className="flex items-center gap-2 cursor-pointer text-sm">

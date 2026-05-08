@@ -47,7 +47,6 @@ export default function SupportChanges() {
     requested_by: '',
     completed_by: '',
     accounts_informed: false,
-    worksheet_submitted: false,
     profile_updated: false,
     date: new Date().toISOString().split('T')[0],
   });
@@ -101,7 +100,6 @@ export default function SupportChanges() {
       requested_by: '',
       completed_by: '',
       accounts_informed: false,
-      worksheet_submitted: false,
       profile_updated: false,
       date: new Date().toISOString().split('T')[0],
     });
@@ -120,7 +118,6 @@ export default function SupportChanges() {
       requested_by: change.requested_by || '',
       completed_by: change.completed_by || '',
       accounts_informed: change.accounts_informed || false,
-      worksheet_submitted: change.worksheet_submitted || false,
       profile_updated: change.profile_updated || false,
       date: change.date ? change.date.split('T')[0] : new Date().toISOString().split('T')[0],
     });

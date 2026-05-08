@@ -37,7 +37,7 @@ export default function Settings() {
       const res = await apiClient.get('/notifications/config');
       setNotificationConfig(res.data);
     } catch (error) {
-      console.log('Failed to fetch notification config');
+      console.error('Failed to fetch notification config', error);
     }
   };
 
@@ -52,7 +52,7 @@ export default function Settings() {
         vaultwarden: vaultRes.data
       });
     } catch (error) {
-      console.log('Failed to fetch integration configs');
+      console.error('Failed to fetch integration configs', error);
     }
   };
 

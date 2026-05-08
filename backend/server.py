@@ -6523,7 +6523,6 @@ class SupportChange(BaseModel):
     requested_by: Optional[str] = None
     completed_by: Optional[str] = None
     accounts_informed: bool = False
-    worksheet_submitted: bool = False
     profile_updated: bool = False
     # Structured fields driving Support Count auto-update.
     # affected_products: product names (matching support_products.name) that this
@@ -6688,7 +6687,6 @@ async def upsert_client_support_profile(
                 "requested_by": None,
                 "completed_by": current_user.get("username") or current_user.get("email"),
                 "accounts_informed": False,
-                "worksheet_submitted": False,
                 "profile_updated": True,  # Profile was just saved so count is in sync
                 "auto_logged": True,
                 "created_at": now,

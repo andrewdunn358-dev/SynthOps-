@@ -56,7 +56,7 @@ export default function ServerDetail() {
         setTrmmUrl(baseUrl);
       }
     } catch (error) {
-      console.log('TRMM not configured');
+      console.error('TRMM status check failed', error);
     }
   };
 
