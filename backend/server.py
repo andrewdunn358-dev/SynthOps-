@@ -6,6 +6,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import re  # used by /worksheets list endpoint to escape user-supplied search terms before passing to MongoDB $regex
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
