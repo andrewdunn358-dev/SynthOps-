@@ -5661,129 +5661,6 @@ async def get_vaultwarden_config(user: dict = Depends(get_current_user)):
         "configured": bool(vault_url)
     }
 
-# ==================== MICROSOFT TEAMS WEBHOOKS ====================
-
-class TeamsWebhookMessage(BaseModel):
-    title: str
-    message: str
-    color: str = "0076D7"  # Default blue
-    facts: Optional[List[Dict[str, str]]] = None
-
-async def send_teams_notification(title: str, message: str, color: str = "0076D7", facts: List[Dict[str, str]] = None):
-    """Send notification to Microsoft Teams via webhook"""
-    webhook_url = os.environ.get("TEAMS_WEBHOOK_URL", "")
-    
-    if not webhook_url:
-        logger.debug("Teams webhook not configured, skipping notification")
-        return False
-    
-    # Build Teams Adaptive Card / Message Card
-    card = {
-        "@type": "MessageCard",
-        "@context": "http://schema.org/extensions",
-        "themeColor": color,
-        "summary": title,
-        "sections": [{
-            "activityTitle": f"🔔 {title}",
-            "activitySubtitle": f"SynthOps Alert - {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
-            "text": message,
-            "markdown": True
-        }]
-    }
-    
-    if facts:
-        card["sections"][0]["facts"] = facts
-    
-    try:
-        async with httpx.AsyncClient() as http_client:
-            resp = await http_client.post(webhook_url, json=card, timeout=10.0)
-            if resp.status_code == 200:
-                logger.info(f"Teams notification sent: {title}")
-                return True
-            else:
-                logger.error(f"Teams webhook failed: {resp.status_code} - {resp.text}")
-                return False
-    except Exception as e:
-        logger.error(f"Teams webhook error: {str(e)}")
-        return False
-
-@api_router.post("/notifications/teams/test")
-async def test_teams_webhook(user: dict = Depends(get_current_user)):
-    """Test Teams webhook configuration"""
-    webhook_url = os.environ.get("TEAMS_WEBHOOK_URL", "")
-    
-    if not webhook_url:
-        raise HTTPException(status_code=400, detail="Teams webhook URL not configured")
-    
-    success = await send_teams_notification(
-        title="SynthOps Test Notification",
-        message="This is a test notification from SynthOps. If you can see this, Teams webhooks are working correctly!",
-        color="00FF00",
-        facts=[
-            {"name": "Environment", "value": "Production"},
-            {"name": "Test Time", "value": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
-        ]
-    )
-    
-    if success:
-        return {"message": "Test notification sent successfully"}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to send test notification")
-
-@api_router.get("/notifications/config")
-async def get_notification_config(user: dict = Depends(get_current_user)):
-    """Get notification configuration status"""
-    return {
-        "teams": {
-            "configured": bool(os.environ.get("TEAMS_WEBHOOK_URL")),
-            "webhook_set": bool(os.environ.get("TEAMS_WEBHOOK_URL"))
-        },
-        "email": {
-            "configured": bool(os.environ.get("SENDGRID_API_KEY")),
-            "from_email": os.environ.get("SENDGRID_FROM_EMAIL", "")
-        }
-    }
-
-@api_router.post("/notifications/server-offline")
-async def notify_server_offline(server_id: str = Body(..., embed=True), user: dict = Depends(get_current_user)):
-    """Manually trigger offline notification for a server"""
-    server = await db.servers.find_one({"id": server_id}, {"_id": 0})
-    if not server:
-        raise HTTPException(status_code=404, detail="Server not found")
-    
-    # Get client info
-    site = await db.sites.find_one({"id": server.get("site_id")}, {"client_id": 1})
-    client = None
-    if site:
-        client = await db.clients.find_one({"id": site.get("client_id")}, {"name": 1})
-    
-    success = await send_teams_notification(
-        title="🚨 Server Offline Alert",
-        message=f"Server **{server.get('hostname')}** is currently offline and requires attention.",
-        color="FF0000",
-        facts=[
-            {"name": "Server", "value": server.get("hostname", "Unknown")},
-            {"name": "Client", "value": client.get("name") if client else "Unknown"},
-            {"name": "IP Address", "value": server.get("ip_address", "Unknown")},
-            {"name": "Last Status", "value": server.get("status", "Unknown")},
-            {"name": "Detected", "value": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
-        ]
-    )
-    
-    # Log the notification
-    await db.notification_log.insert_one({
-        "id": str(uuid.uuid4()),
-        "type": "server_offline",
-        "entity_type": "server",
-        "entity_id": server_id,
-        "title": f"Server Offline: {server.get('hostname')}",
-        "sent_teams": success,
-        "sent_email": False,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
-    
-    return {"message": "Notification sent" if success else "Notification failed (check configuration)", "success": success}
-
 # ==================== AUDIT LOGGING ====================
 
 @api_router.get("/audit-log")
@@ -5896,12 +5773,11 @@ async def _raise_or_update_auto_incident(
     client_id: Optional[str] = None,
     client_name: Optional[str] = None,
     description: Optional[str] = None,
-    teams_facts: Optional[List[Dict[str, str]]] = None,
 ) -> dict:
     """Create a new auto-incident or update an existing one with the same dedup_key.
 
-    - First occurrence: creates incident, sends ONE Teams ping with link
-    - Repeat occurrences: bumps occurrence_count + last_seen_at, no Teams ping
+    - First occurrence: creates incident
+    - Repeat occurrences: bumps occurrence_count + last_seen_at
     - If a previously-resolved incident with same dedup_key exists, opens a NEW one
       (the previous outage was resolved, this is a fresh event)
     """
@@ -5915,7 +5791,7 @@ async def _raise_or_update_auto_incident(
     })
 
     if existing:
-        # Repeat occurrence — bump counter, no Teams ping
+        # Repeat occurrence — bump counter
         await db.incidents.update_one(
             {"id": existing["id"]},
             {"$set": {"last_seen_at": now_iso}, "$inc": {"occurrence_count": 1}},
@@ -5949,23 +5825,6 @@ async def _raise_or_update_auto_incident(
     }
     await db.incidents.insert_one(incident)
     logger.info(f"Auto-incident {incident['id']} created ({dedup_key})")
-
-    # Single Teams ping with link to the incident page
-    facts = list(teams_facts or [])
-    facts.append({"name": "Incident", "value": f"#{incident['id'][:8]}"})
-    facts.append({"name": "Detected", "value": now_utc.strftime('%Y-%m-%d %H:%M:%S UTC')})
-
-    # Construct link to incident page if APP_URL is set
-    app_url = os.environ.get("APP_URL", "").rstrip("/")
-    incident_link = f"{app_url}/incidents" if app_url else "Open the Incidents page in SynthOps"
-    msg = (description or title) + f"\n\n[View incident]({incident_link})"
-
-    asyncio.create_task(send_teams_notification(
-        title=f"🚨 {title}",
-        message=msg,
-        color="FF0000" if severity in ("high", "critical") else "FFA500",
-        facts=facts,
-    ))
 
     return incident
 
@@ -6134,11 +5993,6 @@ async def scheduled_trmm_sync():
                                     client_id=local_client_for_inc["id"] if local_client_for_inc else None,
                                     client_name=client_name_for_inc,
                                     description=f"Server {hostname} ({client_name_for_inc}) has gone offline. Detected by TRMM sync.",
-                                    teams_facts=[
-                                        {"name": "Server", "value": hostname},
-                                        {"name": "Client", "value": client_name_for_inc},
-                                        {"name": "IP Address", "value": existing_server.get("ip_address", "Unknown")},
-                                    ],
                                 )
 
                             # Auto-resolve: server came back online → mark awaiting confirmation.

@@ -17,7 +17,6 @@ services:
       - TACTICAL_RMM_API_URL=${TACTICAL_RMM_API_URL}
       - TACTICAL_RMM_API_KEY=${TACTICAL_RMM_API_KEY}
       - MESHCENTRAL_URL=${MESHCENTRAL_URL:-}
-      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
       - VAULTWARDEN_URL=https://vault.synthesis-it.local
       - BITDEFENDER_API_URL=${BITDEFENDER_API_URL:-https://cloudgz.gravityzone.bitdefender.com/api}
       - BITDEFENDER_API_KEY=${BITDEFENDER_API_KEY:-}

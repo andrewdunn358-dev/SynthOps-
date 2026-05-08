@@ -9,7 +9,7 @@ import { Switch } from '../components/ui/switch';
 import { Badge } from '../components/ui/badge';
 import { getErrorMessage } from '../lib/errorHandler';
 import { 
-  User, Moon, Sun, Shield, Bell, Key, CheckCircle, XCircle, Send, Monitor, KeyRound, ExternalLink
+  User, Moon, Sun, Shield, Key, Monitor, KeyRound, ExternalLink
 } from 'lucide-react';
 
 export default function Settings() {
@@ -20,26 +20,14 @@ export default function Settings() {
     newPassword: '',
     confirmPassword: ''
   });
-  const [notificationConfig, setNotificationConfig] = useState(null);
-  const [testingTeams, setTestingTeams] = useState(false);
   const [integrations, setIntegrations] = useState({
     meshcentral: { configured: false, url: '' },
     vaultwarden: { configured: false, url: '' }
   });
 
   useEffect(() => {
-    fetchNotificationConfig();
     fetchIntegrationConfigs();
   }, []);
-
-  const fetchNotificationConfig = async () => {
-    try {
-      const res = await apiClient.get('/notifications/config');
-      setNotificationConfig(res.data);
-    } catch (error) {
-      console.error('Failed to fetch notification config', error);
-    }
-  };
 
   const fetchIntegrationConfigs = async () => {
     try {
@@ -53,18 +41,6 @@ export default function Settings() {
       });
     } catch (error) {
       console.error('Failed to fetch integration configs', error);
-    }
-  };
-
-  const testTeamsWebhook = async () => {
-    setTestingTeams(true);
-    try {
-      await apiClient.post('/notifications/teams/test');
-      toast.success('Test notification sent to Teams!');
-    } catch (error) {
-      toast.error(getErrorMessage(error, 'Failed to send test notification'));
-    } finally {
-      setTestingTeams(false);
     }
   };
 
@@ -179,57 +155,6 @@ export default function Settings() {
               )}
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Notifications */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Bell className="h-5 w-5" />
-            Notifications
-          </CardTitle>
-          <CardDescription>Alert configuration status</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between p-3 rounded-sm bg-muted/50">
-            <div className="flex items-center gap-3">
-              <Send className="h-5 w-5 text-blue-400" />
-              <div>
-                <p className="font-medium">Microsoft Teams</p>
-                <p className="text-sm text-muted-foreground">Webhook notifications for alerts</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {notificationConfig?.teams?.configured ? (
-                <>
-                  <Badge className="bg-emerald-500/20 text-emerald-400">
-                    <CheckCircle className="h-3 w-3 mr-1" />
-                    Configured
-                  </Badge>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={testTeamsWebhook}
-                    disabled={testingTeams}
-                    data-testid="test-teams"
-                  >
-                    {testingTeams ? 'Sending...' : 'Test'}
-                  </Button>
-                </>
-              ) : (
-                <Badge variant="outline">
-                  <XCircle className="h-3 w-3 mr-1" />
-                  Not configured
-                </Badge>
-              )}
-            </div>
-          </div>
-          
-          <p className="text-xs text-muted-foreground">
-            To configure Teams webhooks, add <code className="bg-muted px-1 rounded">TEAMS_WEBHOOK_URL</code> to your environment variables.
-            Alerts will be sent when servers go offline, new tickets arrive, or tasks are assigned.
-          </p>
         </CardContent>
       </Card>
 
