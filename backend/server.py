@@ -1954,6 +1954,21 @@ async def list_incidents(status: Optional[str] = None, client_id: Optional[str] 
         ))
     return result
 
+
+@api_router.get("/incidents/active-count")
+async def active_incident_count(user: dict = Depends(get_current_user)):
+    """Lightweight count endpoint for the sidebar 'incidents needing attention'
+    badge. Returns just the totals — no incident bodies — so this can be
+    polled cheaply (the sidebar hits it every 30s).
+
+    Active = status open OR investigating (i.e. anything not resolved).
+    Critical = active AND severity == 'critical'."""
+    active_query = {"status": {"$in": ["open", "investigating"]}}
+    active = await db.incidents.count_documents(active_query)
+    critical = await db.incidents.count_documents({**active_query, "severity": "critical"})
+    return {"active": active, "critical": critical}
+
+
 @api_router.post("/incidents", response_model=IncidentResponse)
 async def create_incident(incident_data: IncidentCreate, user: dict = Depends(get_current_user)):
     incident = {

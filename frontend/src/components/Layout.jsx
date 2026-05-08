@@ -59,6 +59,10 @@ export default function Layout() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [vaultUrl, setVaultUrl] = useState(null);
+  // Per-nav-item badge counts. Keyed by path so future nav items can
+  // attach badges without restructuring (e.g. could surface unread DC
+  // health checks on /dc-health-check). Currently only /incidents uses it.
+  const [navBadges, setNavBadges] = useState({});
 
   useEffect(() => {
     // Fetch Vaultwarden URL from backend config
@@ -69,10 +73,49 @@ export default function Layout() {
           setVaultUrl(res.data.url);
         }
       } catch (error) {
-        console.log('Vaultwarden not configured');
+        console.error('Vaultwarden config fetch failed', error);
       }
     };
     fetchVaultConfig();
+  }, []);
+
+  // Active-incident sidebar badge.
+  // Strategy: poll every 30 seconds, plus refetch when the user tabs
+  // back to the window (otherwise a tab open all day shows stale data
+  // until the next 30s tick). Failure is silent — a flaky network
+  // shouldn't make the sidebar flicker.
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchIncidentCount = async () => {
+      try {
+        const res = await apiClient.get('/incidents/active-count');
+        if (cancelled) return;
+        setNavBadges(prev => ({
+          ...prev,
+          '/incidents': {
+            count: res.data.active || 0,
+            // critical lets us style differently if we ever want a
+            // pulse / brighter red — currently both render the same.
+            critical: (res.data.critical || 0) > 0,
+          },
+        }));
+      } catch {
+        // Silent — don't disturb the user with sidebar fetch errors
+      }
+    };
+
+    fetchIncidentCount();
+    const intervalId = setInterval(fetchIncidentCount, 30000);
+
+    const onFocus = () => fetchIncidentCount();
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+      window.removeEventListener('focus', onFocus);
+    };
   }, []);
 
   const handleLogout = () => {
@@ -109,7 +152,10 @@ export default function Layout() {
         {/* Navigation */}
         <nav className="flex-1 py-4 overflow-y-auto">
           <div className="space-y-1 px-2">
-            {navItems.map((item) => (
+            {navItems.map((item) => {
+              const badge = navBadges[item.path];
+              const showBadge = badge && badge.count > 0;
+              return (
               <NavLink
                 key={item.path}
                 to={item.path}
@@ -123,10 +169,36 @@ export default function Layout() {
                 }
                 data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
               >
-                <item.icon className="h-5 w-5 flex-shrink-0" />
-                {sidebarOpen && <span>{item.label}</span>}
+                <div className="relative flex-shrink-0">
+                  <item.icon className="h-5 w-5" />
+                  {/* Collapsed sidebar: small dot in the corner of the icon.
+                      Expanded sidebar: full numeric badge sits at the end
+                      of the row instead, so we hide this corner one. */}
+                  {showBadge && !sidebarOpen && (
+                    <span
+                      className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center"
+                      title={`${badge.count} active incident${badge.count === 1 ? '' : 's'}`}
+                    >
+                      {badge.count > 9 ? '9+' : badge.count}
+                    </span>
+                  )}
+                </div>
+                {sidebarOpen && (
+                  <>
+                    <span>{item.label}</span>
+                    {showBadge && (
+                      <span
+                        className="ml-auto px-2 py-0.5 rounded-full bg-red-500 text-white text-xs font-bold min-w-[20px] text-center"
+                        title={`${badge.count} active incident${badge.count === 1 ? '' : 's'}`}
+                      >
+                        {badge.count}
+                      </span>
+                    )}
+                  </>
+                )}
               </NavLink>
-            ))}
+              );
+            })}
           </div>
 
           {/* Admin section */}
