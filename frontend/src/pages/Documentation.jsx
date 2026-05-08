@@ -124,10 +124,32 @@ export default function Documentation() {
     return matchesSearch && matchesCategory;
   });
 
-  // Simple markdown renderer
+  // Simple markdown renderer.
+  //
+  // Important: the previous version piped raw user-authored content
+  // straight into dangerouslySetInnerHTML, which was an XSS vector — a
+  // doc containing `<script>alert(1)</script>` or `<img src=x onerror=...>`
+  // would execute on render. We avoid it by HTML-escaping the input
+  // FIRST, then applying the markdown transforms. The transforms only
+  // match `#`, `*`, backtick, and `-` (none HTML-special) and substitute
+  // fixed HTML we control, so the resulting output is safe.
+  //
+  // If we ever want fuller markdown (tables, fenced code blocks,
+  // syntax highlighting, link auto-detection), swap this for
+  // react-markdown — it renders proper React elements without
+  // dangerouslySetInnerHTML at all and is XSS-safe by construction.
   const renderMarkdown = (content) => {
     if (!content) return '';
-    return content
+
+    // Escape & first to avoid double-escaping the entities we add below
+    const escaped = content
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+    return escaped
       .replace(/^### (.*$)/gim, '<h3 class="text-xl font-semibold mt-4 mb-2">$1</h3>')
       .replace(/^## (.*$)/gim, '<h2 class="text-2xl font-bold mt-6 mb-3">$1</h2>')
       .replace(/^# (.*$)/gim, '<h1 class="text-3xl font-bold mt-6 mb-4">$1</h1>')
