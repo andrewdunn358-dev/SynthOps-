@@ -155,25 +155,24 @@ export default function WorksheetEditor() {
   }, [clients, form.customer]);
 
   useEffect(() => {
+    // 'new' is no longer a valid id here — the Worksheets list page POSTs
+    // the draft from its click handler and navigates straight to the real
+    // id. If we ever land on /worksheets/new (stale bookmark, manual URL,
+    // or someone reloads after the historical auto-create flow), bounce
+    // back to the list rather than creating an orphan draft.
+    if (id === 'new') {
+      navigate('/worksheets', { replace: true });
+      return;
+    }
+
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        if (id === 'new') {
-          // formToApi drops blank equipment rows and coerces empty-string
-          // numeric fields to null — required for the backend's Pydantic
-          // validation (Optional[float] rejects '').
-          const res = await apiClient.post('/worksheets', formToApi(blankForm()));
-          if (cancelled) return;
-          setWorksheetId(res.data.id);
-          setForm(apiToForm(res.data));
-          navigate(`/worksheets/${res.data.id}`, { replace: true });
-        } else {
-          const res = await apiClient.get(`/worksheets/${id}`);
-          if (cancelled) return;
-          setWorksheetId(res.data.id);
-          setForm(apiToForm(res.data));
-        }
+        const res = await apiClient.get(`/worksheets/${id}`);
+        if (cancelled) return;
+        setWorksheetId(res.data.id);
+        setForm(apiToForm(res.data));
       } catch (e) {
         toast.error(errorText(e, 'Failed to load worksheet'));
         navigate('/worksheets', { replace: true });

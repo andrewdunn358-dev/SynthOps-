@@ -76,13 +76,23 @@ export default function Worksheets() {
   };
 
   const newWorksheet = async () => {
-    // Just route to /worksheets/new — the editor itself POSTs the draft
-    // and replaces the URL with the real id once it's back. Keeps the
-    // 'create + load' flow in one place.
+    // Belt-and-braces guard against double-fire (rapid double-click,
+    // StrictMode wouldn't double-call this since it's an event handler
+    // not an effect, but cheap to be safe).
+    if (creating) return;
     setCreating(true);
     try {
-      navigate('/worksheets/new');
-    } finally {
+      // POST the draft directly from the click handler so the editor
+      // never has to create-on-mount (which under React 18 StrictMode
+      // would fire twice and produce orphan drafts). All Worksheet model
+      // fields are Optional with sensible defaults, so an empty body
+      // validates cleanly.
+      const res = await apiClient.post('/worksheets', {});
+      navigate(`/worksheets/${res.data.id}`);
+    } catch (e) {
+      toast.error(errorText(e, 'Failed to create worksheet'));
+      // Only reset on error — on success we navigate away so the unmount
+      // would handle it anyway.
       setCreating(false);
     }
   };
