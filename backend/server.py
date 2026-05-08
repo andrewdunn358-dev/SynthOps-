@@ -5833,10 +5833,35 @@ async def get_activity_log(
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
+# Parse CORS_ORIGINS. Two security-relevant notes:
+#   1. allow_credentials=True is incompatible with allow_origins=['*'] per
+#      the CORS spec — browsers reject that combination on preflight, so
+#      the historical '*' fallback was both unsafe AND broken in practice.
+#   2. We log what's actually applied so a missing/wrong env var is
+#      visible in `docker compose logs backend` rather than silent.
+_cors_env = os.environ.get('CORS_ORIGINS', '').strip()
+if not _cors_env or _cors_env == '*':
+    # Fail closed (-ish): allow only localhost so the dev workflow keeps
+    # working but no random origin gets through. Production must set
+    # CORS_ORIGINS to its actual domain(s).
+    cors_origins = [
+        "http://localhost",
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ]
+    logger.warning(
+        "CORS_ORIGINS is unset or wildcard — falling back to localhost only "
+        "(%s). Set CORS_ORIGINS=https://your-domain in production.",
+        cors_origins,
+    )
+else:
+    cors_origins = [o.strip() for o in _cors_env.split(',') if o.strip()]
+    logger.info("CORS_ORIGINS configured: %s", cors_origins)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
