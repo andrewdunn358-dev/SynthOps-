@@ -8798,14 +8798,21 @@ class WorksheetResponse(Worksheet):
     updated_by: Optional[str] = None
 
 
-@api_router.get("/worksheets", response_model=List[WorksheetResponse])
+@api_router.get("/worksheets")
 async def list_worksheets(
     search: Optional[str] = None,
     status: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
 ):
     """List worksheets, newest first. Optional substring search across the
-    common identifying fields (job no, project, customer)."""
+    common identifying fields (job no, project, customer, account manager).
+
+    Per-row validation: if an old/malformed worksheet record fails
+    WorksheetResponse validation (e.g. missing created_at on records
+    written before that field was required), we log it and skip rather
+    than 500-ing the whole list. Defensive against schema drift over the
+    life of the app.
+    """
     query: dict = {}
     if status:
         query["status"] = status
@@ -8820,7 +8827,21 @@ async def list_worksheets(
             {"account_manager": rx},
         ]
     rows = await db.worksheets.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
-    return rows
+
+    # Validate each row individually — bad rows get logged and dropped
+    # rather than killing the whole response. This bug was caught when
+    # search returned an old test draft that pre-dated some required
+    # field; FastAPI's response_model validation 500'd the entire list.
+    valid: list = []
+    for row in rows:
+        try:
+            valid.append(WorksheetResponse(**row).model_dump())
+        except Exception as e:
+            logger.warning(
+                "Skipping worksheet %s — failed validation: %s",
+                row.get("id", "<no id>"), e,
+            )
+    return valid
 
 
 @api_router.post("/worksheets", response_model=WorksheetResponse)
