@@ -2013,11 +2013,16 @@ async def resolve_incident(incident_id: str, root_cause: Optional[str] = Body(No
 @api_router.put("/incidents/{incident_id}/confirm-resolution")
 async def confirm_incident_resolution(
     incident_id: str,
-    resolution_notes: Optional[str] = Body(None, embed=True),
+    resolution_notes: str = Body(..., embed=True, min_length=1),
     user: dict = Depends(get_current_user),
 ):
     """Confirm an auto-resolved incident. Used when the system detected the
-    underlying issue cleared (e.g. server back online) and a human is signing off."""
+    underlying issue cleared (e.g. server back online) and a human is signing off.
+    resolution_notes is required — the person closing the incident must say what
+    was done (or explicitly note that no action was needed)."""
+    notes = resolution_notes.strip()
+    if not notes:
+        raise HTTPException(status_code=422, detail="resolution_notes is required")
     incident = await db.incidents.find_one({"id": incident_id})
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
@@ -2027,9 +2032,8 @@ async def confirm_incident_resolution(
     update = {
         "awaiting_confirmation": False,
         "resolved_by": user["id"],
+        "resolution_notes": encrypt_field(notes),
     }
-    if resolution_notes:
-        update["resolution_notes"] = encrypt_field(resolution_notes)
     await db.incidents.update_one({"id": incident_id}, {"$set": update})
     return {"message": "Resolution confirmed"}
 

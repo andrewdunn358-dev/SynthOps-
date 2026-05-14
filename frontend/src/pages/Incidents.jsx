@@ -51,6 +51,8 @@ export default function Incidents() {
   const [sourceFilter, setSourceFilter] = useState('all');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [resolveDialogOpen, setResolveDialogOpen] = useState(false);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [confirmNotes, setConfirmNotes] = useState('');
   const [selectedIncident, setSelectedIncident] = useState(null);
 
   const [form, setForm] = useState({
@@ -121,17 +123,29 @@ export default function Incidents() {
     }
   };
 
-  const handleConfirmResolution = async (incident) => {
+  const handleConfirmResolution = (incident) => {
     if (!incident) return;
-    if (!confirm(
-      `Confirm resolution of "${incident.title}"?\n\n` +
-      `The system marked this resolved automatically — ` +
-      (incident.auto_resolved_reason || 'underlying issue cleared') +
-      `.\n\nClicking OK closes the incident.`
-    )) return;
+    setSelectedIncident(incident);
+    setConfirmNotes('');
+    setConfirmDialogOpen(true);
+  };
+
+  const handleConfirmResolutionSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedIncident) return;
+    const notes = confirmNotes.trim();
+    if (!notes) {
+      toast.error('Please describe what was done to resolve it');
+      return;
+    }
     try {
-      await apiClient.put(`/incidents/${incident.id}/confirm-resolution`, {});
+      await apiClient.put(`/incidents/${selectedIncident.id}/confirm-resolution`, {
+        resolution_notes: notes
+      });
       toast.success('Resolution confirmed');
+      setConfirmDialogOpen(false);
+      setSelectedIncident(null);
+      setConfirmNotes('');
       fetchData();
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to confirm resolution'));
@@ -485,6 +499,43 @@ export default function Incidents() {
               </Button>
               <Button type="submit" data-testid="resolve-incident">
                 Resolve
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+      {/* Confirm Resolution Dialog (for auto-resolved incidents awaiting human sign-off) */}
+      <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm Resolution</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleConfirmResolutionSubmit} className="space-y-4">
+            {selectedIncident && (
+              <div className="text-sm text-muted-foreground bg-muted/40 border border-border rounded-md p-3 space-y-1">
+                <div className="font-medium text-foreground">{selectedIncident.title}</div>
+                <div>
+                  The system marked this resolved automatically —{' '}
+                  {selectedIncident.auto_resolved_reason || 'underlying issue cleared'}.
+                </div>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>What was done to resolve it? <span className="text-destructive">*</span></Label>
+              <Textarea
+                value={confirmNotes}
+                onChange={(e) => setConfirmNotes(e.target.value)}
+                placeholder="E.g. Customer rebooted the server / no action needed, recovered on its own / investigated logs, monitoring"
+                rows={4}
+                required
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setConfirmDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!confirmNotes.trim()} data-testid="confirm-resolution-submit">
+                Confirm Resolution
               </Button>
             </div>
           </form>
