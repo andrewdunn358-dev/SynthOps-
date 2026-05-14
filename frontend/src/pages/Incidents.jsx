@@ -175,7 +175,7 @@ export default function Incidents() {
     if (severityOrder[a.severity] !== severityOrder[b.severity]) {
       return severityOrder[a.severity] - severityOrder[b.severity];
     }
-    return new Date(b.created_at) - new Date(a.created_at);
+    return new Date(b.date_opened) - new Date(a.date_opened);
   });
 
   // Stats

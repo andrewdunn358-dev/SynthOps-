@@ -2013,7 +2013,7 @@ async def resolve_incident(incident_id: str, root_cause: Optional[str] = Body(No
 @api_router.put("/incidents/{incident_id}/confirm-resolution")
 async def confirm_incident_resolution(
     incident_id: str,
-    resolution_notes: Optional[str] = Body(None),
+    resolution_notes: Optional[str] = Body(None, embed=True),
     user: dict = Depends(get_current_user),
 ):
     """Confirm an auto-resolved incident. Used when the system detected the
