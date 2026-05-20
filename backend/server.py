@@ -9239,25 +9239,35 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     # RIGHT = Additional Equipment Added By Installation Team (Description | Qty | Unit Cost)
     # ------------------------------------------------------------------
     EQUIP_ROW_H = 6 * mm
-    EQUIP_PAD_ROWS = 11  # padded rows so the printed form has space for handwriting
+    # Total target height for each equipment table (header + content + blank
+    # padding rows). Tuned by trial so that the signature footer always fits
+    # on page 1: 78mm leaves room for the 80mm header, two 4mm spacers, the
+    # ~7mm section title, and the ~17mm signature footer within 194mm usable.
+    EQUIP_TABLE_H = 78 * mm
+    EQUIP_PAD_ROWS_MAX = 11  # cap on blank handwriting rows when content is short
 
     # Each side gets half the page width, minus a tiny gap between them.
     side_w = (page_w - 4 * mm) / 2
 
-    def _equip_table(rows, col_props):
-        """Build one of the equipment tables. col_props is a list of width
-        fractions summing to 1.0 (Description gets the most, qty cols are narrow).
+    def _equip_table(header_row, content_rows, col_props):
+        """Build one equipment table with a fixed total height of EQUIP_TABLE_H.
 
-        Row heights are computed per-row so that long descriptions that wrap to
-        multiple lines expand the row (no overlap onto neighbours), while empty
-        padding rows keep the original EQUIP_ROW_H so the printed form retains
-        its handwriting space."""
+        Content rows expand vertically to fit their wrapped Paragraph text (so
+        long descriptions don't draw over the next row). Blank padding rows
+        are then added to fill the remaining space up to EQUIP_TABLE_H,
+        providing handwriting space on the printed form.
+
+        When content is long, fewer padding rows are added — but the table
+        as a whole stays the same height, so the signature footer below
+        stays on page 1.
+        """
         col_w = [side_w * p for p in col_props]
         # Approximate vertical cell padding (ReportLab default TOPPADDING +
         # BOTTOMPADDING is ~3pt + 3pt = ~2mm). Used to convert Paragraph
         # natural height into required row height.
         cell_pad_v = 2 * mm
 
+        rows = [header_row] + list(content_rows)
         row_heights = []
         for row in rows:
             needed = EQUIP_ROW_H
@@ -9269,6 +9279,16 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
                     if candidate > needed:
                         needed = candidate
             row_heights.append(needed)
+
+        # Fill the remaining vertical budget with blank padding rows (capped
+        # at EQUIP_PAD_ROWS_MAX so we don't add ludicrous numbers of blank
+        # rows when content is empty).
+        used = sum(row_heights)
+        remaining = EQUIP_TABLE_H - used
+        n_pad = max(0, min(EQUIP_PAD_ROWS_MAX, int(remaining / EQUIP_ROW_H)))
+        if n_pad > 0:
+            rows.extend(["", "", ""] for _ in range(n_pad))
+            row_heights.extend([EQUIP_ROW_H] * n_pad)
 
         t = Table(rows, colWidths=col_w, rowHeights=row_heights)
         t.setStyle(TableStyle([
@@ -9282,38 +9302,36 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
         return t
 
     # Build the Expected/Ordered table (left side)
-    expected_rows = [[
+    expected_header = [
         Paragraph("Description", table_header_style),
         Paragraph("Qty Alloc", table_header_style),
         Paragraph("Qty Used", table_header_style),
-    ]]
+    ]
+    expected_content = []
     for it in (ws.get("equipment_expected") or []):
-        expected_rows.append([
+        expected_content.append([
             Paragraph(_safe(it.get("description")), value_style),
             _safe(it.get("qty_alloc") if it.get("qty_alloc") is not None else ""),
             _safe(it.get("qty_used") if it.get("qty_used") is not None else ""),
         ])
-    while len(expected_rows) - 1 < EQUIP_PAD_ROWS:
-        expected_rows.append(["", "", ""])
-    expected_table = _equip_table(expected_rows, [0.66, 0.17, 0.17])
+    expected_table = _equip_table(expected_header, expected_content, [0.66, 0.17, 0.17])
 
     # Build the Additional Added table (right side)
-    added_rows = [[
+    added_header = [
         Paragraph("Description", table_header_style),
         Paragraph("Qty", table_header_style),
         Paragraph("Unit Cost", table_header_style),
-    ]]
+    ]
+    added_content = []
     for it in (ws.get("equipment_added") or []):
         cost = it.get("unit_cost")
         cost_s = f"{cost:.2f}" if isinstance(cost, (int, float)) else _safe(cost)
-        added_rows.append([
+        added_content.append([
             Paragraph(_safe(it.get("description")), value_style),
             _safe(it.get("qty") if it.get("qty") is not None else ""),
             cost_s,
         ])
-    while len(added_rows) - 1 < EQUIP_PAD_ROWS:
-        added_rows.append(["", "", ""])
-    added_table = _equip_table(added_rows, [0.60, 0.18, 0.22])
+    added_table = _equip_table(added_header, added_content, [0.60, 0.18, 0.22])
 
     # Wrap each equipment table in a "section" cell with a title above it,
     # so the side-by-side outer Table places them with their headings.
