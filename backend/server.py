@@ -9246,9 +9246,31 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
 
     def _equip_table(rows, col_props):
         """Build one of the equipment tables. col_props is a list of width
-        fractions summing to 1.0 (Description gets the most, qty cols are narrow)."""
+        fractions summing to 1.0 (Description gets the most, qty cols are narrow).
+
+        Row heights are computed per-row so that long descriptions that wrap to
+        multiple lines expand the row (no overlap onto neighbours), while empty
+        padding rows keep the original EQUIP_ROW_H so the printed form retains
+        its handwriting space."""
         col_w = [side_w * p for p in col_props]
-        t = Table(rows, colWidths=col_w, rowHeights=[EQUIP_ROW_H] * len(rows))
+        # Approximate vertical cell padding (ReportLab default TOPPADDING +
+        # BOTTOMPADDING is ~3pt + 3pt = ~2mm). Used to convert Paragraph
+        # natural height into required row height.
+        cell_pad_v = 2 * mm
+
+        row_heights = []
+        for row in rows:
+            needed = EQUIP_ROW_H
+            for ci, cell in enumerate(row):
+                if isinstance(cell, Paragraph):
+                    avail_w = col_w[ci] - 4 * mm  # subtract LEFT+RIGHT padding
+                    _, h = cell.wrap(avail_w, 10_000)
+                    candidate = h + cell_pad_v
+                    if candidate > needed:
+                        needed = candidate
+            row_heights.append(needed)
+
+        t = Table(rows, colWidths=col_w, rowHeights=row_heights)
         t.setStyle(TableStyle([
             ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEEEEE")),
