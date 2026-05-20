@@ -36,6 +36,8 @@
     --server-online: 160 84% 39%;
     --server-offline: 0 84% 60%;
     --server-maintenance: 38 92% 50%;
+
+    color-scheme: dark;
   }
 
   .light {
@@ -58,6 +60,8 @@
     --border: 240 6% 90%;
     --input: 240 6% 90%;
     --ring: 239 84% 67%;
+
+    color-scheme: light;
   }
 }
 
@@ -272,6 +276,28 @@
 /* Input styles */
 .input-field {
   @apply bg-background border-input focus:ring-1 focus:ring-primary rounded-sm text-sm;
+}
+
+/* Native date/time picker indicators — without these, the calendar/clock
+   icon inside <input type="date"> etc. renders dark-on-dark and is nearly
+   invisible in the dark theme. The color-scheme property on :root handles
+   the popup calendar; this handles the in-field icon itself. */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator,
+input[type="week"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) opacity(0.7);
+  cursor: pointer;
+}
+
+.light input[type="date"]::-webkit-calendar-picker-indicator,
+.light input[type="time"]::-webkit-calendar-picker-indicator,
+.light input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+.light input[type="month"]::-webkit-calendar-picker-indicator,
+.light input[type="week"]::-webkit-calendar-picker-indicator {
+  filter: none;
+  opacity: 0.6;
 }
 
 /* Card hover effect */
