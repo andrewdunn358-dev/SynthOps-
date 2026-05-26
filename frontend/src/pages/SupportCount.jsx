@@ -368,7 +368,17 @@ export default function SupportCount() {
     productsByCategory[p.category].push(p);
   });
 
-  const visibleProducts = (data?.products || []).filter(p => !hiddenCategories[p.category]);
+  // Flat list of products to render as columns, grouped by category in the
+  // same order as productsByCategory iterates. This MUST match the iteration
+  // order of the category group-header row above (line ~655), otherwise the
+  // colspan boundaries won't line up with the actual columns underneath, and
+  // a product can appear visually under the wrong category header even though
+  // its category field is correct. (Previously this was a flat sort_order list
+  // ignoring category — caused columns to drift into adjacent group spans
+  // when sort_order values were interleaved across categories.)
+  const visibleProducts = Object.entries(productsByCategory)
+    .filter(([cat]) => !hiddenCategories[cat])
+    .flatMap(([, prods]) => prods);
 
   const renderCellValue = (product, value, row) => {
     // Determine display value: manual edit wins over Giacom.
