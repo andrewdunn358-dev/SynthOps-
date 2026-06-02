@@ -9239,11 +9239,33 @@ def _worksheet_pdf_bytes(ws: dict) -> bytes:
     # RIGHT = Additional Equipment Added By Installation Team (Description | Qty | Unit Cost)
     # ------------------------------------------------------------------
     EQUIP_ROW_H = 6 * mm
-    # Total target height for each equipment table (header + content + blank
-    # padding rows). Tuned by trial so that the signature footer always fits
-    # on page 1: 78mm leaves room for the 80mm header, two 4mm spacers, the
-    # ~7mm section title, and the ~17mm signature footer within 194mm usable.
-    EQUIP_TABLE_H = 78 * mm
+
+    # Compute available height for each equipment table dynamically. We need
+    # everything (header + spacer + section title + table + spacer + footer)
+    # to fit on a single landscape A4 page. Previously this was a hard-coded
+    # constant which broke whenever the header grew to fit multi-line content
+    # like a long Project Delivery Address or multi-line Overview Of Job —
+    # the equipment table overflowed and pushed the signature box to page 2.
+    #
+    # Approach: ask the header what it actually rendered as (header_grid.wrap),
+    # then subtract from total page height along with the other fixed-size
+    # elements to get the budget for the equipment table.
+    #
+    # SAFETY is generous (8mm) because ReportLab's SimpleDocTemplate adds
+    # default Frame padding of ~6pt (~2mm) on each side of the content area —
+    # that's ~4mm of "phantom" page consumption not reflected in any flowable's
+    # reported wrap height. Without this buffer the layout passed all the
+    # arithmetic but still split onto two pages.
+    page_h = landscape(A4)[1]
+    _, header_h = header_grid.wrap(page_w, page_h)
+    SECTION_TITLE_H = 7 * mm    # "List of Equipment Expected..." title row
+    SPACER_H_TOTAL  = 8 * mm    # two 4mm spacers (header→equip, equip→footer)
+    FOOTER_H        = 18 * mm   # signature footer (3.5mm label + 12mm box + padding)
+    PAGE_VPAD       = 16 * mm   # top + bottom doc margins (8mm + 8mm)
+    SAFETY          = 8 * mm    # covers Frame default padding + rendering buffer
+    available = page_h - PAGE_VPAD - header_h - SECTION_TITLE_H - SPACER_H_TOTAL - FOOTER_H - SAFETY
+    # Floor so a pathologically tall header still leaves *some* table space.
+    EQUIP_TABLE_H = max(30 * mm, available)
     EQUIP_PAD_ROWS_MAX = 11  # cap on blank handwriting rows when content is short
 
     # Each side gets half the page width, minus a tiny gap between them.
