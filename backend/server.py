@@ -3381,14 +3381,14 @@ async def full_sync_from_trmm(user: dict = Depends(get_current_user)):
                     
                     # Fetch detailed agent info to get mesh_node_id for remote connect
                     try:
-                        detail_response = await client.get(
-                            f"{trmm_url.rstrip('/')}/agents/{agent_id}/",
+                        detail_response = await http_client.get(
+                            f"{api_url.rstrip('/')}/agents/{agent_id}/",
                             headers={"X-API-KEY": api_key}
                         )
                         if detail_response.status_code == 200:
                             detail_data = detail_response.json()
                             machine_data["mesh_node_id"] = detail_data.get("mesh_node_id")
-                    except:
+                    except Exception:
                         pass  # Continue without mesh_node_id if detail fetch fails
                     
                     if is_server:
@@ -7873,7 +7873,7 @@ async def list_client_domains(client_id: str, current_user: dict = Depends(get_c
     elsewhere_mapped = set()
     if pkg_names:
         elsewhere = await db.domain_registrations.find(
-            {"name": {"$in": pkg_names}, "client_id": {"$ne": None, "$ne": client_id}, "ignored": {"$ne": True}},
+            {"name": {"$in": pkg_names}, "client_id": {"$nin": [None, client_id]}, "ignored": {"$ne": True}},
             {"_id": 0, "name": 1}
         ).to_list(500)
         elsewhere_mapped = {r["name"].lower() for r in elsewhere}
