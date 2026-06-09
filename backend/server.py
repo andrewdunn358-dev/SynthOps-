@@ -6420,6 +6420,10 @@ class SupportChange(BaseModel):
     # current-month snapshot + profile counts. Validated server-side.
     affected_products: List[str] = []
     delta: Optional[int] = None
+    # For multi-site clients: which site's current-month count this change
+    # applies to. Matches the snapshot's site_name/display_name. None for
+    # single-site clients (the lone snapshot is used automatically).
+    site_name: Optional[str] = None
 
 class SupportChangeResponse(SupportChange):
     id: str
@@ -6626,6 +6630,38 @@ async def get_client_support_history(
     ).sort("month", -1).to_list(60)  # up to 5 years
     return snapshots
 
+@api_router.get("/support/profile/{client_id}/sites")
+async def get_client_support_sites(
+    client_id: str,
+    month: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """List the Support Count site rows for a client in a given month
+    (defaults to the current month). Used by the Log Change modal to offer a
+    site picker for multi-site clients so auto-count updates can target the
+    right site. Returns [] when the client has no site rows (single-site)."""
+    if not month:
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+
+    snapshots = await db.client_support_snapshots.find(
+        {"client_id": client_id, "month": month}, {"_id": 0}
+    ).to_list(50)
+
+    sites = []
+    for snap in snapshots:
+        if snap.get("removed"):
+            continue
+        site_name = snap.get("site_name") or snap.get("display_name")
+        if not site_name:
+            continue  # the bare client row, not a distinct site
+        sites.append({
+            "site_name": site_name,
+            "products": snap.get("products") or {},
+        })
+    # Sort for a stable, predictable dropdown order
+    sites.sort(key=lambda s: s["site_name"].lower())
+    return sites
+
 # --- Change Log ---
 
 @api_router.get("/support/changes")
@@ -6653,6 +6689,7 @@ async def _apply_support_change_delta(
     client_id: str,
     affected_products: List[str],
     delta: int,
+    site_name: Optional[str] = None,
 ) -> dict:
     """
     Apply a signed integer delta to one or more product counts on a client's
@@ -6676,7 +6713,9 @@ async def _apply_support_change_delta(
 
     snapshots = await db.client_support_snapshots.find(
         {"client_id": client_id, "month": current_month}
-    ).to_list(10)
+    ).to_list(50)
+    # Drop tombstones — removed rows aren't real counts
+    snapshots = [s for s in snapshots if not s.get("removed")]
 
     if len(snapshots) == 0:
         raise HTTPException(
@@ -6684,13 +6723,37 @@ async def _apply_support_change_delta(
             detail=(f"No Support Count entry for this client in {current_month}. "
                     f"Add the client to this month's Support Count first, then re-save the change.")
         )
-    if len(snapshots) > 1:
-        raise HTTPException(
-            status_code=400,
-            detail=("This client has multiple sites in Support Count, so automatic "
-                    "count updates aren't supported here yet. Please update the "
-                    "relevant site's count manually on the Support Count page.")
-        )
+
+    # is_site_row tells us not to touch the live profile (site rows aren't
+    # represented there — same rule as update_monthly_support_count).
+    is_site_row = False
+    if site_name:
+        matching = [
+            s for s in snapshots
+            if (s.get("site_name") or s.get("display_name")) == site_name
+        ]
+        if len(matching) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"No Support Count row found for site '{site_name}' in "
+                        f"{current_month}. Add it on the Support Count page first.")
+            )
+        if len(matching) > 1:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Multiple Support Count rows match site '{site_name}' in "
+                        f"{current_month}. Resolve the duplicates on the Support Count page.")
+            )
+        snap = matching[0]
+        is_site_row = True
+    else:
+        if len(snapshots) > 1:
+            raise HTTPException(
+                status_code=400,
+                detail=("This client has multiple sites in Support Count. Pick the "
+                        "site this change applies to so the right count gets updated.")
+            )
+        snap = snapshots[0]
 
     # Dedupe affected_products (case-sensitive — product names are canonical)
     products_unique = list(dict.fromkeys(affected_products))
@@ -6730,19 +6793,23 @@ async def _apply_support_change_delta(
         {"$set": snap_update}
     )
 
-    # Apply to the live profile (the persistent contract state)
-    profile_update = {f"products.{prod}": val for prod, val in new_values.items()}
-    profile_update["updated_at"] = now
-    await db.client_support_profiles.update_one(
-        {"client_id": client_id},
-        {
-            "$set": profile_update,
-            "$setOnInsert": {"client_id": client_id, "created_at": now},
-        },
-        upsert=True,
-    )
+    # Apply to the live profile (the persistent contract state) — but only for
+    # single-client rows. Site rows aren't represented in the profile, so
+    # writing here would corrupt the bare client's counts.
+    if not is_site_row:
+        profile_update = {f"products.{prod}": val for prod, val in new_values.items()}
+        profile_update["updated_at"] = now
+        await db.client_support_profiles.update_one(
+            {"client_id": client_id},
+            {
+                "$set": profile_update,
+                "$setOnInsert": {"client_id": client_id, "created_at": now},
+            },
+            upsert=True,
+        )
 
-    return {"applied": True, "snapshot_id": str(snap["_id"]), "new_values": new_values}
+    return {"applied": True, "snapshot_id": str(snap["_id"]),
+            "site_name": site_name, "new_values": new_values}
 
 
 @api_router.post("/support/changes", response_model=SupportChangeResponse)
@@ -6764,6 +6831,7 @@ async def create_support_change(
             change.client_id,
             change.affected_products,
             change.delta,
+            change.site_name,
         )
         auto_applied = True
 
@@ -6802,27 +6870,29 @@ async def update_support_change(
     old_products = old.get("affected_products") or []
     old_delta = old.get("delta")
     old_client_id = old.get("client_id")
+    old_site_name = old.get("site_name")
     new_products = change.affected_products or []
     new_delta = change.delta
 
-    # Did the structured fields (or the client) change in a way that requires
-    # re-applying the delta?
+    # Did the structured fields (or the client/site) change in a way that
+    # requires re-applying the delta?
     needs_reapply = (
         old_products != new_products
         or old_delta != new_delta
         or old_client_id != change.client_id
+        or old_site_name != change.site_name
     )
 
     auto_applied = False
     if needs_reapply:
         # Reverse the old delta first (no-op if it was never applied)
         if old_products and old_delta is not None and old_delta != 0:
-            await _apply_support_change_delta(old_client_id, old_products, -old_delta)
+            await _apply_support_change_delta(old_client_id, old_products, -old_delta, old_site_name)
         # Apply the new delta. If this raises, the old has already been reversed
         # — that's the right behaviour (we'd rather have nothing applied than a
         # half-applied edit). The user will see the error and can re-save.
         if new_products and new_delta is not None and new_delta != 0:
-            await _apply_support_change_delta(change.client_id, new_products, new_delta)
+            await _apply_support_change_delta(change.client_id, new_products, new_delta, change.site_name)
             auto_applied = True
 
     update_data = {**change.dict(), "updated_at": datetime.now(timezone.utc)}
@@ -6860,7 +6930,7 @@ async def delete_support_change(
     old_delta = old.get("delta")
     if old_products and old_delta is not None and old_delta != 0:
         await _apply_support_change_delta(
-            old["client_id"], old_products, -old_delta
+            old["client_id"], old_products, -old_delta, old.get("site_name")
         )
 
     await db.support_changes.delete_one({"id": change_id})

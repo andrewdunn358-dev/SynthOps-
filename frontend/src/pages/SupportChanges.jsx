@@ -49,8 +49,11 @@ export default function SupportChanges() {
     accounts_informed: false,
     profile_updated: false,
     date: new Date().toISOString().split('T')[0],
+    site_name: '',
   });
   const [saving, setSaving] = useState(false);
+  // Current-month Support Count sites for the selected client (multi-site only)
+  const [clientSites, setClientSites] = useState([]);
 
   useEffect(() => {
     fetchInit();
@@ -59,6 +62,25 @@ export default function SupportChanges() {
   useEffect(() => {
     fetchChanges();
   }, [filterClient, filterMonth]);
+
+  // When a client is selected in the dialog, load its current-month Support
+  // Count sites so multi-site clients get a site picker.
+  useEffect(() => {
+    if (!dialogOpen || !form.client_id) {
+      setClientSites([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiClient.get(`/support/profile/${form.client_id}/sites`);
+        if (!cancelled) setClientSites(Array.isArray(res.data) ? res.data : []);
+      } catch (e) {
+        if (!cancelled) setClientSites([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dialogOpen, form.client_id]);
 
   const fetchInit = async () => {
     try {
@@ -102,6 +124,7 @@ export default function SupportChanges() {
       accounts_informed: false,
       profile_updated: false,
       date: new Date().toISOString().split('T')[0],
+      site_name: '',
     });
     setDialogOpen(true);
   };
@@ -120,6 +143,7 @@ export default function SupportChanges() {
       accounts_informed: change.accounts_informed || false,
       profile_updated: change.profile_updated || false,
       date: change.date ? change.date.split('T')[0] : new Date().toISOString().split('T')[0],
+      site_name: change.site_name || '',
     });
     setDialogOpen(true);
   };
@@ -144,12 +168,21 @@ export default function SupportChanges() {
         return;
       }
     }
+    // Multi-site clients: if a count update will fire, the site must be chosen
+    // so the delta lands on the right site's count.
+    const isMultiSite = clientSites.length > 1;
+    if (isMultiSite && hasProducts && hasDelta && !form.site_name) {
+      toast.error('This client has multiple sites — pick which site this change applies to');
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
         ...form,
         date: new Date(form.date).toISOString(),
         delta: parsedDelta,
+        // Only send a site for multi-site clients; single-site stays null
+        site_name: isMultiSite ? (form.site_name || null) : null,
         // Keep product_name in sync with affected_products for legacy display
         // in places that haven't been updated to read affected_products yet
         product_name: hasProducts ? form.affected_products.join(', ') : form.product_name,
@@ -395,6 +428,30 @@ export default function SupportChanges() {
                 />
               </div>
             </div>
+            {clientSites.length > 1 && (
+              <div>
+                <label className="text-sm font-medium mb-1 block">
+                  Site *
+                  <span className="text-xs text-muted-foreground font-normal ml-2">
+                    this client has multiple sites — pick which one the count applies to
+                  </span>
+                </label>
+                <Select
+                  value={form.site_name || "none"}
+                  onValueChange={v => setForm(f => ({ ...f, site_name: v === "none" ? "" : v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select site..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none" disabled>Select site...</SelectItem>
+                    {clientSites.map(s => (
+                      <SelectItem key={s.site_name} value={s.site_name}>{s.site_name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div>
               <label className="text-sm font-medium mb-1 block">
                 Products affected
@@ -464,7 +521,10 @@ export default function SupportChanges() {
               {form.affected_products.length > 0 && form.delta && !Number.isNaN(parseInt(form.delta, 10)) && (
                 <p className="text-xs text-muted-foreground mt-1">
                   On save: {parseInt(form.delta, 10) >= 0 ? '+' : ''}{parseInt(form.delta, 10)} to{' '}
-                  {form.affected_products.join(', ')} for this client's current-month count.
+                  {form.affected_products.join(', ')} for{' '}
+                  {clientSites.length > 1 && form.site_name
+                    ? `${form.site_name}'s`
+                    : "this client's"}{' '}current-month count.
                 </p>
               )}
             </div>
