@@ -34,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { Textarea } from '../components/ui/textarea';
+import { downloadExport } from '../lib/download';
 
 export default function Clients() {
   const navigate = useNavigate();
@@ -189,7 +190,7 @@ export default function Clients() {
         <div className="flex items-center gap-2">
           <Button 
             variant="outline" 
-            onClick={() => window.open(`${process.env.REACT_APP_BACKEND_URL}/api/export/clients`, '_blank')}
+            onClick={() => downloadExport('/export/clients', 'clients.csv')}
           >
             <Download className="h-4 w-4 mr-2" />
             Export

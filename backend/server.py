@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 import bcrypt
 import jwt
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 import base64
 import hashlib
 import httpx
@@ -64,7 +64,22 @@ def decrypt_field(value: str) -> str:
         return value
     try:
         return fernet.decrypt(value.encode()).decode()
-    except:
+    except Exception as e:
+        # Fernet ciphertext always starts with 'gAAAAA' (version byte 0x80
+        # base64-encoded). If this value is ciphertext and we can't decrypt it,
+        # the ENCRYPTION_KEY is wrong/rotated — fail loudly instead of passing
+        # ciphertext downstream as if it were a credential.
+        if isinstance(value, str) and value.startswith("gAAAAA"):
+            logger.error(
+                "decrypt_field: failed to decrypt an encrypted value — "
+                "ENCRYPTION_KEY is likely wrong or was rotated (%s)", type(e).__name__
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Stored credential could not be decrypted — check ENCRYPTION_KEY configuration",
+            )
+        # Not Fernet-shaped: a legacy value stored before field encryption was
+        # introduced. Return it unchanged so old records keep working.
         return value
 
 # Create the main app
@@ -112,6 +127,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         
         client_ip = request.client.host if request.client else "unknown"
+        # Behind the nginx frontend proxy every request arrives from the proxy's
+        # internal IP, which would collapse all users into one shared bucket.
+        # nginx sets X-Forwarded-For (see frontend/nginx.conf), so prefer the
+        # first (original client) address from it when present.
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            client_ip = forwarded.split(",")[0].strip() or client_ip
         
         if not rate_limiter.is_allowed(client_ip):
             logger.warning(f"Rate limit exceeded for {client_ip} on {path}")
@@ -666,8 +688,15 @@ async def require_admin(user: dict = Depends(get_current_user)):
 
 # ==================== AUTH ROUTES ====================
 
+# Optional bearer for endpoints that are public only in specific states
+# (register: open solely for first-user bootstrap)
+optional_security = HTTPBearer(auto_error=False)
+
 @api_router.post("/auth/register", response_model=UserResponse)
-async def register(user_data: UserCreate):
+async def register(
+    user_data: UserCreate,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
+):
     # Normalize email and username to lowercase for case-insensitive matching
     email_lower = user_data.email.lower()
     username_lower = user_data.username.lower()
@@ -677,7 +706,23 @@ async def register(user_data: UserCreate):
         raise HTTPException(status_code=400, detail="Email or username already exists")
     
     user_count = await db.users.count_documents({})
-    role = "admin" if user_count == 0 else user_data.role
+    if user_count == 0:
+        # Bootstrap: a fresh install has no users, so the first registration is
+        # open and always becomes admin (ignores any requested role).
+        role = "admin"
+    else:
+        # All subsequent user creation is admin-only.
+        if credentials is None:
+            raise HTTPException(
+                status_code=403,
+                detail="Registration is managed by administrators — ask an admin to create your account.",
+            )
+        requester = await get_current_user(credentials)
+        if requester.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Admin access required to create users")
+        if user_data.role not in VALID_ROLES:
+            raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {', '.join(VALID_ROLES)}")
+        role = user_data.role
     
     user = {
         "id": str(uuid.uuid4()),
@@ -747,6 +792,8 @@ async def refresh_token(refresh_token: str = Body(..., embed=True)):
         user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        if not user.get("is_active", True):
+            raise HTTPException(status_code=401, detail="Account is deactivated")
         access_token = create_access_token(user["id"], user["email"], user["role"])
         return {"access_token": access_token, "token_type": "bearer"}
     except jwt.ExpiredSignatureError:

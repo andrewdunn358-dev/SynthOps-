@@ -31,6 +31,7 @@ import {
 } from '../components/ui/table';
 import { Clock, Plus, Calendar, Trash2, Download } from 'lucide-react';
 import { Textarea } from '../components/ui/textarea';
+import { downloadExport } from '../lib/download';
 
 export default function TimeTracking() {
   const { user } = useAuth();
@@ -150,7 +151,7 @@ export default function TimeTracking() {
             variant="outline" 
             data-testid="export-time"
             onClick={() => {
-              window.open(`${process.env.REACT_APP_BACKEND_URL}/api/export/timesheet`, '_blank');
+              downloadExport('/export/timesheet', 'timesheet.csv');
             }}
           >
             <Download className="h-4 w-4 mr-2" />

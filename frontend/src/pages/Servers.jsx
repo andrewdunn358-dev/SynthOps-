@@ -41,6 +41,7 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { Textarea } from '../components/ui/textarea';
+import { downloadExport } from '../lib/download';
 
 const SERVER_ROLES = [
   'Domain Controller',
@@ -228,7 +229,7 @@ export default function Servers() {
         <div className="flex items-center gap-2">
           <Button 
             variant="outline"
-            onClick={() => window.open(`${process.env.REACT_APP_BACKEND_URL}/api/export/servers`, '_blank')}
+            onClick={() => downloadExport('/export/servers', 'servers.csv')}
           >
             <Download className="h-4 w-4 mr-2" />
             Export
