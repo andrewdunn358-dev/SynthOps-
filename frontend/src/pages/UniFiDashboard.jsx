@@ -16,8 +16,6 @@ import {
   ChevronDown, ChevronRight, Search, Monitor, Network,
 } from 'lucide-react';
 
-// ── helpers ──────────────────────────────────────────────────────────────────
-
 function OnlineBadge({ online }) {
   return online
     ? <Badge className="bg-green-600 text-white gap-1 text-xs"><Wifi className="w-3 h-3" />Online</Badge>
@@ -176,10 +174,19 @@ export default function UniFiDashboard() {
   const offlineDevices = sites.reduce((n, s) => n + (s.statistics?.counts?.offlineDevice || 0), 0);
   const totalClients  = sites.reduce((n, s) => n + (s.statistics?.counts?.wifiClient || 0) + (s.statistics?.counts?.wiredClient || 0), 0);
 
-  // Filter sites by search
-  const filteredSites = sites.filter(s =>
-    siteName(s).toLowerCase().includes(search.toLowerCase())
-  );
+  // Filter + sort: sites with issues float to the top
+  const filteredSites = sites
+    .filter(s => siteName(s).toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => {
+      const aOff = a.statistics?.counts?.offlineDevice || 0;
+      const bOff = b.statistics?.counts?.offlineDevice || 0;
+      const aGw  = a.statistics?.counts?.offlineGatewayDevice || 0;
+      const bGw  = b.statistics?.counts?.offlineGatewayDevice || 0;
+      // Gateway offline > device offline > all clear
+      if (aGw !== bGw) return bGw - aGw;
+      if (aOff !== bOff) return bOff - aOff;
+      return siteName(a).localeCompare(siteName(b));
+    });
 
   // Group devices by hostId for the expanded device table
   const devicesByHost = {};
@@ -326,22 +333,42 @@ export default function UniFiDashboard() {
           </div>
 
           {filteredSites.map(site => {
-            const name     = siteName(site);
-            const wanIp    = siteWanIp(site);
-            const online   = siteIsOnline(site);
-            const counts   = site.statistics?.counts || {};
-            const isp      = site.statistics?.ispInfo?.name || '';
-            const isExp    = expanded[site.siteId];
-            const hostName = hostNames[site.hostId] || site.hostId || '—';
-            // Devices for this site come via hostId match
+            const name      = siteName(site);
+            const wanIp     = siteWanIp(site);
+            const online    = siteIsOnline(site);
+            const counts    = site.statistics?.counts || {};
+            const isp       = site.statistics?.ispInfo?.name || '';
+            const offDev    = counts.offlineDevice || 0;
+            const hasIssue  = offDev > 0;
+            // Auto-expand sites with offline devices; user can still toggle
+            const isExp     = expanded[site.siteId] !== undefined
+                                ? expanded[site.siteId]
+                                : hasIssue;
+            const hostName  = hostNames[site.hostId] || site.hostId || '—';
             const siteDevices = devicesByHost[site.hostId] || [];
+            // For sites with offline devices, highlight the offline ones at top
+            const sortedDevices = hasIssue
+              ? [...siteDevices].sort((a, b) => {
+                  const aOn = a.status === 'online' ? 1 : 0;
+                  const bOn = b.status === 'online' ? 1 : 0;
+                  return aOn - bOn;
+                })
+              : siteDevices;
 
             return (
-              <Card key={site.siteId} className={!online ? 'border-red-500/60' : ''}>
+              <Card key={site.siteId} className={
+                !online ? 'border-red-500/60' :
+                hasIssue ? 'border-amber-500/60 bg-amber-500/5' : ''
+              }>
                 <CardHeader className="pb-2 pt-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <OnlineBadge online={online} />
+                      {hasIssue && (
+                        <Badge className="bg-amber-500/20 text-amber-400 gap-1">
+                          <WifiOff className="w-3 h-3" />{offDev} offline
+                        </Badge>
+                      )}
                       <div>
                         <span className="font-semibold text-base">{name}</span>
                         <span className="text-xs text-muted-foreground ml-2">
@@ -361,7 +388,7 @@ export default function UniFiDashboard() {
                       {siteDevices.length > 0 && (
                         <Button
                           variant="ghost" size="sm"
-                          onClick={() => setExpanded(e => ({ ...e, [site.siteId]: !e[site.siteId] }))}
+                          onClick={() => setExpanded(e => ({ ...e, [site.siteId]: !isExp }))}
                           className="text-xs text-muted-foreground"
                         >
                           {isExp
@@ -389,10 +416,11 @@ export default function UniFiDashboard() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {siteDevices.map((d, idx) => {
+                        {sortedDevices.map((d, idx) => {
                           const dt = deviceType(d);
+                          const dOnline = d.status === 'online';
                           return (
-                            <TableRow key={d.id || d.mac || idx}>
+                            <TableRow key={d.id || d.mac || idx} className={!dOnline ? 'bg-amber-500/5' : ''}>
                               <TableCell className="font-medium">
                                 <div className="flex items-center gap-2">
                                   <DeviceIcon type={dt} />
@@ -402,7 +430,7 @@ export default function UniFiDashboard() {
                               <TableCell className="text-sm text-muted-foreground">{dt}</TableCell>
                               <TableCell className="text-sm text-muted-foreground">{d.model || '—'}</TableCell>
                               <TableCell className="text-sm font-mono">{d.ip || d.ipAddress || '—'}</TableCell>
-                              <TableCell><OnlineBadge online={d.status === 'online'} /></TableCell>
+                              <TableCell><OnlineBadge online={dOnline} /></TableCell>
                               <TableCell className="text-sm text-muted-foreground">{fmtUptime(d)}</TableCell>
                               <TableCell className="text-sm text-muted-foreground">{d.version || d.firmwareVersion || '—'}</TableCell>
                             </TableRow>
