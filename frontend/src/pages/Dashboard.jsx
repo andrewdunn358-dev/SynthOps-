@@ -655,19 +655,17 @@ export default function Dashboard() {
       {/* UniFi Network Status — only shown once synced */}
       {unifiStatus && (() => {
         const hosts   = unifiStatus.hosts   || [];
-        const devices = unifiStatus.devices || [];
+        const sites   = unifiStatus.sites   || [];
         const offlineHosts = hosts.filter(h => !h.is_online);
         const hasOutage    = offlineHosts.length > 0;
-        const switches = devices.filter(d => {
-          const s = (d.shortname || d.model || '').toLowerCase();
-          return s.startsWith('usw') || s.includes('switch');
-        });
-        const aps = devices.filter(d => {
-          const s = (d.shortname || d.model || '').toLowerCase();
-          return s.startsWith('uap') || s.startsWith('u6') || s.startsWith('u7') || s.match(/^u\d/) || s.includes('ap');
-        });
+        // Use site statistics for accurate device/client counts
+        const totalDevices   = sites.reduce((n, s) => n + (s.statistics?.counts?.totalDevice || 0), 0);
+        const offlineDevices = sites.reduce((n, s) => n + (s.statistics?.counts?.offlineDevice || 0), 0);
+        const totalClients   = sites.reduce((n, s) =>
+          n + (s.statistics?.counts?.wifiClient || 0) + (s.statistics?.counts?.wiredClient || 0), 0);
+        const hasDeviceIssue = offlineDevices > 0;
         return (
-          <Card className={`border-l-4 ${hasOutage ? 'border-l-red-500 bg-red-500/5' : 'border-l-cyan-500'}`}>
+          <Card className={`border-l-4 ${hasOutage ? 'border-l-red-500 bg-red-500/5' : hasDeviceIssue ? 'border-l-amber-500' : 'border-l-cyan-500'}`}>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg flex items-center gap-2">
@@ -675,8 +673,12 @@ export default function Dashboard() {
                   UniFi Network
                   {hasOutage && (
                     <Badge className="bg-red-500/20 text-red-400 ml-1">
-                      <WifiOff className="h-3 w-3 mr-1" />
-                      Outage Detected
+                      <WifiOff className="h-3 w-3 mr-1" />Outage Detected
+                    </Badge>
+                  )}
+                  {!hasOutage && hasDeviceIssue && (
+                    <Badge className="bg-amber-500/20 text-amber-400 ml-1">
+                      {offlineDevices} device{offlineDevices !== 1 ? 's' : ''} offline
                     </Badge>
                   )}
                 </CardTitle>
@@ -690,36 +692,39 @@ export default function Dashboard() {
                 <div className="p-3 bg-muted rounded-lg text-center">
                   <div className="flex items-center justify-center gap-2 mb-1">
                     <Router className={`h-4 w-4 ${hasOutage ? 'text-red-400' : 'text-cyan-400'}`} />
-                    <span className="text-xs text-muted-foreground">Gateways</span>
+                    <span className="text-xs text-muted-foreground">Sites</span>
                   </div>
                   <p className="text-xl font-bold">
-                    <span className={hasOutage ? 'text-red-400' : 'text-emerald-400'}>
-                      {hosts.length - offlineHosts.length}
-                    </span>
-                    <span className="text-muted-foreground mx-1">/</span>
-                    <span>{hosts.length}</span>
+                    <span className={hasOutage ? 'text-red-400' : 'text-emerald-400'}>{sites.length}</span>
                   </p>
                 </div>
                 <div className="p-3 bg-muted rounded-lg text-center">
                   <div className="flex items-center justify-center gap-2 mb-1">
                     <Network className="h-4 w-4 text-blue-400" />
-                    <span className="text-xs text-muted-foreground">Switches</span>
+                    <span className="text-xs text-muted-foreground">Devices</span>
                   </div>
-                  <p className="text-xl font-bold">{switches.length}</p>
+                  <p className="text-xl font-bold">
+                    <span className={hasDeviceIssue ? 'text-amber-400' : ''}>{totalDevices}</span>
+                    {hasDeviceIssue && <span className="text-xs text-red-400 ml-1">({offlineDevices} off)</span>}
+                  </p>
                 </div>
                 <div className="p-3 bg-muted rounded-lg text-center">
                   <div className="flex items-center justify-center gap-2 mb-1">
                     <Wifi className="h-4 w-4 text-purple-400" />
-                    <span className="text-xs text-muted-foreground">Access Points</span>
+                    <span className="text-xs text-muted-foreground">Clients</span>
                   </div>
-                  <p className="text-xl font-bold">{aps.length}</p>
+                  <p className="text-xl font-bold">{totalClients}</p>
                 </div>
                 <div className="p-3 bg-muted rounded-lg text-center">
                   <div className="flex items-center justify-center gap-2 mb-1">
                     <Activity className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">Total Devices</span>
+                    <span className="text-xs text-muted-foreground">Gateways</span>
                   </div>
-                  <p className="text-xl font-bold">{devices.length}</p>
+                  <p className="text-xl font-bold">
+                    <span className={hasOutage ? 'text-red-400' : 'text-emerald-400'}>
+                      {hosts.length - offlineHosts.length}/{hosts.length}
+                    </span>
+                  </p>
                 </div>
               </div>
               {hasOutage && (
