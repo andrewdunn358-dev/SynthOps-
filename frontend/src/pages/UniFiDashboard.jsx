@@ -201,10 +201,22 @@ export default function UniFiDashboard() {
 
       {/* ── per-host cards ──────────────────────────────────────────── */}
       {hosts.map(host => {
-        const hostId     = host.id;
-        const hostName   = host.reportedState?.hostname || host.id;
-        const wan        = host.reportedState?.wan;
-        const wanIp      = wan?.ip || wan?.extIp || '—';
+        const hostId   = host.id;
+        // UniFi API returns hostname in reportedState.hostname for most devices.
+        // Some devices (especially older or factory-reset units) leave that field
+        // empty, so fall back through userData.name → hardwareId short form → id.
+        const reportedState = host.reportedState || {};
+        const hostName =
+          reportedState.hostname ||
+          host.userData?.name ||
+          (host.hardwareId ? host.hardwareId.split('-')[0] : null) ||
+          host.id;
+        // WAN IP: the API puts this in reportedState.wan.ip, but the exact
+        // sub-field varies by firmware. Try the known paths in order.
+        const wan    = reportedState.wan || reportedState.wanIp || {};
+        const wanIp  = (typeof wan === 'string' ? wan : wan?.ip || wan?.extIp || wan?.ipAddress) ||
+                       host.ipAddress || '—';
+        const fwVer  = reportedState.version || reportedState.firmwareVersion || '';
         const isExpanded = expanded[hostId];
 
         // Devices that belong to this host (UniFi links devices to a hostId)
@@ -226,7 +238,7 @@ export default function UniFiDashboard() {
                     <CardTitle className="text-base">{hostName}</CardTitle>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       WAN: {wanIp}
-                      {host.reportedState?.version ? ` · FW ${host.reportedState.version}` : ''}
+                      {fwVer ? ` · FW ${fwVer}` : ''}
                     </p>
                   </div>
                 </div>

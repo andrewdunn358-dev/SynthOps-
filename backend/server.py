@@ -5732,7 +5732,12 @@ async def scheduled_unifi_sync():
     # Load previous host statuses from the state collection
     for host in hosts:
         host_id   = host.get("id", "unknown")
-        host_name = host.get("reportedState", {}).get("hostname") or host.get("id", "unknown")
+        host_name = (
+            host.get("reportedState", {}).get("hostname")
+            or (host.get("userData") or {}).get("name")
+            or (host.get("hardwareId", "").split("-")[0] if host.get("hardwareId") else None)
+            or host.get("id", "unknown")
+        )
         # UniFi reports "isOnline" as a bool on the host object
         is_online = host.get("isOnline", True)
         dedup_key = f"unifi:host:{host_id}:offline"

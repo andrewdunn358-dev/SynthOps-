@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiClient } from '../App';
 import { Server, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield, Play, Pause, ChevronLeft, ChevronRight, ListTodo, HardDrive, XCircle, Bell, Globe, ShieldCheck } from 'lucide-react';
 
-const VIEWS = ['security', 'clients', 'servers', 'reminders', 'alerts'];
-const VIEW_LABELS = { security: 'Security', clients: 'Clients', servers: 'Servers', reminders: 'Reminders', alerts: 'Alerts' };
+const VIEWS = ['security', 'clients', 'servers', 'network', 'reminders', 'alerts'];
+const VIEW_LABELS = { security: 'Security', clients: 'Clients', servers: 'Servers', network: 'Network', reminders: 'Reminders', alerts: 'Alerts' };
 const CYCLE_INTERVAL = 15000; // 15 seconds
 
 export default function NOCDisplay() {
@@ -16,6 +16,7 @@ export default function NOCDisplay() {
   const [hostingAlerts, setHostingAlerts] = useState([]);
   const [backupStats, setBackupStats] = useState(null);
   const [ahsayStats, setAhsayStats] = useState(null);
+  const [unifiStatus, setUnifiStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [error, setError] = useState(null);
@@ -102,6 +103,14 @@ export default function NOCDisplay() {
         }
       } catch (e) {
         // Ahsay not available
+      }
+
+      // Get UniFi network status
+      try {
+        const unifiRes = await apiClient.get('/integrations/unifi/status');
+        if (unifiRes.data?.synced_at) setUnifiStatus(unifiRes.data);
+      } catch (e) {
+        // UniFi not configured
       }
     } catch (err) {
       console.error('NOC fetch error:', err);
@@ -377,6 +386,102 @@ export default function NOCDisplay() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* VIEW: Network — UniFi gateways, switches, APs */}
+        {VIEWS[currentView] === 'network' && (
+          <div className="noc-grid-container">
+            <h2 className="noc-section-title">
+              <Globe className="h-6 w-6" />
+              Network Status
+            </h2>
+            {!unifiStatus ? (
+              <div style={{ textAlign: 'center', color: 'var(--noc-muted)', paddingTop: '4rem' }}>
+                UniFi integration not configured
+              </div>
+            ) : (() => {
+              const hosts   = unifiStatus.hosts   || [];
+              const devices = unifiStatus.devices || [];
+              const offlineHosts = hosts.filter(h => !h.is_online);
+              const switches = devices.filter(d => {
+                const m = (d.model || d.productLine || '').toLowerCase();
+                return m.includes('switch') || m.includes('usw');
+              });
+              const aps = devices.filter(d => {
+                const m = (d.model || d.productLine || '').toLowerCase();
+                return m.includes('ap') || m.includes('uap') || m.includes('u6') || m.includes('wifi');
+              });
+              return (
+                <>
+                  {/* Summary row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+                    {[
+                      { label: 'GATEWAYS', value: `${hosts.length - offlineHosts.length}/${hosts.length}`, ok: offlineHosts.length === 0 },
+                      { label: 'SWITCHES', value: switches.length, ok: true },
+                      { label: 'ACCESS POINTS', value: aps.length, ok: true },
+                      { label: 'TOTAL DEVICES', value: devices.length, ok: true },
+                    ].map(s => (
+                      <div key={s.label} className={`noc-stat ${s.ok ? 'ok' : 'offline'}`}>
+                        <span className="noc-stat-number" style={{ color: s.ok ? 'var(--noc-green)' : 'var(--noc-red)' }}>{s.value}</span>
+                        <span className="noc-stat-label">{s.label}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Per-gateway rows */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {hosts.map(host => {
+                      const rs = host.reportedState || {};
+                      const name = rs.hostname || host.userData?.name || host.id;
+                      const fw   = rs.version || rs.firmwareVersion || '';
+                      const wan  = rs.wan || {};
+                      const wanIp = (typeof wan === 'string' ? wan : wan?.ip || wan?.extIp || '') || host.ipAddress || '—';
+                      const isOnline = host.is_online !== false;
+                      const hostDevices = devices.filter(d => d.hostId === host.id || d.host_id === host.id);
+                      return (
+                        <div key={host.id} style={{
+                          display: 'flex', alignItems: 'center', gap: '1rem',
+                          padding: '0.75rem 1rem', borderRadius: '8px',
+                          background: isOnline ? 'rgba(0,255,150,0.05)' : 'rgba(255,60,60,0.1)',
+                          border: `1px solid ${isOnline ? 'rgba(0,255,150,0.2)' : 'rgba(255,60,60,0.4)'}`,
+                        }}>
+                          <div style={{
+                            width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
+                            background: isOnline ? 'var(--noc-green)' : 'var(--noc-red)',
+                            boxShadow: isOnline ? '0 0 8px var(--noc-green)' : '0 0 8px var(--noc-red)',
+                          }} />
+                          <div style={{ flex: 1 }}>
+                            <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--noc-text)' }}>{name}</span>
+                            <span style={{ marginLeft: '0.75rem', color: 'var(--noc-muted)', fontSize: '0.8rem' }}>
+                              WAN: {wanIp}{fw ? ` · FW ${fw}` : ''}
+                            </span>
+                            {host.synthops_client_name && (
+                              <span style={{ marginLeft: '0.75rem', color: 'var(--noc-green)', fontSize: '0.8rem' }}>
+                                {host.synthops_client_name}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ color: 'var(--noc-muted)', fontSize: '0.8rem' }}>
+                            {hostDevices.length} device{hostDevices.length !== 1 ? 's' : ''}
+                          </div>
+                          <div style={{
+                            padding: '0.2rem 0.75rem', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 700,
+                            background: isOnline ? 'rgba(0,255,150,0.15)' : 'rgba(255,60,60,0.2)',
+                            color: isOnline ? 'var(--noc-green)' : 'var(--noc-red)',
+                          }}>
+                            {isOnline ? 'ONLINE' : 'OFFLINE'}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ marginTop: '1rem', color: 'var(--noc-muted)', fontSize: '0.75rem', textAlign: 'right' }}>
+                    Last sync: {new Date(unifiStatus.synced_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
 
