@@ -341,18 +341,19 @@ export default function UniFiDashboard() {
             const offDev    = counts.offlineDevice || 0;
             const hasIssue  = offDev > 0;
             // Auto-expand sites with offline devices; user can still toggle
-            const isExp     = expanded[site.siteId] !== undefined
-                                ? expanded[site.siteId]
-                                : hasIssue;
             const hostName  = hostNames[site.hostId] || site.hostId || '—';
             const siteDevices = devicesByHost[site.hostId] || [];
-            // For sites with offline devices, highlight the offline ones at top
-            const sortedDevices = hasIssue
-              ? [...siteDevices].sort((a, b) => {
-                  const aOn = a.status === 'online' ? 1 : 0;
-                  const bOn = b.status === 'online' ? 1 : 0;
-                  return aOn - bOn;
-                })
+            // Only show the device table if this host has exactly one site —
+            // i.e. UDM Pros (Linskill, Tilia). The self-hosted controller hosts
+            // all 28 sites so its device list is not per-site — showing the
+            // same 24 devices under every site would be misleading.
+            const sitesOnThisHost = sites.filter(s => s.hostId === site.hostId).length;
+            const showDevices = sitesOnThisHost === 1 && siteDevices.length > 0;
+            const isExp = expanded[site.siteId] !== undefined
+              ? expanded[site.siteId]
+              : (hasIssue && showDevices);
+            const sortedDevices = showDevices && hasIssue
+              ? [...siteDevices].sort((a, b) => (a.status === 'online' ? 1 : 0) - (b.status === 'online' ? 1 : 0))
               : siteDevices;
 
             return (
@@ -385,7 +386,7 @@ export default function UniFiDashboard() {
                         <StatPill label="Clients" value={(counts.wifiClient || 0) + (counts.wiredClient || 0)} />
                         <StatPill label="APs" value={counts.wifiDevice || 0} />
                       </div>
-                      {siteDevices.length > 0 && (
+                      {showDevices && (
                         <Button
                           variant="ghost" size="sm"
                           onClick={() => setExpanded(e => ({ ...e, [site.siteId]: !isExp }))}
@@ -401,7 +402,7 @@ export default function UniFiDashboard() {
                   </div>
                 </CardHeader>
 
-                {isExp && siteDevices.length > 0 && (
+                {isExp && showDevices && (
                   <CardContent className="pt-0">
                     <Table>
                       <TableHeader>
