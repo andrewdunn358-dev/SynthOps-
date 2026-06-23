@@ -5670,6 +5670,189 @@ async def debug_infrastructure_device(device_id: str, user: dict = Depends(get_c
     return debug_info
 
 
+# ==================== UNIFI SITE MANAGER INTEGRATION ====================
+#
+# Polls api.ui.com every 5 minutes, caches results to `unifi_cache` in Mongo,
+# raises/resolves auto-incidents when a host goes offline/online.
+# Auth: X-API-KEY header, read-only key from UNIFI_API_KEY env var.
+
+UNIFI_API_BASE = "https://api.ui.com/v1"
+
+async def _unifi_headers() -> dict:
+    key = os.environ.get("UNIFI_API_KEY", "")
+    if not key:
+        raise HTTPException(status_code=503, detail="UNIFI_API_KEY not configured")
+    return {"X-API-KEY": key, "Accept": "application/json"}
+
+async def scheduled_unifi_sync():
+    """Background task: poll UniFi Site Manager, cache results, raise/resolve incidents."""
+    key = os.environ.get("UNIFI_API_KEY", "")
+    if not key:
+        return
+
+    logger.info("UniFi sync: starting")
+    headers = {"X-API-KEY": key, "Accept": "application/json"}
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            # --- hosts (UDM Pros / gateways) ---
+            h_resp = await http.get(f"{UNIFI_API_BASE}/hosts", headers=headers)
+            if h_resp.status_code != 200:
+                logger.error(f"UniFi sync: hosts fetch failed {h_resp.status_code}")
+                return
+            hosts = h_resp.json().get("data", [])
+
+            # --- sites ---
+            s_resp = await http.get(f"{UNIFI_API_BASE}/sites", headers=headers)
+            sites = s_resp.json().get("data", []) if s_resp.status_code == 200 else []
+
+            # --- devices ---
+            d_resp = await http.get(f"{UNIFI_API_BASE}/devices", headers=headers)
+            devices = d_resp.json().get("data", []) if d_resp.status_code == 200 else []
+
+    except Exception as e:
+        logger.error(f"UniFi sync: HTTP error — {e}")
+        return
+
+    # Upsert everything to cache
+    await db.unifi_cache.update_one(
+        {"_type": "snapshot"},
+        {"$set": {
+            "_type": "snapshot",
+            "hosts": hosts,
+            "sites": sites,
+            "devices": devices,
+            "synced_at": now_iso,
+        }},
+        upsert=True,
+    )
+
+    # --- outage detection per host ---
+    # Load previous host statuses from the state collection
+    for host in hosts:
+        host_id   = host.get("id", "unknown")
+        host_name = host.get("reportedState", {}).get("hostname") or host.get("id", "unknown")
+        # UniFi reports "isOnline" as a bool on the host object
+        is_online = host.get("isOnline", True)
+        dedup_key = f"unifi:host:{host_id}:offline"
+
+        prev = await db.unifi_host_state.find_one({"host_id": host_id})
+        prev_online = prev.get("is_online", True) if prev else True
+
+        # Persist current state
+        await db.unifi_host_state.update_one(
+            {"host_id": host_id},
+            {"$set": {"host_id": host_id, "host_name": host_name,
+                      "is_online": is_online, "updated_at": now_iso}},
+            upsert=True,
+        )
+
+        # Look up SynthOps client linked to this host (by host_id or name)
+        mapping = await db.unifi_client_map.find_one({"host_id": host_id})
+        client_id   = mapping.get("client_id")   if mapping else None
+        client_name = mapping.get("client_name") if mapping else None
+
+        if not is_online and prev_online:
+            # Just went offline — raise incident
+            logger.warning(f"UniFi: host '{host_name}' went offline — raising incident")
+            await _raise_or_update_auto_incident(
+                source="unifi",
+                dedup_key=dedup_key,
+                title=f"Network outage: {host_name} is offline",
+                severity="critical",
+                client_id=client_id,
+                client_name=client_name,
+                description=(
+                    f"UniFi Site Manager reports that '{host_name}' has gone offline. "
+                    f"All switches and APs at this site will be unreachable. "
+                    f"Detected at {now_iso}."
+                ),
+            )
+        elif is_online and not prev_online:
+            # Just came back — auto-resolve
+            logger.info(f"UniFi: host '{host_name}' is back online — resolving incident")
+            await _auto_resolve_incident_by_dedup_key(
+                dedup_key=dedup_key,
+                reason=f"UniFi Site Manager reports '{host_name}' is back online.",
+            )
+
+    logger.info(f"UniFi sync: complete — {len(hosts)} hosts, {len(devices)} devices")
+
+
+@api_router.get("/integrations/unifi/status")
+async def get_unifi_status(user: dict = Depends(get_current_user)):
+    """Return the latest cached UniFi snapshot + per-host online state."""
+    snap = await db.unifi_cache.find_one({"_type": "snapshot"}, {"_id": 0})
+    if not snap:
+        return {"synced_at": None, "hosts": [], "sites": [], "devices": []}
+
+    # Merge in the state (is_online, host_name) for each host
+    host_states = {s["host_id"]: s async for s in db.unifi_host_state.find({}, {"_id": 0})}
+
+    # Attach state to each host record for easy frontend consumption
+    enriched_hosts = []
+    for h in snap.get("hosts", []):
+        hid = h.get("id")
+        state = host_states.get(hid, {})
+        mapping = await db.unifi_client_map.find_one({"host_id": hid}, {"_id": 0}) or {}
+        enriched_hosts.append({
+            **h,
+            "is_online": h.get("isOnline", state.get("is_online", True)),
+            "synthops_client_id":   mapping.get("client_id"),
+            "synthops_client_name": mapping.get("client_name"),
+        })
+
+    return {
+        "synced_at":  snap.get("synced_at"),
+        "hosts":      enriched_hosts,
+        "sites":      snap.get("sites", []),
+        "devices":    snap.get("devices", []),
+    }
+
+
+@api_router.get("/integrations/unifi/devices")
+async def get_unifi_devices(user: dict = Depends(get_current_user)):
+    """Return cached device list (switches, APs) with type + status."""
+    snap = await db.unifi_cache.find_one({"_type": "snapshot"}, {"_id": 0})
+    if not snap:
+        return []
+    return snap.get("devices", [])
+
+
+@api_router.post("/integrations/unifi/sync")
+async def trigger_unifi_sync(user: dict = Depends(require_admin)):
+    """Admin: force an immediate UniFi sync (bypasses the 5-min scheduler)."""
+    await scheduled_unifi_sync()
+    snap = await db.unifi_cache.find_one({"_type": "snapshot"}, {"_id": 0})
+    return {"ok": True, "synced_at": snap.get("synced_at") if snap else None}
+
+
+@api_router.post("/integrations/unifi/map")
+async def set_unifi_client_mapping(
+    payload: dict,
+    user: dict = Depends(require_admin),
+):
+    """Admin: link a UniFi host_id to a SynthOps client_id.
+    Body: { host_id, client_id }
+    Looks up client name automatically."""
+    host_id   = payload.get("host_id")
+    client_id = payload.get("client_id")
+    if not host_id or not client_id:
+        raise HTTPException(status_code=400, detail="host_id and client_id required")
+    client = await db.clients.find_one({"id": client_id}, {"name": 1})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    await db.unifi_client_map.update_one(
+        {"host_id": host_id},
+        {"$set": {"host_id": host_id, "client_id": client_id,
+                  "client_name": client["name"],
+                  "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"ok": True, "host_id": host_id, "client_name": client["name"]}
+
+
 # ==================== MESHCENTRAL INTEGRATION ====================
 
 @api_router.get("/config/meshcentral")
@@ -9637,6 +9820,17 @@ async def start_scheduler():
         # No on-startup sync — that triggered a full hammering of the 20i API
         # on every container restart. Use POST /api/integrations/20i/sync to
         # force a fresh sync after deploy if needed.
+
+    # Add UniFi Site Manager sync — every 5 minutes
+    if os.environ.get("UNIFI_API_KEY"):
+        scheduler.add_job(
+            scheduled_unifi_sync,
+            IntervalTrigger(minutes=5),
+            id="unifi_sync",
+            replace_existing=True,
+            max_instances=1,
+        )
+        logger.info("UniFi sync job scheduled (every 5 minutes)")
 
     scheduler.start()
     logger.info("Scheduler started successfully")

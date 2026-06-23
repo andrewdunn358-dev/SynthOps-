@@ -31,6 +31,7 @@ import SupportChanges from './pages/SupportChanges';
 import SupportCount from './pages/SupportCount';
 import SupportMappings from './pages/SupportMappings';
 import Worksheets from './pages/Worksheets';
+import UniFiDashboard from './pages/UniFiDashboard';
 import WorksheetEditor from './pages/WorksheetEditor';
 
 // Components
@@ -215,6 +216,7 @@ function App() {
               <Route path="settings" element={<Settings />} />
               <Route path="admin" element={<Admin />} />
               <Route path="infrastructure" element={<Infrastructure />} />
+              <Route path="unifi" element={<UniFiDashboard />} />
               <Route path="stock" element={<Stock />} />
               <Route path="backups" element={<Backups />} />
               <Route path="support/changes" element={<SupportChanges />} />

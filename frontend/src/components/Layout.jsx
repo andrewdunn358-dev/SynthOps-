@@ -6,7 +6,7 @@ import {
   AlertTriangle, Wrench, FileText, Clock, Users, Settings, 
   Shield, LogOut, Menu, X, Sun, Moon, ChevronLeft,
   BarChart3, KeyRound, ExternalLink, Monitor, ShieldCheck, Network,
-  Package, HardDrive, ClipboardList, Table2, Link2, ClipboardCheck
+  Package, HardDrive, ClipboardList, Table2, Link2, ClipboardCheck, Wifi
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
@@ -24,6 +24,7 @@ const navItems = [
   { path: '/clients', icon: Building2, label: 'Clients' },
   { path: '/servers', icon: Server, label: 'Servers' },
   { path: '/infrastructure', icon: Network, label: 'Infrastructure' },
+  { path: '/unifi', icon: Wifi, label: 'UniFi' },
   { path: '/stock', icon: Package, label: 'Stock & Assets' },
   // Hidden 2026-05-01 — focus pass. Worksheets (coming) will cover the
   // billable-job workflow that Tasks was attempting. Projects kept hidden
