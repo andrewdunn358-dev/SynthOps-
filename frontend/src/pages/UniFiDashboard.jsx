@@ -30,19 +30,40 @@ function DeviceIcon({ type }) {
 }
 
 function deviceType(d) {
-  const m = (d.model || d.productLine || '').toLowerCase();
-  if (m.includes('switch') || m.includes('usw')) return 'Switch';
-  if (m.includes('ap') || m.includes('uap') || m.includes('u6') || m.includes('wifi')) return 'Access Point';
-  return d.productLine || 'Device';
+  const model     = (d.model || '').toLowerCase();
+  const shortname = (d.shortname || '').toLowerCase();
+  const line      = (d.productLine || '').toLowerCase();
+  if (shortname.startsWith('usw') || model.includes('switch')) return 'Switch';
+  if (
+    shortname.startsWith('uap') || shortname.startsWith('u6') ||
+    shortname.startsWith('u7') || shortname.startsWith('bew') ||
+    model.includes('ap') || model.includes('wifi') ||
+    model.match(/^u\d/) // U6, U7, etc.
+  ) return 'Access Point';
+  if (d.isConsole) return 'Gateway';
+  return line || 'Device';
 }
 
-function fmtUptime(seconds) {
-  if (!seconds) return '—';
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
+function fmtUptime(d) {
+  // Real API returns startupTime as ISO string, not seconds
+  const t = d.startupTime || d.uptime;
+  if (!t) return '—';
+  if (typeof t === 'number') {
+    const days = Math.floor(t / 86400);
+    const h    = Math.floor((t % 86400) / 3600);
+    const m    = Math.floor((t % 3600) / 60);
+    if (days > 0) return `${days}d ${h}h`;
+    if (h > 0)    return `${h}h ${m}m`;
+    return `${m}m`;
+  }
+  // ISO string — calculate elapsed
+  const secs = Math.floor((Date.now() - new Date(t).getTime()) / 1000);
+  if (secs < 0) return '—';
+  const days = Math.floor(secs / 86400);
+  const h    = Math.floor((secs % 86400) / 3600);
+  const m    = Math.floor((secs % 3600) / 60);
+  if (days > 0) return `${days}d ${h}h`;
+  if (h > 0)    return `${h}h ${m}m`;
   return `${m}m`;
 }
 
@@ -321,8 +342,7 @@ export default function UniFiDashboard() {
                     </TableHeader>
                     <TableBody>
                       {hostDevices.map((d, idx) => {
-                        const dOnline = d.state === 1 || d.status === 'online' ||
-                                        d.isOnline === true;
+                        const dOnline = d.status === 'online' || d.state === 1 || d.isOnline === true;
                         return (
                           <TableRow key={d.id || d.mac || idx}>
                             <TableCell className="font-medium flex items-center gap-2">
@@ -342,7 +362,7 @@ export default function UniFiDashboard() {
                               <OnlineBadge online={dOnline} />
                             </TableCell>
                             <TableCell className="text-sm text-muted-foreground">
-                              {fmtUptime(d.uptime)}
+                              {fmtUptime(d)}
                             </TableCell>
                           </TableRow>
                         );

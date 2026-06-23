@@ -659,12 +659,12 @@ export default function Dashboard() {
         const offlineHosts = hosts.filter(h => !h.is_online);
         const hasOutage    = offlineHosts.length > 0;
         const switches = devices.filter(d => {
-          const m = (d.model || d.productLine || '').toLowerCase();
-          return m.includes('switch') || m.includes('usw');
+          const s = (d.shortname || d.model || '').toLowerCase();
+          return s.startsWith('usw') || s.includes('switch');
         });
         const aps = devices.filter(d => {
-          const m = (d.model || d.productLine || '').toLowerCase();
-          return m.includes('ap') || m.includes('uap') || m.includes('u6') || m.includes('wifi');
+          const s = (d.shortname || d.model || '').toLowerCase();
+          return s.startsWith('uap') || s.startsWith('u6') || s.startsWith('u7') || s.match(/^u\d/) || s.includes('ap');
         });
         return (
           <Card className={`border-l-4 ${hasOutage ? 'border-l-red-500 bg-red-500/5' : 'border-l-cyan-500'}`}>

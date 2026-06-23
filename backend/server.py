@@ -5708,8 +5708,17 @@ async def scheduled_unifi_sync():
             sites = s_resp.json().get("data", []) if s_resp.status_code == 200 else []
 
             # --- devices ---
+            # The Site Manager /v1/devices response is a list of host-wrapper
+            # objects, each containing { hostId, hostName, devices: [...] }.
+            # Flatten these into a single list of device objects, tagging each
+            # with its hostId so the frontend can group them per gateway.
             d_resp = await http.get(f"{UNIFI_API_BASE}/devices", headers=headers)
-            devices = d_resp.json().get("data", []) if d_resp.status_code == 200 else []
+            raw_device_wrappers = d_resp.json().get("data", []) if d_resp.status_code == 200 else []
+            devices = []
+            for wrapper in raw_device_wrappers:
+                host_id_tag = wrapper.get("hostId", "")
+                for dev in wrapper.get("devices", []):
+                    devices.append({**dev, "hostId": host_id_tag})
 
     except Exception as e:
         logger.error(f"UniFi sync: HTTP error — {e}")

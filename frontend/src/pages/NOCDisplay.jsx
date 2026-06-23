@@ -405,12 +405,12 @@ export default function NOCDisplay() {
               const devices = unifiStatus.devices || [];
               const offlineHosts = hosts.filter(h => !h.is_online);
               const switches = devices.filter(d => {
-                const m = (d.model || d.productLine || '').toLowerCase();
-                return m.includes('switch') || m.includes('usw');
+                const s = (d.shortname || d.model || '').toLowerCase();
+                return s.startsWith('usw') || s.includes('switch');
               });
               const aps = devices.filter(d => {
-                const m = (d.model || d.productLine || '').toLowerCase();
-                return m.includes('ap') || m.includes('uap') || m.includes('u6') || m.includes('wifi');
+                const s = (d.shortname || d.model || '').toLowerCase();
+                return s.startsWith('uap') || s.startsWith('u6') || s.startsWith('u7') || s.match(/^u\d/) || s.includes('ap');
               });
               return (
                 <>
