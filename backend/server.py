@@ -5785,6 +5785,23 @@ async def scheduled_unifi_sync():
     logger.info(f"UniFi sync: complete — {len(hosts)} hosts, {len(devices)} devices")
 
 
+@api_router.get("/integrations/unifi/raw-cache")
+async def get_unifi_raw_cache(user: dict = Depends(require_admin)):
+    """Admin: return the raw cached UniFi API response for debugging field names."""
+    snap = await db.unifi_cache.find_one({"_type": "snapshot"}, {"_id": 0})
+    if not snap:
+        return {"error": "No cache yet — run a sync first"}
+    # Return just the first host and first device so the payload is readable
+    return {
+        "synced_at": snap.get("synced_at"),
+        "host_count": len(snap.get("hosts", [])),
+        "device_count": len(snap.get("devices", [])),
+        "first_host": snap.get("hosts", [None])[0],
+        "first_device": snap.get("devices", [None])[0],
+        "all_device_keys": [list(d.keys()) for d in snap.get("devices", [])],
+    }
+
+
 @api_router.get("/integrations/unifi/status")
 async def get_unifi_status(user: dict = Depends(get_current_user)):
     """Return the latest cached UniFi snapshot + per-host online state."""
