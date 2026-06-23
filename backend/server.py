@@ -5768,8 +5768,9 @@ async def scheduled_unifi_sync():
         client_name = mapping.get("client_name") if mapping else None
 
         if not is_online and prev_online:
-            # Just went offline — raise incident
             logger.warning(f"UniFi: host '{host_name}' went offline — raising incident")
+            # Short hex IDs (12 chars) are the self-hosted controller — flag differently
+            is_controller = len(host_name) == 12 and all(c in "0123456789abcdefABCDEF" for c in host_name)
             await _raise_or_update_auto_incident(
                 source="unifi",
                 dedup_key=dedup_key,
@@ -5779,19 +5780,71 @@ async def scheduled_unifi_sync():
                 client_name=client_name,
                 description=(
                     f"UniFi Site Manager reports that '{host_name}' has gone offline. "
-                    f"All switches and APs at this site will be unreachable. "
-                    f"Detected at {now_iso}."
+                    + (f"This is the self-hosted UniFi controller — ALL managed client sites will be affected. "
+                       if is_controller else
+                       f"All switches and APs at this site will be unreachable. ")
+                    + f"Detected at {now_iso}."
                 ),
             )
         elif is_online and not prev_online:
-            # Just came back — auto-resolve
             logger.info(f"UniFi: host '{host_name}' is back online — resolving incident")
             await _auto_resolve_incident_by_dedup_key(
                 dedup_key=dedup_key,
                 reason=f"UniFi Site Manager reports '{host_name}' is back online.",
             )
 
-    logger.info(f"UniFi sync: complete — {len(hosts)} hosts, {len(devices)} devices")
+    # --- site-level device offline detection ---
+    # The site statistics give us offlineDevice counts per site. Raise an
+    # incident when a site goes from 0 offline → >0, and resolve when it
+    # clears. This catches individual switch/AP failures within a site.
+    for site in sites:
+        site_id    = site.get("siteId", "")
+        site_name  = (site.get("meta") or {}).get("desc") or (site.get("meta") or {}).get("name") or site_id
+        counts     = (site.get("statistics") or {}).get("counts") or {}
+        offline_devices = counts.get("offlineDevice", 0)
+        total_devices   = counts.get("totalDevice", 0)
+        dedup_key  = f"unifi:site:{site_id}:devices_offline"
+
+        prev_site = await db.unifi_site_state.find_one({"site_id": site_id})
+        prev_offline = prev_site.get("offline_devices", 0) if prev_site else 0
+
+        await db.unifi_site_state.update_one(
+            {"site_id": site_id},
+            {"$set": {"site_id": site_id, "site_name": site_name,
+                      "offline_devices": offline_devices, "updated_at": now_iso}},
+            upsert=True,
+        )
+
+        # Try to match SynthOps client by site name (case-insensitive)
+        client = await db.clients.find_one(
+            {"name": {"$regex": f"^{site_name}$", "$options": "i"}}, {"id": 1, "name": 1}
+        )
+        site_client_id   = client.get("id")   if client else None
+        site_client_name = client.get("name") if client else site_name
+
+        if offline_devices > 0 and prev_offline == 0:
+            logger.warning(f"UniFi: site '{site_name}' has {offline_devices} device(s) offline")
+            await _raise_or_update_auto_incident(
+                source="unifi",
+                dedup_key=dedup_key,
+                title=f"Network devices offline: {site_name}",
+                severity="high",
+                client_id=site_client_id,
+                client_name=site_client_name,
+                description=(
+                    f"UniFi reports {offline_devices} of {total_devices} device(s) offline at '{site_name}'. "
+                    f"Affected devices may include switches or access points. "
+                    f"Detected at {now_iso}."
+                ),
+            )
+        elif offline_devices == 0 and prev_offline > 0:
+            logger.info(f"UniFi: site '{site_name}' devices back online — resolving")
+            await _auto_resolve_incident_by_dedup_key(
+                dedup_key=dedup_key,
+                reason=f"All devices at '{site_name}' are back online.",
+            )
+
+    logger.info(f"UniFi sync: complete — {len(hosts)} hosts, {len(sites)} sites, {len(devices)} devices")
 
 
 @api_router.get("/integrations/unifi/raw-cache")

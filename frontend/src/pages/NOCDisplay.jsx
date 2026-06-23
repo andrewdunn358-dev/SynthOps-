@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiClient } from '../App';
-import { Server, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield, Play, Pause, ChevronLeft, ChevronRight, ListTodo, HardDrive, XCircle, Bell, Globe, ShieldCheck } from 'lucide-react';
+import { Server, AlertTriangle, CheckCircle, Activity, Clock, Users, RefreshCw, ShieldAlert, Shield, Play, Pause, ChevronLeft, ChevronRight, ListTodo, HardDrive, XCircle, Bell, Globe, ShieldCheck, WifiOff } from 'lucide-react';
 
 const VIEWS = ['security', 'clients', 'servers', 'network', 'reminders', 'alerts'];
 const VIEW_LABELS = { security: 'Security', clients: 'Clients', servers: 'Servers', network: 'Network', reminders: 'Reminders', alerts: 'Alerts' };
@@ -640,6 +640,46 @@ export default function NOCDisplay() {
         {/* VIEW: Alerts */}
         {VIEWS[currentView] === 'alerts' && (
           <div className="noc-bottom-row">
+
+            {/* UniFi network outages — gateway or device level */}
+            {unifiStatus && (() => {
+              const offlineGateways = (unifiStatus.hosts || []).filter(h => !h.is_online);
+              const sitesWithIssues = (unifiStatus.sites || []).filter(s =>
+                (s.statistics?.counts?.offlineDevice || 0) > 0
+              );
+              if (offlineGateways.length === 0 && sitesWithIssues.length === 0) return null;
+              return (
+                <div className="noc-panel offline-panel">
+                  <h3 className="noc-panel-title critical">
+                    <WifiOff className="h-5 w-5" />
+                    Network Issues
+                  </h3>
+                  <div className="noc-panel-content">
+                    {offlineGateways.map(h => {
+                      const name = h.reportedState?.hostname || h.userData?.name || h.id;
+                      return (
+                        <div key={h.id} className="noc-alert-item">
+                          <WifiOff className="h-4 w-4 text-red-400" />
+                          <span className="noc-alert-hostname">{name}</span>
+                          <span className="noc-alert-client">GATEWAY OFFLINE</span>
+                        </div>
+                      );
+                    })}
+                    {sitesWithIssues.map(s => {
+                      const name = s.meta?.desc || s.meta?.name || s.siteId;
+                      const count = s.statistics?.counts?.offlineDevice || 0;
+                      return (
+                        <div key={s.siteId} className="noc-alert-item">
+                          <AlertTriangle className="h-4 w-4 text-amber-400" />
+                          <span className="noc-alert-hostname">{name}</span>
+                          <span className="noc-alert-client">{count} device{count !== 1 ? 's' : ''} offline</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
             {offlineServers.length > 0 && (
               <div className="noc-panel offline-panel">
                 <h3 className="noc-panel-title critical">
@@ -676,7 +716,11 @@ export default function NOCDisplay() {
               </div>
             )}
 
-            {offlineServers.length === 0 && incidents.length === 0 && (
+            {offlineServers.length === 0 && incidents.length === 0 &&
+             !(unifiStatus && (
+               (unifiStatus.hosts || []).some(h => !h.is_online) ||
+               (unifiStatus.sites || []).some(s => (s.statistics?.counts?.offlineDevice || 0) > 0)
+             )) && (
               <div className="noc-all-clear">
                 <CheckCircle className="h-24 w-24" />
                 <span>All Systems Operational</span>
