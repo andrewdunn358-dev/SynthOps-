@@ -9,7 +9,7 @@ import { Progress } from '../components/ui/progress';
 import { 
   Building2, Server, ListTodo, FolderKanban, AlertTriangle, 
   Activity, ArrowRight, CheckCircle, Clock, AlertCircle,
-  RefreshCw, Wrench, WifiOff, X, Bell, Shield, ShieldAlert,
+  RefreshCw, Wrench, WifiOff, Wifi, Router, X, Bell, Shield, ShieldAlert,
   Network, HardDrive, Monitor, Container, Cpu, MemoryStick, Calendar, Lightbulb, XCircle
 } from 'lucide-react';
 
@@ -33,6 +33,7 @@ export default function Dashboard() {
   const [upcomingTasks, setUpcomingTasks] = useState([]);
   const [techTip, setTechTip] = useState(null);
   const [backupStats, setBackupStats] = useState(null);
+  const [unifiStatus, setUnifiStatus] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -92,6 +93,14 @@ export default function Dashboard() {
         setBackupStats(backupRes.data);
       } catch (e) {
         // Backup stats not available
+      }
+
+      // Get UniFi network status
+      try {
+        const unifiRes = await apiClient.get('/integrations/unifi/status');
+        if (unifiRes.data?.synced_at) setUnifiStatus(unifiRes.data);
+      } catch (e) {
+        // UniFi not configured
       }
     } catch (error) {
       console.error('Dashboard fetch error:', error);
@@ -642,6 +651,93 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       )}
+
+      {/* UniFi Network Status — only shown once synced */}
+      {unifiStatus && (() => {
+        const hosts   = unifiStatus.hosts   || [];
+        const devices = unifiStatus.devices || [];
+        const offlineHosts = hosts.filter(h => !h.is_online);
+        const hasOutage    = offlineHosts.length > 0;
+        const switches = devices.filter(d => {
+          const m = (d.model || d.productLine || '').toLowerCase();
+          return m.includes('switch') || m.includes('usw');
+        });
+        const aps = devices.filter(d => {
+          const m = (d.model || d.productLine || '').toLowerCase();
+          return m.includes('ap') || m.includes('uap') || m.includes('u6') || m.includes('wifi');
+        });
+        return (
+          <Card className={`border-l-4 ${hasOutage ? 'border-l-red-500 bg-red-500/5' : 'border-l-cyan-500'}`}>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Wifi className={`h-5 w-5 ${hasOutage ? 'text-red-400' : 'text-cyan-400'}`} />
+                  UniFi Network
+                  {hasOutage && (
+                    <Badge className="bg-red-500/20 text-red-400 ml-1">
+                      <WifiOff className="h-3 w-3 mr-1" />
+                      Outage Detected
+                    </Badge>
+                  )}
+                </CardTitle>
+                <Button variant="ghost" size="sm" onClick={() => navigate('/unifi')}>
+                  View Details <ArrowRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-3 bg-muted rounded-lg text-center">
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <Router className={`h-4 w-4 ${hasOutage ? 'text-red-400' : 'text-cyan-400'}`} />
+                    <span className="text-xs text-muted-foreground">Gateways</span>
+                  </div>
+                  <p className="text-xl font-bold">
+                    <span className={hasOutage ? 'text-red-400' : 'text-emerald-400'}>
+                      {hosts.length - offlineHosts.length}
+                    </span>
+                    <span className="text-muted-foreground mx-1">/</span>
+                    <span>{hosts.length}</span>
+                  </p>
+                </div>
+                <div className="p-3 bg-muted rounded-lg text-center">
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <Network className="h-4 w-4 text-blue-400" />
+                    <span className="text-xs text-muted-foreground">Switches</span>
+                  </div>
+                  <p className="text-xl font-bold">{switches.length}</p>
+                </div>
+                <div className="p-3 bg-muted rounded-lg text-center">
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <Wifi className="h-4 w-4 text-purple-400" />
+                    <span className="text-xs text-muted-foreground">Access Points</span>
+                  </div>
+                  <p className="text-xl font-bold">{aps.length}</p>
+                </div>
+                <div className="p-3 bg-muted rounded-lg text-center">
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <Activity className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">Total Devices</span>
+                  </div>
+                  <p className="text-xl font-bold">{devices.length}</p>
+                </div>
+              </div>
+              {hasOutage && (
+                <div className="mt-3 pt-3 border-t border-border">
+                  <div className="flex flex-wrap gap-2">
+                    {offlineHosts.map(h => (
+                      <Badge key={h.id} className="bg-red-500/20 text-red-400">
+                        <WifiOff className="h-3 w-3 mr-1" />
+                        {h.reportedState?.hostname || h.id} offline
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Backup Status Row */}
       {backupStats && backupStats.total_this_month > 0 && (
