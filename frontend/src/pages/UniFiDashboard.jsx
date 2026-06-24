@@ -343,12 +343,14 @@ export default function UniFiDashboard() {
             // Auto-expand sites with offline devices; user can still toggle
             const hostName  = hostNames[site.hostId] || site.hostId || '—';
             const siteDevices = devicesByHost[site.hostId] || [];
-            // Only show the device table if this host has exactly one site —
-            // i.e. UDM Pros (Linskill, Tilia). The self-hosted controller hosts
-            // all 28 sites so its device list is not per-site — showing the
-            // same 24 devices under every site would be misleading.
-            const sitesOnThisHost = sites.filter(s => s.hostId === site.hostId).length;
-            const showDevices = sitesOnThisHost === 1 && siteDevices.length > 0;
+            // Show the device table only when the cached device list is a
+            // plausible match for this site — i.e. the device count in the
+            // stats is close to the number of cached devices for this host.
+            // This excludes shared-controller sites (28 sites, 24 devices each)
+            // while correctly showing single-site UDM Pros like Linskill/Tilia.
+            const statsDeviceCount = counts.totalDevice || 0;
+            const showDevices = siteDevices.length > 0 &&
+              (statsDeviceCount === 0 || Math.abs(siteDevices.length - statsDeviceCount) <= 3);
             const isExp = expanded[site.siteId] !== undefined
               ? expanded[site.siteId]
               : (hasIssue && showDevices);
