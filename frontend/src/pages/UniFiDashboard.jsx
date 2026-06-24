@@ -161,40 +161,57 @@ export default function UniFiDashboard() {
   const devices = status?.devices || [];
 
   // The /v1/hosts endpoint uses short hex IDs (e.g. "d3db381a87d4") but
-  // /v1/sites and /v1/devices use long composite hostIds that start with the
-  // MAC address bytes. Build a lookup both ways so we can match them.
-  // Long hostId format: "9C05D648C015...:1234567890" — the MAC is the first
-  // 12 hex chars, which matches the short host id.
-  const longToShortHost = {};
-  const shortToLongHost = {};
+  // /v1/sites and /v1/devices use long composite hostIds.
+  // Long hostId format: "9C05D648C015...:1234567890" — the first 12 hex chars
+  // match the short host id (MAC address without colons).
+  const shortToLongHost = {};  // shortId -> longHostId
+  const longToShortHost = {};  // longHostId -> shortId
   hosts.forEach(h => {
-    const shortId = h.id || '';
-    // Find a site whose hostId starts with the short id (case-insensitive)
-    const matchingSite = sites.find(s =>
-      (s.hostId || '').toLowerCase().replace(/:/g, '').startsWith(shortId.toLowerCase())
+    const shortId = (h.id || '').toLowerCase();
+    const match = sites.find(s =>
+      (s.hostId || '').toLowerCase().replace(/[^0-9a-f]/g, '').startsWith(shortId)
     );
-    if (matchingSite) {
-      longToShortHost[matchingSite.hostId] = shortId;
-      shortToLongHost[shortId] = matchingSite.hostId;
+    if (match) {
+      shortToLongHost[shortId] = match.hostId;
+      longToShortHost[match.hostId] = shortId;
     }
   });
 
-  // Build hostId -> display name using the short IDs from hosts
+  // Build hostId -> display name (handles both short and long ID formats)
   const hostNames = {};
   hosts.forEach(h => {
     const rs = h.reportedState || {};
-    const name = rs.hostname || h.userData?.name || h.id;
-    const longId = shortToLongHost[h.id];
+    const isHexId = /^[0-9a-f]{12}$/i.test(h.id || '');
+    const name = rs.hostname || h.userData?.name || (isHexId ? 'UniFi Network Server' : h.id);
     hostNames[h.id] = name;
+    const longId = shortToLongHost[(h.id || '').toLowerCase()];
     if (longId) hostNames[longId] = name;
   });
 
+  // Build a set of long hostIds that are UDM Pros (standalone, not shared
+  // controllers). A UDM Pro hosts its own devices directly — the devices API
+  // wrapper hostId will match. We identify them by looking at how many unique
+  // hostIds appear in the devices list: each wrapper entry is one UDM Pro.
+  const udmProLongHostIds = new Set(Object.keys(
+    devices.reduce((acc, d) => { if (d.hostId) acc[d.hostId] = true; return acc; }, {})
+  ));
+  // Cross-reference with hosts to exclude shared controllers:
+  // a shared controller hosts many sites but its devices all carry one hostId.
+  // A UDM Pro typically hosts 1-2 sites. Flag a longHostId as "direct" only
+  // if it maps to a known host AND the site count on that host is ≤ 3.
+  const directHostIds = new Set();
+  udmProLongHostIds.forEach(longId => {
+    const sitesOnHost = sites.filter(s => s.hostId === longId).length;
+    if (sitesOnHost <= 3) directHostIds.add(longId);
+  });
+
   // Summary totals from site statistics
-  const totalSites    = sites.length;
-  const offlineSites  = sites.filter(s => !siteIsOnline(s)).length;
-  const totalDevices  = sites.reduce((n, s) => n + (s.statistics?.counts?.totalDevice || 0), 0);
+  const totalSites     = sites.length;
+  const offlineSites   = sites.filter(s => !siteIsOnline(s)).length;
+  const totalDevices   = sites.reduce((n, s) => n + (s.statistics?.counts?.totalDevice || 0), 0);
   const offlineDevices = sites.reduce((n, s) => n + (s.statistics?.counts?.offlineDevice || 0), 0);
-  const totalClients  = sites.reduce((n, s) => n + (s.statistics?.counts?.wifiClient || 0) + (s.statistics?.counts?.wiredClient || 0), 0);
+  const totalClients   = sites.reduce((n, s) =>
+    n + (s.statistics?.counts?.wifiClient || 0) + (s.statistics?.counts?.wiredClient || 0), 0);
 
   // Filter + sort: sites with issues float to the top
   const filteredSites = sites
@@ -204,13 +221,12 @@ export default function UniFiDashboard() {
       const bOff = b.statistics?.counts?.offlineDevice || 0;
       const aGw  = a.statistics?.counts?.offlineGatewayDevice || 0;
       const bGw  = b.statistics?.counts?.offlineGatewayDevice || 0;
-      // Gateway offline > device offline > all clear
       if (aGw !== bGw) return bGw - aGw;
       if (aOff !== bOff) return bOff - aOff;
       return siteName(a).localeCompare(siteName(b));
     });
 
-  // Group devices by hostId for the expanded device table
+  // Group devices by long hostId for the expanded device table
   const devicesByHost = {};
   devices.forEach(d => {
     const hid = d.hostId || 'unknown';
@@ -364,17 +380,13 @@ export default function UniFiDashboard() {
             const isp       = site.statistics?.ispInfo?.name || '';
             const offDev    = counts.offlineDevice || 0;
             const hasIssue  = offDev > 0;
-            // Auto-expand sites with offline devices; user can still toggle
-            const hostName  = hostNames[site.hostId] || site.hostId || '—';
+            const hostName    = hostNames[site.hostId] || site.hostId || '—';
             const siteDevices = devicesByHost[site.hostId] || [];
-            // Show the device table only when the cached device list is a
-            // plausible match for this site — i.e. the device count in the
-            // stats is close to the number of cached devices for this host.
-            // This excludes shared-controller sites (28 sites, 24 devices each)
-            // while correctly showing single-site UDM Pros like Linskill/Tilia.
-            const statsDeviceCount = counts.totalDevice || 0;
-            const showDevices = siteDevices.length > 0 &&
-              (statsDeviceCount === 0 || Math.abs(siteDevices.length - statsDeviceCount) <= 3);
+            // Only show device expand for sites whose hostId is in directHostIds
+            // (i.e. directly managed by a UDM Pro with ≤3 sites).
+            // Shared-controller sites all share one hostId so we can't assign
+            // devices per-site — no expand for those.
+            const showDevices = directHostIds.has(site.hostId) && siteDevices.length > 0;
             const isExp = expanded[site.siteId] !== undefined
               ? expanded[site.siteId]
               : (hasIssue && showDevices);
