@@ -160,11 +160,33 @@ export default function UniFiDashboard() {
   const sites   = status?.sites   || [];
   const devices = status?.devices || [];
 
-  // Build a hostId -> hostName lookup
+  // The /v1/hosts endpoint uses short hex IDs (e.g. "d3db381a87d4") but
+  // /v1/sites and /v1/devices use long composite hostIds that start with the
+  // MAC address bytes. Build a lookup both ways so we can match them.
+  // Long hostId format: "9C05D648C015...:1234567890" — the MAC is the first
+  // 12 hex chars, which matches the short host id.
+  const longToShortHost = {};
+  const shortToLongHost = {};
+  hosts.forEach(h => {
+    const shortId = h.id || '';
+    // Find a site whose hostId starts with the short id (case-insensitive)
+    const matchingSite = sites.find(s =>
+      (s.hostId || '').toLowerCase().replace(/:/g, '').startsWith(shortId.toLowerCase())
+    );
+    if (matchingSite) {
+      longToShortHost[matchingSite.hostId] = shortId;
+      shortToLongHost[shortId] = matchingSite.hostId;
+    }
+  });
+
+  // Build hostId -> display name using the short IDs from hosts
   const hostNames = {};
   hosts.forEach(h => {
     const rs = h.reportedState || {};
-    hostNames[h.id] = rs.hostname || h.userData?.name || h.id;
+    const name = rs.hostname || h.userData?.name || h.id;
+    const longId = shortToLongHost[h.id];
+    hostNames[h.id] = name;
+    if (longId) hostNames[longId] = name;
   });
 
   // Summary totals from site statistics
@@ -263,13 +285,15 @@ export default function UniFiDashboard() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
-              <Router className="w-4 h-4" /> Gateways (UDM Pros)
+              <Router className="w-4 h-4" /> Gateways &amp; Controllers
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {hosts.map(host => {
               const rs = host.reportedState || {};
-              const name = rs.hostname || host.userData?.name || host.id;
+              const isHexId = /^[0-9a-f]{12}$/i.test(host.id || '');
+              const name = rs.hostname || host.userData?.name ||
+                (isHexId ? 'UniFi Network Server' : host.id);
               const fw   = rs.version || rs.firmwareVersion || '';
               const wanRaw = rs.wan || {};
               const wanIp  = (typeof wanRaw === 'string' ? wanRaw : wanRaw?.ip || wanRaw?.extIp || '') || host.ipAddress || '—';
