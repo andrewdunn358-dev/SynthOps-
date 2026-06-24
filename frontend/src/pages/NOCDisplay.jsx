@@ -390,77 +390,145 @@ export default function NOCDisplay() {
         )}
 
         {VIEWS[currentView] === 'network' && (
-          <div className="noc-grid-container">
-            <h2 className="noc-section-title">
-              <Globe className="h-6 w-6" />
-              Network Status
-            </h2>
-            {!unifiStatus ? (
-              <div style={{ textAlign: 'center', color: 'var(--noc-muted)', paddingTop: '4rem' }}>
-                UniFi integration not configured
-              </div>
-            ) : (() => {
-              const hosts   = unifiStatus.hosts || [];
-              const sites   = unifiStatus.sites || [];
-              const offlineHosts = hosts.filter(h => !h.is_online);
-              const totalDevices   = sites.reduce((n, s) => n + (s.statistics?.counts?.totalDevice || 0), 0);
-              const offlineDevices = sites.reduce((n, s) => n + (s.statistics?.counts?.offlineDevice || 0), 0);
-              const totalClients   = sites.reduce((n, s) => n + (s.statistics?.counts?.wifiClient || 0) + (s.statistics?.counts?.wiredClient || 0), 0);
-              return (
-                <>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+          <div style={{ padding: '1.5rem', height: '100%', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* Header + summary */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h2 className="noc-section-title" style={{ margin: 0 }}>
+                <Globe className="h-6 w-6" /> Network Status
+              </h2>
+              {unifiStatus && (() => {
+                const sites = unifiStatus.sites || [];
+                const hosts = unifiStatus.hosts || [];
+                const totalDevices   = sites.reduce((n, s) => n + (s.statistics?.counts?.totalDevice || 0), 0);
+                const offlineDevices = sites.reduce((n, s) => n + (s.statistics?.counts?.offlineDevice || 0), 0);
+                const totalClients   = sites.reduce((n, s) => n + (s.statistics?.counts?.wifiClient || 0) + (s.statistics?.counts?.wiredClient || 0), 0);
+                const offlineHosts   = hosts.filter(h => !h.is_online).length;
+                return (
+                  <div style={{ display: 'flex', gap: '1.5rem' }}>
                     {[
-                      { label: 'SITES', value: sites.length, ok: true },
-                      { label: 'GATEWAYS', value: `${hosts.length - offlineHosts.length}/${hosts.length}`, ok: offlineHosts.length === 0 },
-                      { label: 'DEVICES', value: `${totalDevices - offlineDevices}/${totalDevices}`, ok: offlineDevices === 0 },
-                      { label: 'CLIENTS', value: totalClients, ok: true },
+                      { label: 'SITES',    value: sites.length,  ok: true },
+                      { label: 'GATEWAYS', value: `${hosts.length - offlineHosts}/${hosts.length}`, ok: offlineHosts === 0 },
+                      { label: 'DEVICES',  value: `${totalDevices - offlineDevices}/${totalDevices}`, ok: offlineDevices === 0 },
+                      { label: 'CLIENTS',  value: totalClients,  ok: true },
                     ].map(s => (
-                      <div key={s.label} className={`noc-stat ${s.ok ? 'ok' : 'offline'}`}>
-                        <span className="noc-stat-number" style={{ color: s.ok ? 'var(--noc-green)' : 'var(--noc-red)' }}>{s.value}</span>
-                        <span className="noc-stat-label">{s.label}</span>
+                      <div key={s.label} style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 700, color: s.ok ? 'var(--noc-green)' : 'var(--noc-red)' }}>{s.value}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--noc-muted)', letterSpacing: '0.08em' }}>{s.label}</div>
                       </div>
                     ))}
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {sites.map(site => {
-                      const name    = site.meta?.desc || site.meta?.name || site.siteId;
-                      const counts  = site.statistics?.counts || {};
-                      const wans    = site.statistics?.wans || {};
-                      const wanIp   = Object.values(wans)[0]?.externalIp || '—';
-                      const isp     = site.statistics?.ispInfo?.name || '';
-                      const isOnline = (counts.offlineGatewayDevice || 0) === 0;
-                      const hasIssue = (counts.offlineDevice || 0) > 0;
-                      return (
-                        <div key={site.siteId} style={{
-                          display: 'flex', alignItems: 'center', gap: '1rem',
-                          padding: '0.6rem 1rem', borderRadius: '6px',
-                          background: !isOnline ? 'rgba(255,60,60,0.1)' : hasIssue ? 'rgba(255,180,0,0.05)' : 'rgba(0,255,150,0.03)',
-                          border: `1px solid ${!isOnline ? 'rgba(255,60,60,0.4)' : hasIssue ? 'rgba(255,180,0,0.3)' : 'rgba(255,255,255,0.08)'}`,
-                        }}>
+                );
+              })()}
+            </div>
+
+            {!unifiStatus ? (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--noc-muted)' }}>
+                UniFi integration not configured
+              </div>
+            ) : (() => {
+              const sites = unifiStatus.sites || [];
+              const hostNames = {};
+              (unifiStatus.hosts || []).forEach(h => {
+                const rs = h.reportedState || {};
+                const isHex = /^[0-9a-f]{12}$/i.test(h.id || '');
+                const name = rs.hostname || h.userData?.name || (isHex ? null : h.id);
+                const match = sites.find(s => (s.hostId || '').toLowerCase().replace(/[^0-9a-f]/g, '').startsWith((h.id || '').toLowerCase()));
+                if (match && name) hostNames[match.hostId] = name;
+              });
+
+              const getName = s => {
+                const raw = s.meta?.desc || s.meta?.name || s.siteId;
+                if (raw.toLowerCase() === 'default') {
+                  const hn = hostNames[s.hostId];
+                  if (hn) return hn;
+                }
+                return raw;
+              };
+
+              const sorted = [...sites].sort((a, b) => {
+                const aGw  = a.statistics?.counts?.offlineGatewayDevice || 0;
+                const bGw  = b.statistics?.counts?.offlineGatewayDevice || 0;
+                const aOff = a.statistics?.counts?.offlineDevice || 0;
+                const bOff = b.statistics?.counts?.offlineDevice || 0;
+                if (aGw !== bGw) return bGw - aGw;
+                if (aOff !== bOff) return bOff - aOff;
+                return getName(a).localeCompare(getName(b));
+              });
+
+              return (
+                <div style={{
+                  flex: 1,
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                  gap: '0.6rem',
+                  alignContent: 'start',
+                  overflowY: 'auto',
+                }}>
+                  {sorted.map(site => {
+                    const name    = getName(site);
+                    const counts  = site.statistics?.counts || {};
+                    const offDev  = counts.offlineDevice || 0;
+                    const isOnline = (counts.offlineGatewayDevice || 0) === 0;
+                    const hasIssue = offDev > 0;
+                    const clients = (counts.wifiClient || 0) + (counts.wiredClient || 0);
+                    const wanIp   = Object.values(site.statistics?.wans || {})[0]?.externalIp || '';
+
+                    return (
+                      <div key={site.siteId} style={{
+                        borderRadius: '8px',
+                        padding: '0.65rem 0.75rem',
+                        background: !isOnline ? 'rgba(255,60,60,0.12)'
+                                  : hasIssue  ? 'rgba(245,158,11,0.10)'
+                                  :             'rgba(255,255,255,0.04)',
+                        border: `1px solid ${
+                          !isOnline ? 'rgba(255,60,60,0.5)'
+                        : hasIssue  ? 'rgba(245,158,11,0.45)'
+                        :             'rgba(255,255,255,0.08)'}`,
+                      }}>
+                        {/* Status dot + name */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                           <div style={{
-                            width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+                            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
                             background: !isOnline ? 'var(--noc-red)' : hasIssue ? '#f59e0b' : 'var(--noc-green)',
-                            boxShadow: `0 0 6px ${!isOnline ? 'var(--noc-red)' : hasIssue ? '#f59e0b' : 'var(--noc-green)'}`,
+                            boxShadow: `0 0 5px ${!isOnline ? 'var(--noc-red)' : hasIssue ? '#f59e0b' : 'var(--noc-green)'}`,
                           }} />
-                          <div style={{ flex: 1 }}>
-                            <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--noc-text)' }}>{name}</span>
-                            {wanIp !== '—' && <span style={{ marginLeft: '0.5rem', color: 'var(--noc-muted)', fontSize: '0.75rem' }}>{wanIp}</span>}
-                            {isp && <span style={{ marginLeft: '0.5rem', color: 'var(--noc-muted)', fontSize: '0.75rem' }}>· {isp}</span>}
-                          </div>
-                          <div style={{ color: 'var(--noc-muted)', fontSize: '0.75rem', textAlign: 'right' }}>
-                            {counts.totalDevice || 0} dev · {(counts.wifiClient || 0) + (counts.wiredClient || 0)} clients
-                            {hasIssue && <span style={{ color: '#f59e0b', marginLeft: '0.5rem' }}>⚠ {counts.offlineDevice} offline</span>}
-                          </div>
+                          <span style={{
+                            fontWeight: 600, fontSize: '0.8rem',
+                            color: 'var(--noc-text)',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}>{name}</span>
                         </div>
-                      );
-                    })}
-                  </div>
-                  <div style={{ marginTop: '0.75rem', color: 'var(--noc-muted)', fontSize: '0.7rem', textAlign: 'right' }}>
-                    Last sync: {new Date(unifiStatus.synced_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                </>
+
+                        {/* Stats row */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '0.25rem', textAlign: 'center' }}>
+                          {[
+                            { label: 'Dev',     value: counts.totalDevice || 0 },
+                            { label: 'Clients', value: clients },
+                            { label: 'Offline', value: offDev, warn: offDev > 0 },
+                          ].map(s => (
+                            <div key={s.label} style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '4px', padding: '0.2rem' }}>
+                              <div style={{ fontSize: '0.9rem', fontWeight: 700, color: s.warn && s.value > 0 ? '#f59e0b' : 'var(--noc-text)' }}>{s.value}</div>
+                              <div style={{ fontSize: '0.55rem', color: 'var(--noc-muted)', letterSpacing: '0.05em' }}>{s.label.toUpperCase()}</div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* WAN IP */}
+                        {wanIp && (
+                          <div style={{ fontSize: '0.6rem', color: 'var(--noc-muted)', marginTop: '0.35rem', fontFamily: 'monospace' }}>
+                            {wanIp}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               );
             })()}
+
+            <div style={{ fontSize: '0.65rem', color: 'var(--noc-muted)', textAlign: 'right' }}>
+              {unifiStatus ? `Synced ${new Date(unifiStatus.synced_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : ''}
+            </div>
           </div>
         )}
 
