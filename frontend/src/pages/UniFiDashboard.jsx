@@ -50,7 +50,16 @@ function DeviceIcon({ type, cls = 'w-4 h-4' }) {
   return <Router className={`${cls} text-muted-foreground`} />;
 }
 
-function siteName(s)  { return s.meta?.desc || s.meta?.name || s.siteId; }
+function siteName(s, hostNames) {
+  const raw = s.meta?.desc || s.meta?.name || s.siteId;
+  // "Default" is the auto-created site name on every UDM Pro — not useful.
+  // If the site is named "default" or "Default", use the host's name instead.
+  if (raw.toLowerCase() === 'default' && hostNames) {
+    const hostName = hostNames[s.hostId];
+    if (hostName && hostName !== 'UniFi Network Server') return hostName;
+  }
+  return raw;
+}
 function siteWanIp(s) {
   const w = Object.values(s.statistics?.wans || {})[0];
   return w?.externalIp || '—';
@@ -59,8 +68,8 @@ function siteIsOnline(s) { return (s.statistics?.counts?.offlineGatewayDevice ||
 
 // ── Site card (grid view) ──────────────────────────────────────────────────
 
-function SiteCard({ site, onClick }) {
-  const name    = siteName(site);
+function SiteCard({ site, onClick, nameFn }) {
+  const name    = nameFn(site);
   const online  = siteIsOnline(site);
   const counts  = site.statistics?.counts || {};
   const offDev  = counts.offlineDevice || 0;
@@ -125,8 +134,8 @@ function SiteCard({ site, onClick }) {
 // ── Site detail (drill-down) ───────────────────────────────────────────────
 
 function SiteDetail({ site, devices, onBack, synthClients, isAdmin,
-                      hostNames, directHostIds, onSaveMapping }) {
-  const name    = siteName(site);
+                      hostNames, directHostIds, onSaveMapping, nameFn }) {
+  const name    = nameFn(site);
   const online  = siteIsOnline(site);
   const counts  = site.statistics?.counts || {};
   const offDev  = counts.offlineDevice || 0;
@@ -375,7 +384,7 @@ export default function UniFiDashboard() {
 
   // Filter + sort
   const filtered = sites
-    .filter(s => siteName(s).toLowerCase().includes(search.toLowerCase()))
+    .filter(s => siteName(s, hostNames).toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
       const aGw = a.statistics?.counts?.offlineGatewayDevice || 0;
       const bGw = b.statistics?.counts?.offlineGatewayDevice || 0;
@@ -383,7 +392,7 @@ export default function UniFiDashboard() {
       const bOff = b.statistics?.counts?.offlineDevice || 0;
       if (aGw !== bGw) return bGw - aGw;
       if (aOff !== bOff) return bOff - aOff;
-      return siteName(a).localeCompare(siteName(b));
+      return siteName(a, hostNames).localeCompare(siteName(b, hostNames));
     });
 
   // Mapping UI renderer (used in detail view)
@@ -431,6 +440,7 @@ export default function UniFiDashboard() {
           hostNames={hostNames}
           directHostIds={directHostIds}
           onSaveMapping={mappingUI}
+          nameFn={s => siteName(s, hostNames)}
         />
       </div>
     );
@@ -489,6 +499,7 @@ export default function UniFiDashboard() {
             key={site.siteId}
             site={site}
             onClick={() => setSelectedSite(site)}
+            nameFn={s => siteName(s, hostNames)}
           />
         ))}
         {filtered.length === 0 && (
