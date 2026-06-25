@@ -5714,13 +5714,17 @@ async def scheduled_unifi_sync():
                 sid = s.get("siteId")
                 if not sid or sid in seen_site_ids:
                     continue
-                # Skip sites with no usable name — these are ghost/deleted sites
-                # that UniFi hasn't fully purged from the API yet
                 meta = s.get("meta") or {}
                 desc = (meta.get("desc") or "").strip()
                 name = (meta.get("name") or "").strip()
+                # Skip ghost/deleted sites — either no name at all, or the
+                # desc/name is just the raw siteId (UniFi auto-assigns the ID
+                # as the name when a site is partially deleted)
                 if not desc and not name:
                     logger.warning(f"UniFi sync: skipping nameless site {sid}")
+                    continue
+                if desc == sid or name == sid:
+                    logger.warning(f"UniFi sync: skipping ghost site {sid} (name=id)")
                     continue
                 seen_site_ids.add(sid)
                 sites.append(s)
