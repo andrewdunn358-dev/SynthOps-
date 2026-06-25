@@ -5712,9 +5712,18 @@ async def scheduled_unifi_sync():
             sites = []
             for s in raw_sites:
                 sid = s.get("siteId")
-                if sid and sid not in seen_site_ids:
-                    seen_site_ids.add(sid)
-                    sites.append(s)
+                if not sid or sid in seen_site_ids:
+                    continue
+                # Skip sites with no usable name — these are ghost/deleted sites
+                # that UniFi hasn't fully purged from the API yet
+                meta = s.get("meta") or {}
+                desc = (meta.get("desc") or "").strip()
+                name = (meta.get("name") or "").strip()
+                if not desc and not name:
+                    logger.warning(f"UniFi sync: skipping nameless site {sid}")
+                    continue
+                seen_site_ids.add(sid)
+                sites.append(s)
 
             # --- devices ---
             # The Site Manager /v1/devices response is a list of host-wrapper
