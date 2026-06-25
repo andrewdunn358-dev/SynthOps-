@@ -383,15 +383,17 @@ export default function UniFiDashboard() {
     hostNames[h.id] = name;
   });
 
-  // directHostIds: long hostIds with ≤3 sites (UDM Pros, not shared controller)
+  // directHostIds: only long hostIds that correspond to a known UDM Pro host.
+  // We match by checking if the long hostId starts with the short host id (MAC).
+  // This is definitive — shared controller sites have a hostId that maps to
+  // the controller host, UDM Pro sites map to the UDM Pro host.
   const devicesByHost = {};
   devices.forEach(d => {
     if (!devicesByHost[d.hostId]) devicesByHost[d.hostId] = [];
     devicesByHost[d.hostId].push(d);
   });
-  const directHostIds = new Set(
-    Object.keys(devicesByHost).filter(hid => sites.filter(s => s.hostId === hid).length <= 3)
-  );
+  // Build set of long hostIds that map to a known host via shortToLong
+  const directHostIds = new Set(Object.values(shortToLong));
 
   // Summary
   const totalDevices   = sites.reduce((n, s) => n + (s.statistics?.counts?.totalDevice || 0), 0);
