@@ -5710,9 +5710,11 @@ async def scheduled_unifi_sync():
             # that can see it). Deduplicate by siteId, keeping the first entry.
             seen_site_ids = set()
             sites = []
+            # Load the admin-managed blocklist of hidden sites
+            blocked = {doc["site_id"] async for doc in db.unifi_site_blocklist.find({}, {"site_id": 1})}
             for s in raw_sites:
                 sid = s.get("siteId")
-                if not sid or sid in seen_site_ids:
+                if not sid or sid in seen_site_ids or sid in blocked:
                     continue
                 meta = s.get("meta") or {}
                 desc = (meta.get("desc") or "").strip()
@@ -5932,6 +5934,24 @@ async def trigger_unifi_sync(user: dict = Depends(require_admin)):
     await scheduled_unifi_sync()
     snap = await db.unifi_cache.find_one({"_type": "snapshot"}, {"_id": 0})
     return {"ok": True, "synced_at": snap.get("synced_at") if snap else None}
+
+
+@api_router.delete("/integrations/unifi/sites/{site_id}")
+async def hide_unifi_site(site_id: str, user: dict = Depends(require_admin)):
+    """Admin: permanently hide a site from the UniFi dashboard (e.g. deleted
+    sites that the API hasn't purged yet). Stores the siteId in a blocklist
+    so it's filtered out on every future sync."""
+    await db.unifi_site_blocklist.update_one(
+        {"site_id": site_id},
+        {"$set": {"site_id": site_id, "hidden_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    # Also remove from current cache immediately
+    await db.unifi_cache.update_one(
+        {"_type": "snapshot"},
+        {"$pull": {"sites": {"siteId": site_id}}}
+    )
+    return {"ok": True, "site_id": site_id}
 
 
 @api_router.post("/integrations/unifi/map")

@@ -134,7 +134,7 @@ function SiteCard({ site, onClick, nameFn }) {
 // ── Site detail (drill-down) ───────────────────────────────────────────────
 
 function SiteDetail({ site, devices, onBack, synthClients, isAdmin,
-                      hostNames, directHostIds, onSaveMapping, nameFn }) {
+                      hostNames, directHostIds, onSaveMapping, nameFn, onHide }) {
   const name    = nameFn(site);
   const online  = siteIsOnline(site);
   const counts  = site.statistics?.counts || {};
@@ -281,6 +281,15 @@ function SiteDetail({ site, devices, onBack, synthClients, isAdmin,
             via {hostName} · Link this gateway to a SynthOps client to auto-assign incidents.
           </p>
           {onSaveMapping(site.hostId)}
+          <div className="mt-4 pt-4 border-t border-border">
+            <p className="text-xs text-muted-foreground mb-2">
+              If this site has been deleted in UniFi but keeps reappearing, hide it from SynthOps.
+            </p>
+            <Button variant="destructive" size="sm" className="text-xs h-7"
+              onClick={() => onHide(site.siteId)}>
+              Hide this site
+            </Button>
+          </div>
         </div>
       )}
     </div>
@@ -331,8 +340,16 @@ export default function UniFiDashboard() {
     finally { setSyncing(false); }
   };
 
+  const hideSite = async (siteId) => {
+    try {
+      await apiClient.delete(`/integrations/unifi/sites/${siteId}`);
+      toast.success('Site hidden — will not reappear after sync');
+      setSelectedSite(null);
+      await fetchStatus();
+    } catch { toast.error('Failed to hide site'); }
+  };
+
   const saveMapping = async (hostId, clientId) => {
-    if (!clientId || clientId === '__none__') return;
     try {
       await apiClient.post('/integrations/unifi/map', { host_id: hostId, client_id: clientId });
       toast.success('Mapping saved');
@@ -441,6 +458,7 @@ export default function UniFiDashboard() {
           directHostIds={directHostIds}
           onSaveMapping={mappingUI}
           nameFn={s => siteName(s, hostNames)}
+          onHide={hideSite}
         />
       </div>
     );
