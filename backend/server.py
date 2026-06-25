@@ -5705,7 +5705,16 @@ async def scheduled_unifi_sync():
 
             # --- sites ---
             s_resp = await http.get(f"{UNIFI_API_BASE}/sites", headers=headers)
-            sites = s_resp.json().get("data", []) if s_resp.status_code == 200 else []
+            raw_sites = s_resp.json().get("data", []) if s_resp.status_code == 200 else []
+            # The API may return the same site multiple times (once per host
+            # that can see it). Deduplicate by siteId, keeping the first entry.
+            seen_site_ids = set()
+            sites = []
+            for s in raw_sites:
+                sid = s.get("siteId")
+                if sid and sid not in seen_site_ids:
+                    seen_site_ids.add(sid)
+                    sites.append(s)
 
             # --- devices ---
             # The Site Manager /v1/devices response is a list of host-wrapper
